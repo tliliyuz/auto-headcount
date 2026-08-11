@@ -41,6 +41,7 @@
 | 可执行验收条件 | `docs/07-acceptance-criteria.md` |
 | 开发、测试和交付流程 | `docs/08-development-workflow.md` |
 | 长期技术取舍 | `docs/decisions/ADR-NNN-*.md` |
+| 已交付变更与验证状态 | `CHANGELOG.md` |
 
 同一事实只在一份权威文档中完整定义，其他文档使用链接或简短投影。发现冲突时，先修正文档，再修改测试与实现。
 

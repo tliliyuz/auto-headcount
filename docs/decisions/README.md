@@ -54,3 +54,5 @@ ADR-001-简短中文标题.md
 ## 索引
 
 - [ADR-001：MVP 应用与开发基线](ADR-001-mvp-application-baseline.md)（accepted）
+- [ADR-002：PostgreSQL 与容器开发基线](ADR-002-postgresql-and-container-baseline.md)（accepted）
+- [ADR-003：身份、部署区域与数据存储基线](ADR-003-identity-region-and-data-storage.md)（accepted）

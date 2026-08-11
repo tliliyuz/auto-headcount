@@ -61,7 +61,7 @@ auto-headcount/
 └── Makefile
 ```
 
-是否采用 Next.js、Fastify、PostgreSQL 和 Drizzle，须在创建代码骨架前通过首份技术选型 ADR 固化。
+应用框架边界以 `ADR-001` 为准，PostgreSQL、Drizzle 和容器开发基线以 `ADR-002` 为准。后续改变核心框架、数据库或生产编排方式时必须建立新 ADR，不得只修改实现。
 
 ## 4. 测试分层
 
@@ -99,3 +99,13 @@ RED 证据：
 通过/失败/跳过：
 已知偏差：
 ```
+
+每次可交付变更还需更新仓库根目录 `CHANGELOG.md` 的 `Unreleased` 区域。Git 提交历史不能替代交付记录；路线图和 ADR 也不能替代变更日志。
+
+## 7. 标准本地环境
+
+- 标准开发入口为根目录 Docker Compose，不以宿主机直接运行 Node.js 或 PostgreSQL 作为验收基线。
+- Compose 至少包含 Web、PostgreSQL 和一次性迁移服务，并提供健康检查与持久化开发卷。
+- 容器不得内置真实 Secret；本地 Secret 通过被 Git 忽略的环境文件注入。
+- 单元测试可在独立测试容器中运行；数据库集成测试必须使用与生产相同 PostgreSQL 大版本的临时数据库。
+- 标准命令与镜像约束以 `ADR-002` 为准。
