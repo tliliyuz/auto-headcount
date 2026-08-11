@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -35,4 +36,22 @@ test("服务端渲染沉睡职位运营后台", async () => {
   assert.match(html, /候选人看到的内容/);
   assert.doesNotMatch(html, /海岳智能科技有限公司/);
   assert.doesNotMatch(html, /浦东新区张江路/);
+});
+
+test("静态原型覆盖完整运营后台导航页面", async () => {
+  const source = await readFile(
+    new URL("../app/operations-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+
+  for (const pageMarker of [
+    "匹配审核队列",
+    "活动执行概况",
+    "今日跟进",
+    "转化趋势",
+    "MCP 职位数据源",
+    "操作审计记录",
+  ]) {
+    assert.match(source, new RegExp(pageMarker));
+  }
 });

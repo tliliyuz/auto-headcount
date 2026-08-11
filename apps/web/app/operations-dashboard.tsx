@@ -149,7 +149,143 @@ const jobs: Job[] = [
 
 const categories = ["全部", "技术研发", "产品设计", "市场销售", "数据智能"];
 
+type PageId = "jobs" | "matching" | "campaigns" | "followups" | "funnel" | "sources" | "audit";
+
+const pageLabels: Record<PageId, string> = {
+  jobs: "沉睡职位巡检",
+  matching: "智能匹配",
+  campaigns: "触达活动",
+  followups: "跟进任务",
+  funnel: "转化漏斗",
+  sources: "数据源",
+  audit: "审计日志",
+};
+
+const candidates = [
+  { id: "C-2048", name: "周先生", role: "高级前端工程师", city: "上海", score: 94, years: "8 年经验", education: "本科", status: "待审核", tags: ["React", "TypeScript", "复杂系统"] },
+  { id: "C-2017", name: "陈女士", role: "前端技术专家", city: "上海", score: 89, years: "7 年经验", education: "硕士", status: "待审核", tags: ["工程化", "Node.js", "团队管理"] },
+  { id: "C-1982", name: "林先生", role: "资深全栈工程师", city: "杭州", score: 86, years: "9 年经验", education: "本科", status: "待审核", tags: ["React", "可视化", "B 端产品"] },
+  { id: "C-1961", name: "许女士", role: "高级前端开发", city: "上海", score: 82, years: "6 年经验", education: "本科", status: "需关注", tags: ["Vue", "TypeScript", "跨端"] },
+];
+
+function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: string }) {
+  return (
+    <section className="page-heading prototype-heading">
+      <div><span className="eyebrow"><i />{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>
+      {action && <button className="primary-button">{action}</button>}
+    </section>
+  );
+}
+
+function SummaryStrip({ items }: { items: Array<{ label: string; value: string; note: string; tone?: string }> }) {
+  return (
+    <section className="summary-strip">
+      {items.map((item) => <article key={item.label}><span className={`summary-mark ${item.tone ?? "blue"}`} /><div><small>{item.label}</small><strong>{item.value}</strong><p>{item.note}</p></div></article>)}
+    </section>
+  );
+}
+
+function MatchingPage() {
+  const [selected, setSelected] = useState(candidates[0].id);
+  const [decisions, setDecisions] = useState<Record<string, string>>({});
+  const candidate = candidates.find((item) => item.id === selected) ?? candidates[0];
+  const decision = decisions[candidate.id];
+
+  return <>
+    <PageIntro eyebrow="匹配结果需要人工确认" title="匹配审核队列" description="逐条核对匹配证据、缺失项和风险提示，通过后才可进入触达活动。" action="批量审核" />
+    <SummaryStrip items={[
+      { label: "待审核", value: "128", note: "23 个高匹配", tone: "violet" },
+      { label: "今日已通过", value: "36", note: "通过率 71%", tone: "green" },
+      { label: "需补充信息", value: "9", note: "等待运营处理", tone: "amber" },
+      { label: "规则版本", value: "v1.4", note: "今天 09:00 生效" },
+    ]} />
+    <section className="review-layout">
+      <div className="surface-card review-list">
+        <div className="surface-header"><div><h2>资深前端工程师</h2><p>JOB-0821 · 共 48 位匹配候选人</p></div><button className="plain-filter">匹配度：从高到低⌄</button></div>
+        <div className="segmented"><button className="active">全部 48</button><button>高匹配 9</button><button>中匹配 21</button><button>已处理 18</button></div>
+        <div className="candidate-list">
+          {candidates.map((item) => <button key={item.id} className={`candidate-row ${selected === item.id ? "active" : ""}`} onClick={() => setSelected(item.id)}>
+            <span className="candidate-avatar">{item.name.slice(0, 1)}</span>
+            <span className="candidate-main"><strong>{item.name}<i>{decisions[item.id] ?? item.status}</i></strong><small>{item.role} · {item.city} · {item.years}</small><em>{item.tags.map((tag) => <b key={tag}>{tag}</b>)}</em></span>
+            <span className={`match-score ${item.score >= 85 ? "high" : "medium"}`}><strong>{item.score}</strong><small>匹配分</small></span>
+          </button>)}
+        </div>
+      </div>
+      <aside className="surface-card candidate-detail">
+        <div className="detail-head"><span className="candidate-avatar large">{candidate.name.slice(0, 1)}</span><div><h2>{candidate.name}</h2><p>{candidate.role} · {candidate.city}</p></div><span className="score-badge">{candidate.score} 分</span></div>
+        {decision && <div className={`decision-banner ${decision === "已通过" ? "success" : "danger"}`}>当前审核结果：{decision}</div>}
+        <div className="detail-section"><h3>匹配证据</h3><ul className="evidence-list positive"><li><b>核心技能</b><span>React 与 TypeScript 项目经历 5 年</span></li><li><b>业务复杂度</b><span>主导过大型 B 端平台重构</span></li><li><b>地点意向</b><span>当前在上海，接受同城机会</span></li></ul></div>
+        <div className="detail-section two-cols"><div><h3>缺失项</h3><p className="notice amber">未确认英文沟通频率</p></div><div><h3>风险提示</h3><p className="notice red">期望薪资接近上限</p></div></div>
+        <div className="dimension-scores"><h3>维度评分</h3>{[["技能",96],["行业",88],["职级",92],["地点",100],["薪资",78]].map(([label, value]) => <div key={label}><span>{label}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>)}</div>
+        <label className="review-note"><span>审核备注</span><textarea placeholder="填写判断依据或后续关注点（选填）" /></label>
+        <div className="review-actions"><button onClick={() => setDecisions((current) => ({ ...current, [candidate.id]: "已拒绝" }))}>拒绝</button><button className="approve" onClick={() => setDecisions((current) => ({ ...current, [candidate.id]: "已通过" }))}>通过并加入触达池</button></div>
+      </aside>
+    </section>
+  </>;
+}
+
+const campaignRows = [
+  ["前端高匹配人才激活", "资深前端工程师", "短信 + 邮件", "96 / 108", "31.2%", "进行中"],
+  ["AI 产品经理定向沟通", "AI 产品经理", "邮件", "64 / 64", "26.6%", "已完成"],
+  ["海外市场人才召回", "海外市场负责人", "短信", "0 / 42", "—", "待审批"],
+  ["数据分析师机会开放", "高级数据分析师", "邮件", "38 / 40", "18.4%", "已暂停"],
+];
+
+function CampaignsPage() {
+  const [active, setActive] = useState(0);
+  const row = campaignRows[active];
+  return <>
+    <PageIntro eyebrow="触达前必须完成人工审批" title="活动执行概况" description="管理短信与邮件草稿、审批状态、发送进度和候选人反馈。" action="新建活动草稿" />
+    <SummaryStrip items={[
+      { label: "进行中", value: "3", note: "今日发送 286 条", tone: "blue" }, { label: "待审批", value: "2", note: "需由独立审批人处理", tone: "amber" }, { label: "平均送达率", value: "96.2%", note: "较上周 +1.8%", tone: "green" }, { label: "意向率", value: "12.4%", note: "近 30 天", tone: "violet" },
+    ]} />
+    <section className="campaign-layout">
+      <div className="surface-card data-card">
+        <div className="surface-header"><div><h2>触达活动</h2><p>共 12 个活动 · 数据更新时间 14:36</p></div><div className="inline-actions"><button>全部状态⌄</button><button>全部渠道⌄</button></div></div>
+        <div className="data-table campaign-table"><div className="data-row data-head"><span>活动 / 职位</span><span>渠道</span><span>发送进度</span><span>点击率</span><span>状态</span></div>{campaignRows.map((item, index) => <button key={item[0]} onClick={() => setActive(index)} className={`data-row ${active === index ? "active" : ""}`}><span><strong>{item[0]}</strong><small>{item[1]}</small></span><span>{item[2]}</span><span><b className="progress-mini"><i style={{ width: `${Number(item[3].split("/")[0]) / Math.max(1, Number(item[3].split("/")[1])) * 100}%` }} /></b><small>{item[3]}</small></span><span>{item[4]}</span><span><em className={`status-tag status-${item[5]}`}>{item[5]}</em></span></button>)}</div>
+      </div>
+      <aside className="surface-card campaign-detail"><span className="status-tag status-进行中">{row[5]}</span><h2>{row[0]}</h2><p>{row[1]} · 创建人 林然</p><div className="campaign-stats"><div><strong>108</strong><small>目标人数</small></div><div><strong>104</strong><small>已送达</small></div><div><strong>30</strong><small>已点击</small></div><div><strong>12</strong><small>有兴趣</small></div></div><div className="message-preview"><span>短信预览 · 62 字</span><p>你好，我们有一份与你经历较契合的资深前端岗位，工作地点上海，薪资 30–45K。点击查看脱敏详情并选择是否愿意了解。</p><small>短链将在审批通过后生成</small></div><div className="approval-flow"><h3>审批记录</h3><div><i className="done">✓</i><p><strong>活动草稿已创建</strong><span>林然 · 今天 10:24</span></p></div><div><i>2</i><p><strong>等待独立审批</strong><span>审批人：徐安</span></p></div><div><i>3</i><p><strong>按计划开始发送</strong><span>计划：明天 10:00</span></p></div></div><button className="secondary-button full">预览候选人页面</button></aside>
+    </section>
+  </>;
+}
+
+const followupColumns = [
+  { title: "待联系", count: 5, tone: "blue", cards: [["周先生", "资深前端工程师", "A · 有兴趣", "今天 16:00"], ["唐女士", "AI 产品经理", "C · 开放了解", "今天 17:30"]] },
+  { title: "沟通中", count: 4, tone: "amber", cards: [["陈女士", "前端技术专家", "已完成首轮沟通", "明天 10:30"], ["吴先生", "高级数据分析师", "等待薪资确认", "明天 14:00"]] },
+  { title: "待推荐", count: 3, tone: "violet", cards: [["李女士", "海外市场负责人", "意向已确认", "今天 18:00"], ["许先生", "供应链顾问", "资料待复核", "8 月 13 日"]] },
+  { title: "已完成", count: 18, tone: "green", cards: [["赵女士", "招聘运营专家", "已提交正式推荐", "今天 11:42"], ["孙先生", "资深前端工程师", "候选人暂缓", "昨天"]] },
+];
+
+function FollowupsPage() {
+  return <><PageIntro eyebrow="候选人意向需要及时响应" title="今日跟进" description="集中处理有兴趣、开放了解以及已经进入推荐准备的人选。" action="新增跟进任务" /><SummaryStrip items={[{ label: "今日到期", value: "12", note: "其中 3 项即将超时", tone: "amber" }, { label: "沟通中", value: "9", note: "平均响应 1.6 小时" }, { label: "待推荐", value: "3", note: "资料已基本齐全", tone: "violet" }, { label: "本周完成", value: "18", note: "完成率 81.8%", tone: "green" }]} /><div className="followup-toolbar"><div className="segmented"><button className="active">看板</button><button>列表</button></div><div className="inline-actions"><button>负责人：全部⌄</button><button>到期时间：本周⌄</button></div></div><section className="kanban">{followupColumns.map((column) => <div className="kanban-column" key={column.title}><header><span><i className={column.tone} />{column.title}</span><b>{column.count}</b></header>{column.cards.map((card) => <article key={card[0]}><div><span className="candidate-avatar small">{card[0].slice(0, 1)}</span><strong>{card[0]}</strong><button aria-label="更多操作">•••</button></div><h3>{card[1]}</h3><p>{card[2]}</p><footer><span>◷ {card[3]}</span><em>林</em></footer></article>)}<button className="add-card">＋ 添加任务</button></div>)}</section></>;
+}
+
+function FunnelPage() {
+  const bars = [54, 71, 63, 82, 67, 76, 88, 72, 92, 81, 86, 96, 78, 84];
+  const stages = [["已发送","1,842","100%"],["已送达","1,771","96.1%"],["已点击","526","28.6%"],["已浏览","438","23.8%"],["表达意向","147","8.0%"],["确认联系","92","5.0%"],["完成推荐","31","1.7%"]];
+  return <><PageIntro eyebrow="近 30 天运营数据" title="转化趋势" description="从消息发送到完成推荐，按职位、活动和渠道观察每一层转化。" action="导出报表" /><div className="analytics-grid"><section className="surface-card trend-card"><div className="surface-header"><div><h2>触达与意向趋势</h2><p>7 月 13 日 — 8 月 11 日</p></div><div className="legend"><span><i className="blue" />已送达</span><span><i className="green" />表达意向</span></div></div><div className="chart-area"><div className="y-axis"><span>300</span><span>200</span><span>100</span><span>0</span></div><div className="bar-chart">{bars.map((bar, index) => <div key={index}><i style={{ height: `${bar}%` }} /><b style={{ height: `${Math.max(8, bar * .18)}%` }} /></div>)}</div></div><div className="x-labels"><span>7/13</span><span>7/20</span><span>7/27</span><span>8/3</span><span>8/11</span></div></section><section className="surface-card funnel-card"><div className="surface-header"><div><h2>全链路漏斗</h2><p>所有渠道汇总</p></div></div><div className="funnel-steps">{stages.map((stage, index) => <div key={stage[0]} style={{ width: `${100 - index * 7}%` }}><span>{stage[0]}</span><strong>{stage[1]}</strong><em>{stage[2]}</em></div>)}</div></section></div><section className="surface-card data-card channel-performance"><div className="surface-header"><div><h2>职位转化表现</h2><p>按最终推荐率排序</p></div><button className="plain-filter">全部活动⌄</button></div><div className="data-table performance-table"><div className="data-row data-head"><span>职位</span><span>已送达</span><span>点击率</span><span>意向率</span><span>确认联系</span><span>完成推荐</span></div>{[["资深前端工程师","384","32.6%","11.7%","28","9"],["AI 产品经理","296","29.4%","10.1%","19","7"],["高级数据分析师","248","25.8%","7.7%","12","5"],["海外市场负责人","182","31.3%","9.3%","11","4"]].map((row) => <div className="data-row" key={row[0]}>{row.map((cell, index) => <span key={cell}>{index === 0 ? <strong>{cell}</strong> : cell}</span>)}</div>)}</div></section></>;
+}
+
+function SourcesPage() {
+  const [syncing, setSyncing] = useState(false);
+  return <><PageIntro eyebrow="连接与同步状态" title="MCP 职位数据源" description="查看连接健康、字段映射、最近同步批次和异常记录。" action="添加数据源" /><section className="source-grid"><article className="source-card primary-source"><header><span className="source-logo">M</span><div><h2>招聘业务 MCP</h2><p>Streamable HTTP · 只读权限</p></div><em><i />连接正常</em></header><div className="source-meta"><div><small>最近同步</small><strong>今天 14:32</strong></div><div><small>本次入库</small><strong>47 个职位</strong></div><div><small>契约版本</small><strong>2025-11-25</strong></div></div><div className="source-actions"><button className="secondary-button" onClick={() => { setSyncing(true); window.setTimeout(() => setSyncing(false), 900); }}>{syncing ? "同步中…" : "立即同步"}</button><button>查看字段映射</button><button>连接设置</button></div></article><article className="source-card muted-source"><header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>备用数据获取方式</p></div><em className="disabled">当前关闭</em></header><p className="source-description">当前里程碑不启用。仅在 MCP 无法满足已授权数据范围，且完成安全评审后开放。</p><button className="text-link">查看启用条件 →</button></article><button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button></section><section className="source-bottom"><div className="surface-card data-card"><div className="surface-header"><div><h2>最近同步批次</h2><p>原始快照与规范化结果</p></div><button className="plain-filter">查看全部</button></div><div className="data-table sync-table">{[["SYNC-0811-1432","今天 14:32","成功","47","0","1m 24s"],["SYNC-0811-0900","今天 09:00","成功","45","2","1m 18s"],["SYNC-0810-1800","昨天 18:00","部分成功","42","3","2m 07s"],["SYNC-0810-1200","昨天 12:00","成功","44","0","1m 31s"]].map((row) => <div className="data-row" key={row[0]}><span><strong>{row[0]}</strong><small>{row[1]}</small></span><span><em className={`status-tag status-${row[2]}`}>{row[2]}</em></span><span>{row[3]} 条</span><span>{row[4]} 异常</span><span>{row[5]}</span></div>)}</div></div><aside className="surface-card health-panel"><h2>连接健康</h2>{[["鉴权状态","有效","green"],["接口响应","482 ms","green"],["字段契约","无漂移","green"],["候选人能力","未授权","amber"]].map((item) => <div key={item[0]}><span><i className={item[2]} />{item[0]}</span><strong>{item[1]}</strong></div>)}<p>系统仅启用了职位只读白名单工具；短信、邮件和候选人详情调用保持关闭。</p></aside></section></>;
+}
+
+function AuditPage() {
+  return <><PageIntro eyebrow="安全与可追踪性" title="操作审计记录" description="查看管理操作、审批、同步和数据访问记录；现有记录不可修改。" action="导出审计记录" /><section className="audit-filters surface-card"><label><span>搜索操作人或关联 ID</span><input placeholder="输入关键词" /></label><button>事件类型：全部⌄</button><button>风险等级：全部⌄</button><button>时间：近 7 天⌄</button><button className="secondary-button">筛选</button></section><section className="surface-card data-card audit-card"><div className="surface-header"><div><h2>审计事件</h2><p>共 1,284 条 · 展示脱敏后的最小必要信息</p></div><span className="immutable-label">▣ 追加写保护</span></div><div className="data-table audit-table"><div className="data-row data-head"><span>时间 / 事件</span><span>操作人</span><span>对象</span><span>结果</span><span>关联 ID</span><span>风险</span></div>{[["14:36:22","活动审批通过","徐安","前端高匹配人才激活","成功","REQ-82F1","低"],["14:32:08","职位同步完成","系统任务","招聘业务 MCP","成功","SYNC-1432","低"],["13:48:51","候选人匹配拒绝","林然","C-1961 / JOB-0821","成功","REQ-813A","低"],["12:17:09","数据导出申请","周屿","跟进任务报表","已拒绝","REQ-79CD","中"],["11:42:36","正式推荐登记","徐安","候选人 C-1884","成功","REC-1042","中"],["10:03:14","连接配置查看","管理员","招聘业务 MCP","成功","REQ-772B","高"]].map((row) => <div className="data-row" key={row[5]}><span><strong>{row[1]}</strong><small>今天 {row[0]}</small></span><span>{row[2]}</span><span>{row[3]}</span><span><em className={`status-tag ${row[4] === "成功" ? "status-成功" : "status-已拒绝"}`}>{row[4]}</em></span><span><code>{row[5]}</code></span><span><em className={`risk risk-${row[6]}`}>{row[6]}</em></span></div>)}</div><div className="table-footer"><span>显示 1–6 条，共 1,284 条</span><div><button disabled>‹</button><button className="active">1</button><button>2</button><button>3</button><button>›</button></div></div></section></>;
+}
+
+function PrototypePage({ page }: { page: Exclude<PageId, "jobs"> }) {
+  if (page === "matching") return <MatchingPage />;
+  if (page === "campaigns") return <CampaignsPage />;
+  if (page === "followups") return <FollowupsPage />;
+  if (page === "funnel") return <FunnelPage />;
+  if (page === "sources") return <SourcesPage />;
+  return <AuditPage />;
+}
+
 export function OperationsDashboard() {
+  const [activePage, setActivePage] = useState<PageId>("jobs");
   const [activeCategory, setActiveCategory] = useState("全部");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(jobs[0].id);
@@ -203,14 +339,14 @@ export function OperationsDashboard() {
 
         <nav className="nav" aria-label="主导航">
           <span className="nav-label">工作台</span>
-          <a className="nav-item active" href="#jobs"><span>⌁</span>沉睡职位<i>47</i></a>
-          <a className="nav-item" href="#matching"><span>◎</span>智能匹配<i>128</i></a>
-          <a className="nav-item" href="#campaigns"><span>↗</span>触达活动</a>
-          <a className="nav-item" href="#followups"><span>◇</span>跟进任务<i className="warning">12</i></a>
+          <button className={`nav-item ${activePage === "jobs" ? "active" : ""}`} onClick={() => setActivePage("jobs")}><span>⌁</span>沉睡职位<i>47</i></button>
+          <button className={`nav-item ${activePage === "matching" ? "active" : ""}`} onClick={() => setActivePage("matching")}><span>◎</span>智能匹配<i>128</i></button>
+          <button className={`nav-item ${activePage === "campaigns" ? "active" : ""}`} onClick={() => setActivePage("campaigns")}><span>↗</span>触达活动</button>
+          <button className={`nav-item ${activePage === "followups" ? "active" : ""}`} onClick={() => setActivePage("followups")}><span>◇</span>跟进任务<i className="warning">12</i></button>
           <span className="nav-label secondary">数据与配置</span>
-          <a className="nav-item" href="#funnel"><span>⌗</span>转化漏斗</a>
-          <a className="nav-item" href="#sources"><span>⌘</span>数据源</a>
-          <a className="nav-item" href="#audit"><span>▣</span>审计日志</a>
+          <button className={`nav-item ${activePage === "funnel" ? "active" : ""}`} onClick={() => setActivePage("funnel")}><span>⌗</span>转化漏斗</button>
+          <button className={`nav-item ${activePage === "sources" ? "active" : ""}`} onClick={() => setActivePage("sources")}><span>⌘</span>数据源</button>
+          <button className={`nav-item ${activePage === "audit" ? "active" : ""}`} onClick={() => setActivePage("audit")}><span>▣</span>审计日志</button>
         </nav>
 
         <div className="sidebar-footer">
@@ -225,7 +361,7 @@ export function OperationsDashboard() {
 
       <main className="main-content">
         <header className="topbar">
-          <div className="crumb"><span>运营工作台</span><b>/</b>沉睡职位巡检</div>
+          <div className="crumb"><span>运营工作台</span><b>/</b>{pageLabels[activePage]}</div>
           <div className="topbar-actions">
             <label className="global-search">
               <span aria-hidden="true">⌕</span>
@@ -238,6 +374,7 @@ export function OperationsDashboard() {
         </header>
 
         <div className="page-wrap">
+          {activePage === "jobs" ? <>
           <section className="page-heading" id="jobs">
             <div>
               <span className="eyebrow"><i />每日职位巡检</span>
@@ -362,6 +499,7 @@ export function OperationsDashboard() {
               <div className="panel-note"><span>i</span><p>创建匹配任务前，系统会再次检查职位状态和推荐数。</p></div>
             </aside>
           </section>
+          </> : <PrototypePage page={activePage} />}
         </div>
       </main>
 

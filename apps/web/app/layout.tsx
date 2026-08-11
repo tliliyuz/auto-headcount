@@ -18,13 +18,13 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "职位激活台",
       description: "让沉睡的职位，重新流动起来",
-      images: [{ url: `${origin}/og.png`, width: 1731, height: 909, alt: "职位激活台" }],
+      images: [{ url: `${origin}/og-dashboard.png`, width: 1731, height: 909, alt: "职位激活台完整运营后台" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "职位激活台",
       description: "让沉睡的职位，重新流动起来",
-      images: [`${origin}/og.png`],
+      images: [`${origin}/og-dashboard.png`],
     },
   };
 }
