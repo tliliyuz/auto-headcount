@@ -1,31 +1,28 @@
-# vinext-starter
+# 零推荐职位激活系统 Web
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+基于 Vinext 的内部运营后台。项目使用外部 PostgreSQL 17 和 Drizzle；`.openai/hosting.json` 中的 D1/R2 绑定保持为空，不是当前数据持久层。
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
 
-## Quick Start
+## 标准开发入口
 
 ```bash
-npm install
-npm run dev
-npm run build
+cd ../..
+cp .env.example .env.local
+make dev
 ```
 
-This starter does not use `wrangler.jsonc`.
+标准开发与验收均在 Docker Compose 内运行。只有维护脚本或排查问题时才直接在本目录执行 npm 命令。
 
-## Included Shape
+## 目录结构
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- `app/` 保存页面和服务端入口
+- `db/schema.ts` 定义 PostgreSQL 规范化表和加密原始快照表
+- `drizzle/` 保存版本化 PostgreSQL 迁移
+- `lib/mcp/` 隔离供应商 MCP 协议和字段
+- `lib/jobs/` 提供职位同步入库骨架
 
 ## Workspace Auth Headers
 
@@ -93,12 +90,14 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run build`: verify the vinext build output
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm run db:migrate`: apply versioned PostgreSQL migrations
 - `npm run test:unit`: run business-rule and MCP adapter unit tests
+- `npm run test:integration`: run PostgreSQL migration and persistence tests
 - `npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json`: discover the test MCP protocol and tool schemas using the repository-root `.env.local`
 
 Copy the repository-root `.env.example` to `.env.local` and replace every placeholder with rotated test credentials. For backward compatibility the command also loads `apps/web/.env.local`, with app-local values taking precedence. MCP discovery output must be written outside the repository first and reviewed before a sanitized, versioned Fixture is added under `fixtures/mcp/`. The command never overwrites an existing output file and never serializes configured access or secret keys.
 
-## Learn More
+## 参考资料
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- [Drizzle PostgreSQL Guide](https://orm.drizzle.team/docs/get-started/postgresql-new)

@@ -8,11 +8,11 @@
 
 首版产品形态已确定为内部运营后台；候选人只访问带令牌的脱敏职位落地页，不提供企业客户自助门户。
 
-首个可运行切片已完成：`apps/web/` 提供沉睡职位巡检、类别筛选、批量选择、匹配池概览和候选人脱敏页面预览。当前使用脱敏 Mock 数据，真实 MCP、数据库、登录和消息渠道尚未接入。
+首个可运行切片已完成：`apps/web/` 提供沉睡职位巡检、类别筛选、批量选择、匹配池概览和候选人脱敏页面预览。页面仍使用脱敏 Mock 数据；PostgreSQL 数据底座和只读 MCP 适配器已建立，但尚未把真实同步接到页面，登录和消息渠道也未接入。
 
 当前切片是单页交互演示，不是完整产品原型。侧边栏多数模块、创建匹配任务、分页、触达和候选人意向提交仍是未接线占位。
 
-下一交付目标是里程碑 0：完成 MCP 接口/样本验证并接受身份、区域和数据生命周期方案；随后按 `ADR-002` 建立 PostgreSQL + Docker 开发环境和第一条真实同步链路。
+当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。下一交付目标是把 `wb.jobs.under_served` 接入可审计的同步任务，再实现最低权限登录和本地角色门禁。
 
 ## MVP 主链路
 
@@ -25,7 +25,7 @@
 
 - TypeScript 全栈单体应用，优先保证一人可维护和快速交付。
 - Web：Next.js；API：Next.js Route Handlers 或独立 Fastify 模块。
-- 数据库：已确认 PostgreSQL 17、Drizzle 迁移；标准本地环境将通过 Docker Compose 运行 Web 与数据库（尚未实现）。
+- 数据库：PostgreSQL 17、Drizzle 迁移；标准本地环境通过 Docker Compose 运行 Web、迁移和数据库。
 - ORM：Drizzle ORM。
 - 异步任务：MVP 先使用数据库任务表，规模扩大后再引入队列。
 - MCP、浏览器采集、LLM、短信和邮件均通过适配器接入。
@@ -46,10 +46,14 @@ PostgreSQL 与容器基线已由 `ADR-002` 固化。OIDC 登录、中国大陆�
 - [开发与交付流程](docs/08-development-workflow.md)
 - [架构决策记录](docs/decisions/README.md)
 
-## 本地配置
+## 本地开发
 
 1. 复制 `.env.example` 为 `.env.local`。
-2. 通过密码管理器或本地环境变量填写密钥。
-3. 不得把真实 Access Key、Secret Key、手机号、邮箱或完整简历提交到 Git。
+2. 填写本地 PostgreSQL 密码；需要 MCP 联调时，再通过密码管理器填写轮换后的测试凭证。
+3. 使用 `openssl rand -base64 32` 生成本地 `APP_ENCRYPTION_KEY`，不要复用生产密钥。
+4. 执行 `make dev`，等待数据库健康检查和迁移完成后访问 `http://localhost:3000`。
+5. 执行 `make test` 运行容器内单元、构建、渲染和 PostgreSQL 集成测试；执行 `make down` 停止环境。
+
+宿主机直接运行 Node.js 或 PostgreSQL 不作为标准验收路径。开发数据库使用命名卷持久化，`make down` 不删除数据；不得把真实 Access Key、Secret Key、手机号、邮箱或完整简历提交到 Git。
 
 当前对话中曾出现过一组 MCP 明文凭证，应在正式联调前完成轮换。

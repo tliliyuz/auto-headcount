@@ -1,0 +1,2 @@
+DROP INDEX "raw_records_source_external_hash_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "raw_records_source_external_hash_run_unique" ON "raw_records" USING btree ("source_connection_id","external_id","payload_hash","sync_run_id");

@@ -1,4 +1,180 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import {
+  customType,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Uint8Array }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+export const connectionEnvironment = pgEnum("connection_environment", [
+  "development",
+  "test",
+  "production",
+]);
+
+export const connectionStatus = pgEnum("connection_status", [
+  "disabled",
+  "active",
+  "error",
+]);
+
+export const syncRunStatus = pgEnum("sync_run_status", [
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+]);
+
+export const rawRecordStatus = pgEnum("raw_record_status", [
+  "captured",
+  "normalized",
+  "invalid",
+]);
+
+export const sourceConnections = pgTable(
+  "source_connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: text("provider").notNull(),
+    environment: connectionEnvironment("environment").notNull(),
+    status: connectionStatus("status").default("disabled").notNull(),
+    displayName: text("display_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("source_connections_provider_environment_unique").on(
+      table.provider,
+      table.environment,
+    ),
+  ],
+);
+
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceConnectionId: uuid("source_connection_id")
+      .notNull()
+      .references(() => sourceConnections.id, { onDelete: "restrict" }),
+    syncType: text("sync_type").notNull(),
+    cursor: text("cursor"),
+    status: syncRunStatus("status").default("pending").notNull(),
+    stats: jsonb("stats").$type<Record<string, number>>().default({}).notNull(),
+    errorCode: text("error_code"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("sync_runs_source_created_idx").on(
+      table.sourceConnectionId,
+      table.createdAt,
+    ),
+    index("sync_runs_status_idx").on(table.status),
+  ],
+);
+
+export const rawRecords = pgTable(
+  "raw_records",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    syncRunId: uuid("sync_run_id")
+      .notNull()
+      .references(() => syncRuns.id, { onDelete: "restrict" }),
+    sourceConnectionId: uuid("source_connection_id")
+      .notNull()
+      .references(() => sourceConnections.id, { onDelete: "restrict" }),
+    entityType: text("entity_type").notNull(),
+    externalId: text("external_id").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    payloadCiphertext: bytea("payload_ciphertext").notNull(),
+    payloadNonce: bytea("payload_nonce").notNull(),
+    keyVersion: text("key_version").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    processingStatus: rawRecordStatus("processing_status")
+      .default("captured")
+      .notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("raw_records_source_external_hash_run_unique").on(
+      table.sourceConnectionId,
+      table.externalId,
+      table.payloadHash,
+      table.syncRunId,
+    ),
+    index("raw_records_sync_run_idx").on(table.syncRunId),
+    index("raw_records_retention_idx").on(
+      table.processingStatus,
+      table.capturedAt,
+    ),
+  ],
+);
+
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceConnectionId: uuid("source_connection_id")
+      .notNull()
+      .references(() => sourceConnections.id, { onDelete: "restrict" }),
+    rawRecordId: uuid("raw_record_id").references(() => rawRecords.id, {
+      onDelete: "set null",
+    }),
+    externalId: text("external_id").notNull(),
+    mappingVersion: text("mapping_version").notNull(),
+    title: text("title").notNull(),
+    companyName: text("company_name").notNull(),
+    category: text("category").notNull(),
+    city: text("city").notNull(),
+    detailedLocation: text("detailed_location"),
+    salaryMin: integer("salary_min"),
+    salaryMax: integer("salary_max"),
+    status: text("status").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    daysWithoutRecommendation: integer("days_without_recommendation").notNull(),
+    validRecommendationCount: integer("valid_recommendation_count"),
+    eligibilityEvidence: jsonb("eligibility_evidence")
+      .$type<Record<string, string>>()
+      .notNull(),
+    portalUrl: text("portal_url").notNull(),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("jobs_source_connection_id_external_id_unique").on(
+      table.sourceConnectionId,
+      table.externalId,
+    ),
+    index("jobs_under_served_idx").on(
+      table.status,
+      table.daysWithoutRecommendation,
+    ),
+    index("jobs_raw_record_idx").on(table.rawRecordId),
+  ],
+);
