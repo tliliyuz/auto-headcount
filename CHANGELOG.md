@@ -18,6 +18,7 @@
 - `implemented`：增加不覆盖旧文件的 MCP 契约快照命令与脱敏 Fixture 审核流程；尚未使用轮换后的真实测试凭证联调。
 - `verified`：RED 阶段 `node --test tests/mcp-discovery.test.mjs` 因目标适配器不存在而以 `ERR_MODULE_NOT_FOUND` 失败；GREEN 后 `npm run lint` 与 `npm test` 通过（8 个单元测试、Vinext 完整构建、1 个服务端渲染测试）。
 - `verified`：修复候选人预览遮罩使用非交互元素监听鼠标导致的无障碍 lint 错误，并保留点击遮罩关闭行为。
+- `implemented`：修正 MCP 发现命令的环境文件路径，以仓库根目录 `.env.local` 为标准，并兼容既有 `apps/web/.env.local`。
 
 ## 0.1.0 - 2026-08-11
 

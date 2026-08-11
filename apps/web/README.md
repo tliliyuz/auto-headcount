@@ -94,9 +94,9 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 - `npm run test:unit`: run business-rule and MCP adapter unit tests
-- `npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json`: discover the test MCP protocol and tool schemas using `.env.local`
+- `npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json`: discover the test MCP protocol and tool schemas using the repository-root `.env.local`
 
-MCP discovery output must be written outside the repository first and reviewed before a sanitized, versioned Fixture is added under `fixtures/mcp/`. The command never overwrites an existing output file and never serializes configured access or secret keys.
+Copy the repository-root `.env.example` to `.env.local` and replace every placeholder with rotated test credentials. For backward compatibility the command also loads `apps/web/.env.local`, with app-local values taking precedence. MCP discovery output must be written outside the repository first and reviewed before a sanitized, versioned Fixture is added under `fixtures/mcp/`. The command never overwrites an existing output file and never serializes configured access or secret keys.
 
 ## Learn More
 
