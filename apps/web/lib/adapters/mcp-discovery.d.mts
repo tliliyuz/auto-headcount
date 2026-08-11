@@ -38,3 +38,20 @@ export function discoverMcpServer(options: {
   fetchedAt?: string;
   fetchImpl?: typeof fetch;
 }): Promise<McpDiscoverySnapshot>;
+
+export function callMcpTool(options: {
+  serverUrl: string;
+  accessKey: string;
+  secretKey: string;
+  timeoutMs?: number | string;
+  protocolVersion?: string;
+  actorId?: string;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+  allowedTools: string[];
+  fetchImpl?: typeof fetch;
+}): Promise<{
+  content: Array<Record<string, unknown>>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+}>;

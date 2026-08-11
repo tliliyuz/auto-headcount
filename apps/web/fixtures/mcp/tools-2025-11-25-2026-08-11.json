@@ -1,0 +1,135 @@
+{
+  "fixtureVersion": 1,
+  "fixtureType": "mvp-tool-structural-contract-projection",
+  "projection": "Selected tool names plus input field types, constraints and defaults; descriptions are retained only where they affect an MVP rule. This is not an output response schema.",
+  "fetchedAt": "2026-08-11T09:44:13.523Z",
+  "protocolVersion": "2025-11-25",
+  "serverInfo": {
+    "name": "enterprise-mcp-server",
+    "version": "1.0.0"
+  },
+  "sourceSnapshotSha256": "1b4e66c5106a79bcc420ddb313c18de617dab82dd7bce0307ec1cfaa9d399bd0",
+  "totalDiscoveredTools": 40,
+  "tools": [
+    {
+      "name": "wb.jobs.under_served",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "days_without_rec": {
+            "type": "integer",
+            "description": "空岗天数：招聘中超过该天数无推荐则列入预警（默认 7，最大 90）",
+            "default": 7
+          },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": {
+            "type": "integer",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 200
+          },
+          "owner_id": { "type": "string" },
+          "team_id": { "type": "string" }
+        }
+      },
+      "outputSchema": null
+    },
+    {
+      "name": "wb.candidates.search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "skills": { "type": "string" },
+          "min_experience": { "type": "integer" },
+          "max_experience": { "type": "integer" },
+          "current_company": { "type": "string" },
+          "source": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "days": { "type": "integer" },
+          "created_by": { "type": "string" },
+          "sort_by": { "type": "string" },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": { "type": "integer", "default": 20 }
+        }
+      },
+      "outputSchema": null
+    },
+    {
+      "name": "wb.jobs.match_candidates",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "string", "default": "" },
+          "start_date": { "type": "string", "default": "" },
+          "end_date": { "type": "string", "default": "" },
+          "days": { "type": "integer", "default": "" },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": { "type": "integer", "default": 20 },
+          "min_score": { "type": "integer", "default": 75 },
+          "max_llm_score_count": { "type": "integer", "default": 200 }
+        },
+        "required": ["job_id"]
+      },
+      "outputSchema": null
+    },
+    {
+      "name": "wb.recommendations.check",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "job_id": { "type": "string" }
+        },
+        "required": ["candidate_id", "job_id"]
+      },
+      "outputSchema": null
+    },
+    {
+      "name": "sms_send_marketing_lbd",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "default": "" },
+          "notice": { "type": "boolean", "default": false },
+          "candidateIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ""
+          },
+          "silkroad_bizline": { "type": "string", "default": "" },
+          "taskId": { "type": "string", "default": "" },
+          "tinyQueryMap": {
+            "type": "object",
+            "additionalProperties": true,
+            "default": ""
+          },
+          "type": { "type": "string", "default": "normal" },
+          "signName": { "type": "string", "default": "" }
+        },
+        "required": ["content", "candidateIds"]
+      },
+      "outputSchema": null
+    },
+    {
+      "name": "mail_send_common_lbd",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "candidateIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ""
+          },
+          "subject": { "type": "string", "default": "" },
+          "content": { "type": "string", "default": "" },
+          "fromName": { "type": "string", "default": "" },
+          "taskId": { "type": "string", "default": "" }
+        },
+        "required": ["candidateIds", "subject", "content"]
+      },
+      "outputSchema": null
+    }
+  ]
+}

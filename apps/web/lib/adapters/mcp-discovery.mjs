@@ -157,6 +157,134 @@ export async function discoverMcpServer(options) {
   throw protocolError("MCP tools/list exceeded the pagination limit");
 }
 
+export async function callMcpTool(options) {
+  const config = validateConfig(options);
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const toolName = requiredString(options.toolName, "toolName");
+  const allowedTools = Array.isArray(options.allowedTools)
+    ? options.allowedTools
+    : [];
+  const toolArguments = options.arguments ?? {};
+  const actorId = optionalHeaderValue(options.actorId, "actorId");
+  const requestedProtocolVersion =
+    options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
+
+  if (!allowedTools.includes(toolName)) {
+    throw new McpDiscoveryError("MCP tool is not in the explicit allowlist", {
+      code: "TOOL_NOT_ALLOWED",
+    });
+  }
+  if (!isObject(toolArguments)) {
+    throw configError("MCP tool arguments must be an object");
+  }
+  if (typeof fetchImpl !== "function") {
+    throw configError("MCP tool call requires a fetch implementation");
+  }
+
+  let requestId = 1;
+  let sessionId;
+  let negotiatedProtocolVersion = requestedProtocolVersion;
+
+  const send = async (message, { expectBody = true } = {}) => {
+    const headers = {
+      Accept: "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "X-Access-Key": config.accessKey,
+      "X-Secret-Key": config.secretKey,
+    };
+    if (actorId) headers["X-Actor-Id"] = actorId;
+    if (sessionId) headers["Mcp-Session-Id"] = sessionId;
+    if (message.method !== "initialize") {
+      headers["MCP-Protocol-Version"] = negotiatedProtocolVersion;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+    let response;
+
+    try {
+      response = await fetchImpl(config.serverUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(message),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === "AbortError") {
+        throw new McpDiscoveryError("MCP request timed out", {
+          code: "TIMEOUT",
+          retryable: true,
+          cause: error,
+        });
+      }
+      throw new McpDiscoveryError("MCP network request failed", {
+        code: "NETWORK_FAILED",
+        retryable: true,
+        cause: error,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) throw classifyHttpError(response.status);
+    const returnedSessionId = response.headers.get("mcp-session-id");
+    if (returnedSessionId) sessionId = returnedSessionId;
+    if (!expectBody || response.status === 202 || response.status === 204) {
+      return undefined;
+    }
+
+    const rpcMessage = await parseRpcResponse(response);
+    if (rpcMessage.error) {
+      throw new McpDiscoveryError("MCP server returned a JSON-RPC error", {
+        code: "RPC_ERROR",
+        retryable: isRetryableRpcCode(rpcMessage.error.code),
+      });
+    }
+    if (!("result" in rpcMessage)) {
+      throw protocolError("MCP response is missing a result");
+    }
+    return rpcMessage.result;
+  };
+
+  const initializeResult = await send({
+    jsonrpc: "2.0",
+    id: requestId++,
+    method: "initialize",
+    params: {
+      protocolVersion: requestedProtocolVersion,
+      capabilities: {},
+      clientInfo: { name: "auto-headcount", version: "0.1.0" },
+    },
+  });
+  assertInitializeResult(initializeResult);
+  negotiatedProtocolVersion = initializeResult.protocolVersion;
+
+  await send(
+    {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+      params: {},
+    },
+    { expectBody: false },
+  );
+
+  const result = await send({
+    jsonrpc: "2.0",
+    id: requestId++,
+    method: "tools/call",
+    params: { name: toolName, arguments: toolArguments },
+  });
+  if (!isObject(result) || !Array.isArray(result.content)) {
+    throw protocolError("Invalid tools/call result");
+  }
+  if (result.isError === true) {
+    throw new McpDiscoveryError("MCP tool reported a business error", {
+      code: "TOOL_CALL_FAILED",
+    });
+  }
+  return structuredClone(result);
+}
+
 function validateConfig(input = {}) {
   const serverUrl = requiredString(input.serverUrl, "MCP_SERVER_URL");
   const accessKey = requiredString(input.accessKey, "MCP_ACCESS_KEY");
@@ -183,6 +311,14 @@ function validateConfig(input = {}) {
 function requiredString(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
     throw configError(`${name} is required`);
+  }
+  return value.trim();
+}
+
+function optionalHeaderValue(value, name) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || /[\r\n]/.test(value)) {
+    throw configError(`${name} must be a valid header value`);
   }
   return value.trim();
 }

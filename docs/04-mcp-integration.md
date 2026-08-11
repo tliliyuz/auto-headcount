@@ -37,6 +37,8 @@ npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
 | 匹配候选人 | `match_candidates` | 输入结构、分数范围、理由字段、批量上限 |
 | 正式推荐 | 待发现 | 幂等、状态查询、失败重试、外部推荐 ID |
 
+2026-08-11 的真实发现结果记录在 [`validation/2026-08-11-mcp-discovery.md`](validation/2026-08-11-mcp-discovery.md)。当前已确认 `wb.jobs.under_served`、`wb.candidates.search`、`wb.jobs.match_candidates` 和 `wb.recommendations.check` 存在，但 40 个工具均未声明 `outputSchema`，且未发现正式推荐写工具。该结果不改变本文件定义的内部适配与安全要求。
+
 ## 4. 内部适配要求
 
 MCP 返回值不能直接进入页面或业务表，必须经过：

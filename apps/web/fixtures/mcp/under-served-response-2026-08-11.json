@@ -1,0 +1,21 @@
+{
+  "fixtureVersion": 1,
+  "fixtureType": "sanitized-tools-call-response",
+  "source": {
+    "tool": "wb.jobs.under_served",
+    "protocolVersion": "2025-11-25",
+    "fetchedAt": "2026-08-11",
+    "request": {
+      "days_without_rec": 7,
+      "page": 1,
+      "page_size": 1
+    }
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"Code\":0,\"Message\":\"success\",\"Data\":{\"filter\":null,\"total\":1,\"page\":1,\"page_size\":1,\"total_pages\":1,\"list\":[{\"job_id\":\"fixture-job-001\",\"job_title\":\"示例工程师\",\"client_company\":\"示例企业有限公司\",\"owner_id\":\"fixture-owner-001\",\"owner_name\":\"示例负责人\",\"days_without_rec\":7,\"last_rec_date\":null,\"category\":\"技术研发\",\"city\":\"上海\",\"salary_min\":20,\"salary_max\":30,\"portal_url\":\"https://portal.invalid/jobs/fixture-job-001\",\"created_at\":null}]}}"
+    }
+  ],
+  "isError": false
+}

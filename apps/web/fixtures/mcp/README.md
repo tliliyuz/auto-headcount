@@ -16,3 +16,11 @@
 5. 外部 Schema 变化时新增/更新契约测试，不用静默覆盖旧 Fixture。
 
 发现命令使用独占创建模式，不会覆盖已有文件。原始真实响应不得直接写入本目录。
+
+最小职位响应样本也必须先写入仓库外：
+
+```bash
+npm run mcp:sample-jobs -- --output /tmp/auto-headcount-under-served.json
+```
+
+该命令硬编码只允许 `wb.jobs.under_served`，请求 `page_size=1`，不能通过参数改为短信、邮件、批量创建或其他工具。
