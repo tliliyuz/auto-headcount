@@ -6,33 +6,79 @@
 - `implemented`：代码已实现但尚未完成全部验证。
 - `verified`：已实际运行规定命令并通过。
 
-## Unreleased
+格式采用 Keep a Changelog：`## [区域或版本] - 日期` 分组，每条记录标注状态归属。`Unreleased` 记录尚未纳入版本号的近期变更。
 
-### 2026-08-11
+## [Unreleased]
 
-- `specified`：接受 PostgreSQL 17、Drizzle 迁移和 Docker Compose 全容器本地开发基线（ADR-002）。
-- `specified`：接受企业 OIDC、本地 RBAC、中国大陆测试/生产部署、原始载荷信封加密、规范化关系表、追加写审计及可配置保留上限方案（ADR-003）。
-- `specified`：明确当前 Web 仅为单页交互演示，侧边栏多数模块和业务按钮尚未接线。
-- `verified`：本次仅执行 `git diff --check`、Markdown 相对链接和决策状态一致性检查；未宣称数据库、容器、登录或真实 MCP 已实现。
-- `implemented`：增加供应商隔离的 MCP Streamable HTTP 发现客户端，覆盖初始化、会话/协议头、`tools/list` 分页、JSON/SSE 响应和安全错误分类。
-- `implemented`：增加不覆盖旧文件的 MCP 契约快照命令与脱敏 Fixture 审核流程；尚未使用轮换后的真实测试凭证联调。
-- `verified`：RED 阶段 `node --test tests/mcp-discovery.test.mjs` 因目标适配器不存在而以 `ERR_MODULE_NOT_FOUND` 失败；GREEN 后 `npm run lint` 与 `npm test` 通过（8 个单元测试、Vinext 完整构建、1 个服务端渲染测试）。
-- `verified`：修复候选人预览遮罩使用非交互元素监听鼠标导致的无障碍 lint 错误，并保留点击遮罩关闭行为。
-- `implemented`：修正 MCP 发现命令的环境文件路径，以仓库根目录 `.env.local` 为标准，并兼容既有 `apps/web/.env.local`。
-- `verified`：使用轮换后的测试凭证完成真实 MCP `initialize` 与 `tools/list`；协议版本为 `2025-11-25`，发现 40 个工具。
-- `specified`：固化 MVP 所需工具的版本化输入契约、字段字典和风险清单；所有工具缺少输出 Schema，正式推荐写工具未发现，最小 `tools/call` 尚待验证。
-- `verified`：真实只读调用 `wb.jobs.under_served` 成功；确认响应文本包络与列表字段，阈值 7 包含第 7 天，并生成不含真实职位、企业、负责人或 URL 的脱敏 Fixture。
-- `verified`：RED 阶段最小工具调用和空岗响应映射分别因目标导出/模块不存在而失败；GREEN 后 14 个单元测试和 lint 通过。适配器会在网络前拒绝非允许工具，并在字段类型漂移时阻止数据进入业务模型。
-- `specified`：按项目负责人确认采用最低权限开发假设：只处理当前 Actor 可见数据，使用默认保留上限，不尝试管理员/跨团队能力，并将浏览器采集降级为非当前路径。
-- `implemented`：建立 PostgreSQL 17 + Docker Compose 标准开发环境，包含数据库健康检查、一次性迁移服务、Web 开发容器和持久化开发卷。
-- `implemented`：增加 PostgreSQL 首批表结构、AES-256-GCM 原始载荷加密、内容哈希去重和按来源/外部 ID 幂等更新的职位同步仓储骨架；尚未接入页面或真实定时同步。
-- `verified`：RED 阶段 PostgreSQL 迁移契约因仍是 SQLite journal 而失败，加密模块测试因模块缺失而失败；GREEN 后容器内 17 个单元测试、Vinext 完整构建、1 个服务端渲染测试和 2 个 PostgreSQL 集成测试通过，Web 容器健康响应通过。
-- `verified`：新增迁移首次复验暴露一次性迁移服务仍使用旧镜像；修正为挂载版本化迁移目录后，新批次追加原始快照、同批次内容去重和职位幂等更新的集成测试通过。
-- `implemented`：OIDC、本地 RBAC、审计日志表/中间件、保留清理任务和测试/生产部署仍未实现，不把数据底座完成描述为整条业务链路已完成。
-- `specified`：依赖安装报告 20 条 npm 安全公告（1 low、4 moderate、15 high），本次未执行可能引入破坏性升级的自动修复，需单独审计和升级。
+### 2026-08-11 — M0 接口联调收口 + M1 数据底座起建
 
-## 0.1.0 - 2026-08-11
+> 状态速览：M0 接口与样本验证基本完成（剩 OIDC/生产区域书面授权与候选人样本）· M1 数据底座骨架已建且容器内验证通过（登录/RBAC/审计/部署未做）· 真实 MCP 已联调
 
-- `specified`：建立项目章程、MVP 需求、架构、数据模型、MCP、安全、验收和开发流程文档。
-- `implemented`：建立 Vinext Web 骨架和沉睡职位单页 Mock 演示，包括类别/关键词筛选、行选择、详情联动及脱敏预览。
-- `implemented`：增加沉睡职位规则和脱敏投影测试；历史交付记录未保存实际命令结果，因此不追溯标记为 `verified`。
+#### M0 · 接口与样本验证
+
+##### 已验证（verified）
+
+- 使用轮换后的测试凭证完成真实 MCP `initialize` 与 `tools/list`：协议版本 `2025-11-25`，发现 40 个工具。
+- 真实只读调用 `wb.jobs.under_served` 成功：确认响应文本包络与列表字段，沉睡阈值 7 包含第 7 天，并生成不含真实职位、企业、负责人或 URL 的脱敏 Fixture。
+- RED/GREEN 证据：`mcp-discovery` 测试因目标适配器不存在以 `ERR_MODULE_NOT_FOUND` 正确 RED；最小工具调用和空岗响应映射分别因目标导出/模块不存在正确 RED；GREEN 后 14 个单元测试和 lint 通过。适配器会在网络前拒绝非允许工具，并在字段类型漂移时阻止数据进入业务模型。
+
+##### 规范已确认（specified）
+
+- 固化 MVP 所需工具的版本化输入契约、字段字典和风险清单。已知缺口：40 个工具均未声明 `outputSchema`，正式推荐写工具未发现，最小 `tools/call` 矩阵尚待补全。
+- 按项目负责人确认采用最低权限开发假设：只处理当前 Actor 可见数据，使用默认保留上限，不尝试管理员/跨团队能力，并将浏览器采集降级为非当前路径。
+
+##### 已实现（implemented）
+
+- 供应商隔离的 MCP Streamable HTTP 发现客户端，覆盖初始化、会话/协议头、`tools/list` 分页、JSON/SSE 响应和安全错误分类。
+- 不覆盖旧文件的 MCP 契约快照命令与脱敏 Fixture 审核流程。
+- 修正 MCP 发现命令的环境文件路径，以仓库根 `.env.local` 为标准，并兼容既有 `apps/web/.env.local`。
+
+##### 验证边界
+
+- 早前文档提交阶段仅执行 `git diff --check`、Markdown 相对链接和决策状态一致性检查；未宣称数据库、容器、登录或真实 MCP 已实现。真实 MCP 联调在凭证轮换后完成。
+- 真实数据上线仍需取得数据授权并书面确认最终保留期限。
+
+#### M1 · 数据底座（进行中）
+
+##### 已实现（implemented）
+
+- 建立 PostgreSQL 17 + Docker Compose 标准开发环境：数据库健康检查、一次性迁移服务、Web 开发容器和持久化开发卷；根 `Makefile` 提供 `dev/down/check/test/build/db-migrate` 命令（兑现 ADR-002）。
+- 增加 PostgreSQL 首批表结构、AES-256-GCM 原始载荷加密、内容哈希去重和按来源/外部 ID 幂等更新的职位同步仓储骨架。尚未接入页面或真实定时同步。
+
+##### 已验证（verified）
+
+- RED 阶段：PostgreSQL 迁移契约因仍是 SQLite journal 而失败，加密模块测试因模块缺失而失败。
+- GREEN 后容器内 17 个单元测试、Vinext 完整构建、1 个服务端渲染测试和 2 个 PostgreSQL 集成测试通过，Web 容器健康响应通过。
+- 新增迁移首次复验暴露一次性迁移服务仍使用旧镜像；修正为挂载版本化迁移目录后，新批次追加原始快照、同批次内容去重和职位幂等更新的集成测试通过。
+
+##### 未实现 / 已知缺口
+
+- OIDC、本地 RBAC、审计日志表/中间件、保留清理任务和测试/生产部署仍未实现；不把数据底座完成描述为整条业务链路已完成。
+- 依赖安装报告 20 条 npm 安全公告（1 low、4 moderate、15 high），本次未执行可能引入破坏性升级的自动修复，需单独审计和升级。
+
+#### 公共基础设施
+
+##### 规范已确认（specified）
+
+- 接受 PostgreSQL 17、Drizzle 迁移和 Docker Compose 全容器本地开发基线（ADR-002）。
+- 接受企业 OIDC、本地 RBAC、中国大陆测试/生产部署、原始载荷信封加密、规范化关系表、追加写审计及可配置保留上限方案（ADR-003）。
+- 明确当前 Web 仅为单页交互演示，侧边栏多数模块和业务按钮尚未接线。
+
+##### 已验证（verified）
+
+- 修复候选人预览遮罩使用非交互元素监听鼠标导致的无障碍 lint 错误，并保留点击遮罩关闭行为。
+
+## [0.1.0] - 2026-08-11
+
+首个切片：项目文档基线 + 运营后台单页 Mock 演示。
+
+> 说明：历史交付记录未保存实际命令结果，因此不追溯标记为 `verified`。
+
+#### 规范已确认（specified）
+
+- 建立项目章程、MVP 需求、架构、数据模型、MCP、安全、验收和开发流程文档基线。
+
+#### 已实现（implemented）
+
+- 建立 Vinext Web 骨架和沉睡职位单页 Mock 演示，包括类别/关键词筛选、行选择、详情联动及脱敏预览。
+- 增加沉睡职位规则和脱敏投影测试。

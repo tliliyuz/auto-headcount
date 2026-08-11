@@ -14,6 +14,8 @@
 
 当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。下一交付目标是把 `wb.jobs.under_served` 接入可审计的同步任务，再实现最低权限登录和本地角色门禁。
 
+各里程碑状态、门禁清单与卡点见 [实施路线图](docs/05-roadmap.md)。
+
 ## MVP 主链路
 
 ```text
