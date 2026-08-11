@@ -366,8 +366,9 @@ export function OperationsDashboard() {
       </main>
 
       {previewOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPreviewOpen(false)}>
-          <section className="preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation">
+          <button className="modal-dismiss" onClick={() => setPreviewOpen(false)} aria-label="关闭候选人落地页预览" />
+          <section className="preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title">
             <div className="preview-toolbar"><span>候选人视角 · 脱敏预览</span><button onClick={() => setPreviewOpen(false)} aria-label="关闭预览">×</button></div>
             <div className="candidate-page">
               <span className="opportunity-label">为你精选的职业机会</span>

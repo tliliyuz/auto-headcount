@@ -93,6 +93,10 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run build`: verify the vinext build output
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm run test:unit`: run business-rule and MCP adapter unit tests
+- `npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json`: discover the test MCP protocol and tool schemas using `.env.local`
+
+MCP discovery output must be written outside the repository first and reviewed before a sanitized, versioned Fixture is added under `fixtures/mcp/`. The command never overwrites an existing output file and never serializes configured access or secret keys.
 
 ## Learn More
 

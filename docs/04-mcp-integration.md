@@ -18,6 +18,14 @@
 5. 根据响应建立字段映射、分页、错误分类和数据使用约束。
 6. 将脱敏后的请求/响应样例保存为测试夹具。
 
+发现工具使用 `apps/web` 中的受控命令：
+
+```bash
+npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
+```
+
+该命令执行 `initialize`、`notifications/initialized` 和支持游标的 `tools/list`，兼容 JSON 与 SSE 响应，只输出协议版本、服务信息、能力和工具 Schema。输出文件使用独占创建与仅当前用户读写权限，不覆盖旧文件。结果必须先写入仓库外并人工检查，禁止直接把真实响应保存到 Git。
+
 不能仅依据口头名称假设工具一定叫 `wb.jobs.under_served`、`match_candidates` 或“推荐接口”；以 `tools/list` 返回值为准。
 
 ## 3. 目标能力清单
