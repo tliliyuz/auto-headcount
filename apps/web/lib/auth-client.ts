@@ -23,7 +23,7 @@ export type AuthResult<T> =
 
 type ErrorBody = { code?: unknown; message?: unknown };
 
-async function request<T>(
+export async function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<AuthResult<T>> {

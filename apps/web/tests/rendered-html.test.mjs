@@ -49,7 +49,7 @@ test("服务端渲染运营后台不泄漏公司与详细地址", async () => {
   assert.match(html, /<title>沉睡职位巡检｜职位激活台<\/title>/i);
   assert.match(html, /让沉睡的职位，重新流动起来。/);
   assert.match(html, /发布 7–30 天、仍有效且零推荐/);
-  assert.match(html, /资深前端工程师/);
+  assert.match(html, /正在加载职位…/);
   assert.match(html, /候选人看到的内容/);
   assert.doesNotMatch(html, /海岳智能科技有限公司/);
   assert.doesNotMatch(html, /浦东新区张江路/);

@@ -104,14 +104,14 @@
 - [x] PostgreSQL 首批表结构、AES-256-GCM 原始载荷加密、内容哈希去重、按来源/外部 ID 幂等更新的职位同步仓储骨架。
 - [x] 容器内验证通过：17 个单元测试、Vinext 完整构建、1 个服务端渲染测试、2 个 PostgreSQL 集成测试；Web 容器健康；迁移复验修正后新批次追加快照、同批次去重、职位幂等更新集成测试通过。
 - [x] 可审计 CLI 同步任务：`wb.jobs.under_served` 分页拉取、原始快照加密入库、失败运行记录机器可读 `error_code`（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。
-- [ ] 同步任务接入页面或真实定时调度（CLI 已接线；页面与真实定时调度依赖登录/RBAC，尚未接线）。
-- [ ] 自有登录与服务端 RBAC（`ADR-004`）。
+- [x] 同步任务接入页面（只读）：沉睡职位巡检接真实 `jobs`（`GET /api/jobs/under-served`）、数据源页接真实 `source_connections`/`sync_runs`（`GET /api/sources`、`GET /api/sync-runs`），会话 + RBAC `operations|admin` + 数据访问审计（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。真实定时调度仍开放。
+- [x] 自有登录与服务端 RBAC（`ADR-004`）：登录后端/前端接线已落地；业务只读端点已用 `authorize` 服务端校验角色（operations/admin 允许、recruiter 拒绝，含单元测试）。
 - [x] 保留清理任务：可配置 TTL 清理过期原始快照（成功 30 天/异常 90 天）、关闭职位（180 天）、过期会话与过期审计（365 天），并记录 `retention.run` 审计（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。
 - [ ] 审计日志中间件：`audit_logs` 表与 `/api/auth/*` 路由审计已落地（登录后端里程碑）；通用中间件与数据访问/导出审计待补。
 - [ ] 测试/生产部署基线。
-- [ ] npm 依赖安全公告审计（20 条：1 low / 4 moderate / 15 high，待单独审计升级）。
+- [x] npm 依赖安全公告审计：20 条已审计，升级修复 14 条（cloudflare/vite/react/wrangler 等），剩余 6 条需破坏性降级、记录豁免（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。
 
-> 当前主要卡点：`wb.jobs.under_served` 已接入可审计 CLI 同步任务（`npm run sync:under-served`），保留清理任务已接线（`npm run retention`，可配置 TTL + `retention.run` 审计）；登录后端与前端接线已落地（自有登录 + 本地角色门禁）。剩余：同步任务接入页面/真实定时调度、通用审计中间件、测试/生产部署基线、npm 安全公告（20 条需单独审计升级）。
+> 当前主要卡点：`wb.jobs.under_served` 已接入可审计 CLI 同步任务（`npm run sync:under-served`），保留清理任务已接线（`npm run retention`，可配置 TTL + `retention.run` 审计），登录后端与前端接线已落地（自有登录 + 本地角色门禁），业务只读端点已接页面（沉睡职位/数据源页读真实数据，`operations/admin` 服务端 RBAC + 数据访问审计）。剩余：真实定时调度、通用审计中间件、测试/生产部署基线、npm 安全公告（20 条需单独审计升级）。
 
 ### 范围内工作
 

@@ -9,150 +9,45 @@ import {
   meRequest,
   type AuthSession,
 } from "@/lib/auth-client";
+import {
+  fetchDormantJobs,
+  fetchSources,
+  fetchSyncRuns,
+  type DormantJob,
+  type SourceView,
+  type SyncRunView,
+} from "@/lib/ops-client";
 
-type Job = {
-  id: string;
-  title: string;
-  companyName: string;
-  companyAlias: string;
-  category: string;
-  city: string;
-  detailedLocation: string;
-  salaryMin: number;
-  salaryMax: number;
-  salaryUnit: string;
-  ageDays: number;
-  status: "active" | "paused" | "closed";
-  recommendationCount: number;
-  matched: number;
-  highMatches: number;
-  mediumMatches: number;
-  owner: string;
-  updatedAt: string;
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const now = new Date();
+  const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (date.toDateString() === now.toDateString()) return `今天 ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return `昨天 ${time}`;
+  return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
+}
+
+function formatDuration(startedAt: string | null, finishedAt: string | null): string {
+  if (!startedAt || !finishedAt) return "—";
+  const start = new Date(startedAt).getTime();
+  const end = new Date(finishedAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  const seconds = Math.round((end - start) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
+  succeeded: { label: "成功", className: "status-成功" },
+  failed: { label: "失败", className: "status-失败" },
+  running: { label: "运行中", className: "status-运行中" },
+  pending: { label: "排队中", className: "status-排队中" },
 };
 
-const jobs: Job[] = [
-  {
-    id: "JOB-0821",
-    title: "资深前端工程师",
-    companyName: "海岳智能科技有限公司",
-    companyAlias: "海岳智能",
-    category: "技术研发",
-    city: "上海",
-    detailedLocation: "浦东新区张江路 88 号",
-    salaryMin: 30,
-    salaryMax: 45,
-    salaryUnit: "K/月",
-    ageDays: 12,
-    status: "active",
-    recommendationCount: 0,
-    matched: 48,
-    highMatches: 9,
-    mediumMatches: 21,
-    owner: "林然",
-    updatedAt: "14:18",
-  },
-  {
-    id: "JOB-0814",
-    title: "AI 产品经理",
-    companyName: "澄明数据技术有限公司",
-    companyAlias: "澄明数据",
-    category: "产品设计",
-    city: "北京",
-    detailedLocation: "海淀区中关村东路 1 号",
-    salaryMin: 28,
-    salaryMax: 42,
-    salaryUnit: "K/月",
-    ageDays: 18,
-    status: "active",
-    recommendationCount: 0,
-    matched: 36,
-    highMatches: 6,
-    mediumMatches: 17,
-    owner: "徐安",
-    updatedAt: "13:42",
-  },
-  {
-    id: "JOB-0809",
-    title: "海外市场负责人",
-    companyName: "星海消费科技有限公司",
-    companyAlias: "星海科技",
-    category: "市场销售",
-    city: "深圳",
-    detailedLocation: "南山区科技园南区",
-    salaryMin: 35,
-    salaryMax: 55,
-    salaryUnit: "K/月",
-    ageDays: 22,
-    status: "active",
-    recommendationCount: 0,
-    matched: 27,
-    highMatches: 4,
-    mediumMatches: 13,
-    owner: "周屿",
-    updatedAt: "12:56",
-  },
-  {
-    id: "JOB-0802",
-    title: "高级数据分析师",
-    companyName: "北辰零售科技有限公司",
-    companyAlias: "北辰零售",
-    category: "数据智能",
-    city: "杭州",
-    detailedLocation: "余杭区文一西路 998 号",
-    salaryMin: 25,
-    salaryMax: 38,
-    salaryUnit: "K/月",
-    ageDays: 27,
-    status: "active",
-    recommendationCount: 0,
-    matched: 41,
-    highMatches: 7,
-    mediumMatches: 19,
-    owner: "林然",
-    updatedAt: "11:30",
-  },
-  {
-    id: "JOB-0796",
-    title: "供应链解决方案顾问",
-    companyName: "云帆企业服务有限公司",
-    companyAlias: "云帆企服",
-    category: "咨询服务",
-    city: "广州",
-    detailedLocation: "天河区珠江新城",
-    salaryMin: 22,
-    salaryMax: 35,
-    salaryUnit: "K/月",
-    ageDays: 30,
-    status: "active",
-    recommendationCount: 0,
-    matched: 19,
-    highMatches: 2,
-    mediumMatches: 8,
-    owner: "徐安",
-    updatedAt: "10:24",
-  },
-  {
-    id: "JOB-0792",
-    title: "招聘运营专家",
-    companyName: "青山人力资源有限公司",
-    companyAlias: "青山人才",
-    category: "职能支持",
-    city: "成都",
-    detailedLocation: "高新区天府三街",
-    salaryMin: 18,
-    salaryMax: 28,
-    salaryUnit: "K/月",
-    ageDays: 8,
-    status: "active",
-    recommendationCount: 0,
-    matched: 32,
-    highMatches: 5,
-    mediumMatches: 15,
-    owner: "周屿",
-    updatedAt: "09:48",
-  },
-];
 
 const categories = ["全部", "技术研发", "产品设计", "市场销售", "数据智能"];
 
@@ -408,8 +303,95 @@ function FunnelPage() {
 }
 
 function SourcesPage() {
-  const [syncing, setSyncing] = useState(false);
-  return <><PageIntro eyebrow="连接与同步状态" title="MCP 职位数据源" description="查看连接健康、字段映射、最近同步批次和异常记录。" action="添加数据源" /><section className="source-grid"><article className="source-card primary-source"><header><span className="source-logo">M</span><div><h2>招聘业务 MCP</h2><p>Streamable HTTP · 只读权限</p></div><em><i />连接正常</em></header><div className="source-meta"><div><small>最近同步</small><strong>今天 14:32</strong></div><div><small>本次入库</small><strong>47 个职位</strong></div><div><small>契约版本</small><strong>2025-11-25</strong></div></div><div className="source-actions"><button className="secondary-button" onClick={() => { setSyncing(true); window.setTimeout(() => setSyncing(false), 900); }}>{syncing ? "同步中…" : "立即同步"}</button><button>查看字段映射</button><button>连接设置</button></div></article><article className="source-card muted-source"><header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>备用数据获取方式</p></div><em className="disabled">当前关闭</em></header><p className="source-description">当前里程碑不启用。仅在 MCP 无法满足已授权数据范围，且完成安全评审后开放。</p><button className="text-link">查看启用条件 →</button></article><button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button></section><section className="source-bottom"><div className="surface-card data-card"><div className="surface-header"><div><h2>最近同步批次</h2><p>原始快照与规范化结果</p></div><button className="plain-filter">查看全部</button></div><div className="data-table sync-table">{[["SYNC-0811-1432","今天 14:32","成功","47","0","1m 24s"],["SYNC-0811-0900","今天 09:00","成功","45","2","1m 18s"],["SYNC-0810-1800","昨天 18:00","部分成功","42","3","2m 07s"],["SYNC-0810-1200","昨天 12:00","成功","44","0","1m 31s"]].map((row) => <div className="data-row" key={row[0]}><span><strong>{row[0]}</strong><small>{row[1]}</small></span><span><em className={`status-tag status-${row[2]}`}>{row[2]}</em></span><span>{row[3]} 条</span><span>{row[4]} 异常</span><span>{row[5]}</span></div>)}</div></div><aside className="surface-card health-panel"><h2>连接健康</h2>{[["鉴权状态","有效","green"],["接口响应","482 ms","green"],["字段契约","无漂移","green"],["候选人能力","未授权","amber"]].map((item) => <div key={item[0]}><span><i className={item[2]} />{item[0]}</span><strong>{item[1]}</strong></div>)}<p>系统仅启用了职位只读白名单工具；短信、邮件和候选人详情调用保持关闭。</p></aside></section></>;
+  const [sources, setSources] = useState<SourceView[]>([]);
+  const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [sourcesResult, runsResult] = await Promise.all([
+        fetchSources({ pageSize: 50 }),
+        fetchSyncRuns({ pageSize: 20 }),
+      ]);
+      if (cancelled) return;
+      if (sourcesResult.ok) setSources(sourcesResult.data.list);
+      if (runsResult.ok) setSyncRuns(runsResult.data.list);
+    })().finally(() => {
+      if (!cancelled) setSourcesLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const primarySource = sources.find((s) => s.status === "active") ?? sources[0];
+
+  return (
+    <>
+      <PageIntro eyebrow="连接与同步状态" title="MCP 职位数据源" description="查看连接健康、字段映射、最近同步批次和异常记录。" action="添加数据源" />
+      <section className="source-grid">
+        {primarySource ? (
+          <article className="source-card primary-source">
+            <header>
+              <span className="source-logo">M</span>
+              <div><h2>{primarySource.displayName}</h2><p>{primarySource.provider} · {primarySource.environment}</p></div>
+              <em className={primarySource.status === "active" ? "" : primarySource.status === "error" ? "error" : "disabled"}><i />{primarySource.status === "active" ? "连接正常" : primarySource.status === "error" ? "连接异常" : "当前关闭"}</em>
+            </header>
+            <div className="source-meta">
+              <div><small>最近同步</small><strong>{formatDateTime(primarySource.lastRunStartedAt)}</strong></div>
+              <div><small>本次入库</small><strong>{primarySource.lastRunStats?.persisted ?? "—"} 个职位</strong></div>
+              <div><small>契约版本</small><strong>2025-11-25</strong></div>
+            </div>
+            <div className="source-actions">
+              <button className="secondary-button" disabled title="同步由 CLI 触发：npm run sync:under-served">立即同步</button>
+              <button>查看字段映射</button>
+              <button>连接设置</button>
+            </div>
+          </article>
+        ) : (
+          sourcesLoading && <p className="empty-state">正在加载数据源…</p>
+        )}
+        <article className="source-card muted-source">
+          <header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>备用数据获取方式</p></div><em className="disabled">当前关闭</em></header>
+          <p className="source-description">当前里程碑不启用。仅在 MCP 无法满足已授权数据范围，且完成安全评审后开放。</p>
+          <button className="text-link">查看启用条件 →</button>
+        </article>
+        <button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button>
+      </section>
+
+      <section className="source-bottom">
+        <div className="surface-card data-card">
+          <div className="surface-header"><div><h2>最近同步批次</h2><p>原始快照与规范化结果</p></div><button className="plain-filter">查看全部</button></div>
+          <div className="data-table sync-table">
+            {syncRuns.length === 0 ? (
+              <div className="empty-state">暂无同步批次，运行 npm run sync:under-served 触发同步</div>
+            ) : (
+              syncRuns.map((run) => {
+                const view = SYNC_STATUS_VIEW[run.status] ?? { label: run.status, className: "" };
+                return (
+                  <div className="data-row" key={run.id}>
+                    <span><strong>SYNC-{run.id.slice(0, 8)}</strong><small>{formatDateTime(run.createdAt)}</small></span>
+                    <span><em className={`status-tag ${view.className}`}>{view.label}</em></span>
+                    <span>{run.stats?.persisted ?? 0} 条</span>
+                    <span>{run.errorCode ? <code>{run.errorCode}</code> : `${run.stats?.skipped ?? 0} 异常`}</span>
+                    <span>{formatDuration(run.startedAt, run.finishedAt)}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+        <aside className="surface-card health-panel">
+          <h2>连接健康</h2>
+          <div><span><i className={primarySource?.status === "active" ? "green" : "amber"} />连接状态</span><strong>{primarySource ? (primarySource.status === "active" ? "有效" : primarySource.status === "error" ? "异常" : "未启用") : "—"}</strong></div>
+          <div><span><i className="green" />运行环境</span><strong>{primarySource?.environment ?? "—"}</strong></div>
+          <div><span><i className="green" />数据源数量</span><strong>{sources.length}</strong></div>
+          <p>系统仅启用了职位只读白名单工具；短信、邮件和候选人详情调用保持关闭。</p>
+        </aside>
+      </section>
+    </>
+  );
 }
 
 function AuditPage() {
@@ -432,10 +414,13 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [activePage, setActivePage] = useState<PageId>("jobs");
   const [activeCategory, setActiveCategory] = useState("全部");
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState(jobs[0].id);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [dormantJobs, setDormantJobs] = useState<DormantJob[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [latestSyncAt, setLatestSyncAt] = useState<string | null>(null);
 
   // 会话核实：会话 Cookie 为 HttpOnly，JS 无法探测，因此无条件调 /api/auth/me。
   // SSR 已按 Cookie 存在性渲染视图；这里用 me 确认真实会话与用户，
@@ -456,6 +441,42 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     };
   }, []);
 
+  // 业务数据加载：SSR 阶段无数据库，进入工作台后客户端拉取。
+  // 401（会话失效）不在此设置错误文案——meRequest 会把视图切回登录页。
+  useEffect(() => {
+    if (view !== "app") return;
+    let cancelled = false;
+    void (async () => {
+      const collected: DormantJob[] = [];
+      let page = 1;
+      const pageSize = 100;
+      for (;;) {
+        const result = await fetchDormantJobs({ page, pageSize });
+        if (cancelled) return;
+        if (!result.ok) {
+          if (result.status !== 401) setJobsError("加载失败，请稍后重试");
+          return;
+        }
+        collected.push(...result.data.list);
+        if (collected.length >= result.data.total || result.data.list.length === 0) {
+          break;
+        }
+        page += 1;
+      }
+      setDormantJobs(collected);
+      setSelectedId((current) => current ?? collected[0]?.id ?? null);
+      const latest = await fetchSyncRuns({ pageSize: 1 });
+      if (!cancelled && latest.ok) {
+        setLatestSyncAt(latest.data.list[0]?.startedAt ?? null);
+      }
+    })().finally(() => {
+      if (!cancelled) setJobsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
+
   async function handleLogout() {
     setMenuOpen(false);
     await logoutRequest();
@@ -470,8 +491,8 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   }, [view]);
 
   const sleepingJobs = useMemo(
-    () => jobs.filter((job) => isUnderServedJob(job)),
-    [],
+    () => dormantJobs.filter((job) => isUnderServedJob(job)),
+    [dormantJobs],
   );
 
   const filteredJobs = sleepingJobs.filter((job) => {
@@ -487,7 +508,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
 
   const selectedJob =
     sleepingJobs.find((job) => job.id === selectedId) ?? sleepingJobs[0];
-  const publicJob = toPublicJobView(selectedJob);
+  const publicJob = selectedJob ? toPublicJobView(selectedJob) : null;
 
   function toggleRow(id: string) {
     setSelectedRows((current) =>
@@ -497,17 +518,16 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     );
   }
 
-  function runSync() {
-    setSyncing(true);
-    window.setTimeout(() => setSyncing(false), 900);
-  }
-
   if (view === "login") {
     return (
       <LoginPage
         onLogin={(nextUser) => {
           setUser(nextUser);
           setMenuOpen(false);
+          setDormantJobs([]);
+          setSelectedId(null);
+          setLatestSyncAt(null);
+          setJobsLoading(true);
           setView("app");
         }}
       />
@@ -527,7 +547,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
 
         <nav className="nav" aria-label="主导航">
           <span className="nav-label">工作台</span>
-          <button className={`nav-item ${activePage === "jobs" ? "active" : ""}`} onClick={() => setActivePage("jobs")}><span>⌁</span>沉睡职位<i>47</i></button>
+          <button className={`nav-item ${activePage === "jobs" ? "active" : ""}`} onClick={() => setActivePage("jobs")}><span>⌁</span>沉睡职位<i>{sleepingJobs.length}</i></button>
           <button className={`nav-item ${activePage === "matching" ? "active" : ""}`} onClick={() => setActivePage("matching")}><span>◎</span>智能匹配<i>128</i></button>
           <button className={`nav-item ${activePage === "campaigns" ? "active" : ""}`} onClick={() => setActivePage("campaigns")}><span>↗</span>触达活动</button>
           <button className={`nav-item ${activePage === "followups" ? "active" : ""}`} onClick={() => setActivePage("followups")}><span>◇</span>跟进任务<i className="warning">12</i></button>
@@ -538,7 +558,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
         </nav>
 
         <div className="sidebar-footer">
-          <div className="source-status"><span />MCP 数据源等待联调</div>
+          <div className="source-status"><span />MCP 数据源已连接</div>
           <div className="profile">
             {menuOpen && (
               <div className="profile-menu" role="menu" aria-label="用户菜单">
@@ -575,10 +595,9 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               <p>已自动筛选发布 7–30 天、仍有效且零推荐的职位，等待运营确认。</p>
             </div>
             <div className="heading-actions">
-              <span className="last-sync">最近同步：今天 14:32</span>
-              <button className="secondary-button" onClick={runSync} disabled={syncing}>
-                <span className={syncing ? "rotating" : ""}>↻</span>
-                {syncing ? "同步中" : "同步职位"}
+              <span className="last-sync">最近同步：{formatDateTime(latestSyncAt)}</span>
+              <button className="secondary-button" disabled title="同步由 CLI 触发：npm run sync:under-served">
+                <span>↻</span>同步职位
               </button>
               <button className="primary-button" disabled={selectedRows.length === 0}>
                 创建匹配任务 {selectedRows.length > 0 && `(${selectedRows.length})`}
@@ -589,7 +608,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
           <section className="metric-grid" aria-label="职位巡检概况">
             <article className="metric-card feature">
               <div><span className="metric-icon blue">⌁</span><span className="trend up">↑ 12%</span></div>
-              <small>沉睡职位</small><strong>47</strong><p>较上周新增 5 个</p>
+              <small>沉睡职位</small><strong>{dormantJobs.length}</strong><p>较上周新增 5 个</p>
             </article>
             <article className="metric-card">
               <div><span className="metric-icon violet">◎</span><span className="trend">本周</span></div>
@@ -641,62 +660,77 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     {filteredJobs.map((job) => (
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><input aria-label={`选择 ${job.title}`} type="checkbox" checked={selectedRows.includes(job.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleRow(job.id)} /></td>
-                        <td><strong>{job.title}</strong><small>{job.id} · 更新于 {job.updatedAt}</small></td>
+                        <td><strong>{job.title}</strong><small>{job.externalId} · 更新于 {formatDateTime(job.updatedAt)}</small></td>
                         <td><span>{job.category}</span><small>{job.city}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
-                        <td><strong>{job.matched}</strong><small><i className="dot high" />高 {job.highMatches} <i className="dot medium" />中 {job.mediumMatches}</small></td>
-                        <td><span className="owner-avatar">{job.owner.slice(0, 1)}</span>{job.owner}</td>
+                        <td><strong>待匹配</strong><small><i className="dot high" />高 — <i className="dot medium" />中 —</small></td>
+                        <td><span className="owner-avatar">—</span>—</td>
                         <td><button aria-label={`查看 ${job.title}`}>›</button></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {filteredJobs.length === 0 && <div className="empty-state">没有符合当前条件的职位</div>}
+                {jobsLoading ? (
+                  <div className="empty-state">正在加载职位…</div>
+                ) : jobsError ? (
+                  <div className="empty-state">{jobsError}</div>
+                ) : (
+                  filteredJobs.length === 0 && <div className="empty-state">没有符合当前条件的职位</div>
+                )}
               </div>
 
               <div className="table-footer"><span>显示 {filteredJobs.length} 个，共 {sleepingJobs.length} 个沉睡职位</span><div><button disabled>‹</button><button className="active">1</button><button>2</button><button>3</button><button>›</button></div></div>
             </div>
 
             <aside className="insight-panel" aria-label="当前职位详情">
-              <div className="panel-heading">
-                <span className="role-icon">{selectedJob.title.slice(0, 1)}</span>
-                <div><span className="status-pill"><i />待激活</span><h2>{selectedJob.title}</h2><p>{selectedJob.category} · {selectedJob.city}</p></div>
-              </div>
-
-              <div className="sleeping-alert"><span>!</span><div><strong>已沉睡 {selectedJob.ageDays} 天</strong><p>距 30 天观察上限还有 {30 - selectedJob.ageDays} 天</p></div></div>
-
-              <div className="panel-section">
-                <div className="section-title"><h3>候选人匹配池</h3><button>查看全部</button></div>
-                <div className="score-summary">
-                  <div className="score-ring"><strong>{selectedJob.matched}</strong><span>已匹配</span></div>
-                  <div className="score-bars">
-                    <div><span><i className="dot high" />高匹配 85+</span><b>{selectedJob.highMatches} 人</b></div>
-                    <div className="bar"><i style={{ width: `${Math.max(18, selectedJob.highMatches * 7)}%` }} /></div>
-                    <div><span><i className="dot medium" />中匹配 75–84</span><b>{selectedJob.mediumMatches} 人</b></div>
-                    <div className="bar medium"><i style={{ width: `${Math.max(28, selectedJob.mediumMatches * 3)}%` }} /></div>
+              {selectedJob ? (
+                <>
+                  <div className="panel-heading">
+                    <span className="role-icon">{selectedJob.title.slice(0, 1)}</span>
+                    <div><span className="status-pill"><i />待激活</span><h2>{selectedJob.title}</h2><p>{selectedJob.category} · {selectedJob.city}</p></div>
                   </div>
-                </div>
-              </div>
 
-              <div className="panel-section">
-                <div className="section-title"><h3>候选人看到的内容</h3><span className="safe-label">✓ 已脱敏</span></div>
-                <div className="public-preview-card">
-                  <small>职位公开预览</small>
-                  <strong>{publicJob.title}</strong>
-                  <div><span>⌖ {publicJob.city}</span><span>¥ {publicJob.salaryRange}</span></div>
-                  <p>{publicJob.companyLabel} · 公司名称已隐藏</p>
-                  <button onClick={() => setPreviewOpen(true)}>预览候选人落地页 <span>↗</span></button>
-                </div>
-              </div>
+                  <div className="sleeping-alert"><span>!</span><div><strong>已沉睡 {selectedJob.ageDays} 天</strong><p>距 30 天观察上限还有 {30 - selectedJob.ageDays} 天</p></div></div>
 
-              <div className="panel-note"><span>i</span><p>创建匹配任务前，系统会再次检查职位状态和推荐数。</p></div>
+                  <div className="panel-section">
+                    <div className="section-title"><h3>候选人匹配池</h3><button>查看全部</button></div>
+                    <div className="score-summary">
+                      <div className="score-ring"><strong>—</strong><span>待匹配</span></div>
+                      <p className="muted-note">匹配能力随 M2 里程碑接入。</p>
+                    </div>
+                  </div>
+
+                  <div className="panel-section">
+                    <div className="section-title"><h3>候选人看到的内容</h3><span className="safe-label">✓ 已脱敏</span></div>
+                    <div className="public-preview-card">
+                      <small>职位公开预览</small>
+                      <strong>{publicJob?.title}</strong>
+                      <div><span>⌖ {publicJob?.city}</span><span>¥ {publicJob?.salaryRange}</span></div>
+                      <p>{publicJob?.companyLabel} · 公司名称已隐藏</p>
+                      <button onClick={() => setPreviewOpen(true)}>预览候选人落地页 <span>↗</span></button>
+                    </div>
+                  </div>
+
+                  <div className="panel-note"><span>i</span><p>创建匹配任务前，系统会再次检查职位状态和推荐数。</p></div>
+                </>
+              ) : (
+                <>
+                  <div className="panel-heading">
+                    <span className="role-icon">—</span>
+                    <div><span className="status-pill"><i />待激活</span><h2>未选择职位</h2><p>加载后自动选中首个职位</p></div>
+                  </div>
+                  <div className="panel-section">
+                    <div className="section-title"><h3>候选人看到的内容</h3><span className="safe-label">✓ 已脱敏</span></div>
+                  </div>
+                </>
+              )}
             </aside>
           </section>
           </> : <PrototypePage page={activePage} />}
         </div>
       </main>
 
-      {previewOpen && (
+      {previewOpen && publicJob && (
         <div className="modal-backdrop" role="presentation">
           <button className="modal-dismiss" onClick={() => setPreviewOpen(false)} aria-label="关闭候选人落地页预览" />
           <section className="preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title">

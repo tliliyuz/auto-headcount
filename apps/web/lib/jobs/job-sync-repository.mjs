@@ -93,7 +93,7 @@ export async function persistUnderServedJob(
       ${job.sourceCreatedAt},
       ${job.ageDays},
       ${null},
-      ${JSON.stringify(job.eligibilityEvidence)}::jsonb,
+      ${job.eligibilityEvidence},
       ${job.portalUrl},
       ${job.sourceCreatedAt}
     )
@@ -124,7 +124,7 @@ export async function persistUnderServedJob(
 export async function finishSyncRun(sql, syncRunId, stats) {
   await sql`
     update sync_runs
-    set status = 'succeeded', stats = ${JSON.stringify(stats)}::jsonb, finished_at = now()
+    set status = 'succeeded', stats = ${stats}, finished_at = now()
     where id = ${syncRunId}
   `;
 }
@@ -132,7 +132,7 @@ export async function finishSyncRun(sql, syncRunId, stats) {
 export async function failSyncRun(sql, syncRunId, errorCode, stats = {}) {
   await sql`
     update sync_runs
-    set status = 'failed', error_code = ${errorCode}, stats = ${JSON.stringify(stats)}::jsonb, finished_at = now()
+    set status = 'failed', error_code = ${errorCode}, stats = ${stats}, finished_at = now()
     where id = ${syncRunId}
   `;
 }

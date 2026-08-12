@@ -10,6 +10,32 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — M1 业务页面接真实数据（只读 API）
+
+> 状态速览：沉睡职位巡检 + 数据源页接真实 `jobs`/`source_connections`/`sync_runs` · 3 个只读端点（会话 + RBAC operations/admin + 数据访问审计）· 单元 54 + 集成 7 通过 · 浏览器实测两页渲染真实数据
+
+#### 已实现（implemented）
+
+- 新增只读仓储 `apps/web/lib/jobs/job-read-repository.mjs`（`listUnderServedJobs`：沉睡规则 SQL 投影 `active + 7–30 天 + 零推荐`，命中 `jobs_under_served_idx`，`category`/`q`/分页过滤）与 `apps/web/lib/sources/source-read-repository.mjs`（`listSources` 用 `left join lateral` 取最新同步摘要、`listSyncRuns` 关联来源展示名，`status` 过滤）。
+- 新增 3 个只读 Route Handler：`GET /api/jobs/under-served`、`GET /api/sources`、`GET /api/sync-runs`——会话 + RBAC `["operations","admin"]`（`authorize` 首个真实调用者，recruiter 拒绝 `403`）、分页包络 `{ total, page, page_size, total_pages, list }`、数据访问审计（`jobs.list`/`sources.list`/`sync-runs.list`，成功元数据仅计数/分页，角色拒绝记 `denied`）。
+- 新增共享纯函数 `apps/web/lib/identity/authz.mjs`（`authorizeOrForbidden`）与 `apps/web/lib/server/pagination.mjs`（`parsePagination`）。
+- 前端接线：删除 Mock `jobs` 数组；沉睡职位巡检页从 `/api/jobs/under-served` 拉真实职位（加载/错误/空态、`isUnderServedJob` 客户端安全网、匹配池为 M2 占位、脱敏预览沿用 `toPublicJobView` 隐藏公司）；数据源页从 `/api/sources`+`/api/sync-runs` 渲染连接卡片/同步批次（status→`status-tag` 成功/失败/运行中/排队中、耗时由起止推导、异常列显示机器码 `error_code`）/连接健康面板；「同步职位/立即同步」改为 disabled + CLI 提示（真实定时调度为后续项）。`apps/web/lib/ops-client.ts` 新增客户端封装，复用 `AuthResult` 判别类型。
+- 修正既有 jsonb 双重编码 bug：`finishSyncRun`/`failSyncRun`/`persistUnderServedJob` 由 `JSON.stringify(...)::jsonb` 改为直接传对象（此前写库为 jsonb 字符串、`stats->>'x'` 为 null，只读层作为首个消费者暴露此问题）。
+- 新增 `tests/ops-read.integration.test.mjs`（沉睡边界 7/30 含入、6/31/失效/非零推荐排除、`category`/`q`/分页、投影无 `payload_*`、`listSources` 最新摘要、`listSyncRuns` status 过滤）、`tests/identity/authz.test.mjs`、`tests/server/pagination.test.mjs`。
+
+#### 已验证（verified）
+
+- RED：单元测试因 `authz.mjs`/`pagination.mjs` 缺失以 `ERR_MODULE_NOT_FOUND` 正确 RED。
+- 实际运行命令：
+  - `docker compose run --rm web npm run test:unit`：54 通过（新增 authz/pagination 7 个）。
+  - `docker compose run --rm web npm test`：Vinext 构建完成（含 3 个新路由）、rendered-html 3 通过（app 视图锚点改为加载态 `正在加载职位…`，泄漏守卫保留）。
+  - `docker compose run --rm web npm run test:integration`：7 通过（含新增只读用例；共享 dev DB 下按夹具范围断言、全局只做下限）。
+  - `docker compose run --rm web npm run lint` 通过；`git diff --check` 通过。
+- dev server 浏览器实测（真实 Worker + Hyperdrive → Postgres）：ops 登录后沉睡职位页渲染真实职位（侧边栏/指标卡计数、最近同步、匹配池 M2 占位、脱敏预览隐藏公司）；数据源页渲染连接卡片 + 同步批次（成功/失败/`RATE_LIMITED` 状态标签与耗时）；未登录业务端点 `401`；临时 recruiter 访问业务端点 `403 forbidden`；审计落库 `jobs.list`/`sources.list`/`sync-runs.list` 含 `request_id`、元数据仅计数。
+- 敏感边界复验：业务响应不含 `raw_records.payload_*` 与 `sync_runs.cursor`；`error_code` 仅机器码。
+
+> 说明：真实定时调度（同步自动触发）、匹配池（M2）与通用审计中间件仍为后续项；本轮完成「同步任务接入页面（只读）」。
+
 ### 2026-08-12 — npm 依赖安全公告审计与升级
 
 > 状态速览：20 条公告（1 low / 4 moderate / 15 high）→ 升级修复 14 条 → 剩余 6 条需破坏性降级、记录豁免
