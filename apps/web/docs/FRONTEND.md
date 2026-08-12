@@ -2,7 +2,9 @@
 
 本文档是前端页面的**地图与接线状态**，不是业务规范。业务行为（沉睡规则、匹配分档、脱敏要求、触达门禁）以 [`docs/01-mvp-requirements.md`](../../../docs/01-mvp-requirements.md) 与 [`docs/07-acceptance-criteria.md`](../../../docs/07-acceptance-criteria.md) 为准；模块边界与数据所有权见 [`docs/02-architecture.md`](../../../docs/02-architecture.md)。
 
-当前前端为**单文件静态原型**：`apps/web/app/operations-dashboard.tsx` 承载全部页面与假数据，`apps/web/app/globals.css` 承载全部样式。按既定决策保留该 UI，随后就地接真实数据。
+当前前端为**单文件静态原型**：`apps/web/app/operations-dashboard.tsx` 承载登录视图、全部页面与假数据，`apps/web/app/globals.css` 承载全部样式。按既定决策保留该 UI，随后就地接真实数据。
+
+默认初始视图为**登录页**（`LoginPage`）；请求头 `x-prototype-view: app` 可强制初始进入工作台（供服务端渲染测试覆盖两个视图）。
 
 ## 1. 技术基线
 
@@ -24,6 +26,13 @@
 | 审计日志 | `AuditPage` | 内联审计记录数组 | 静态原型 |
 
 导航为 7 个页面（无独立工作台页，沉睡职位巡检为默认落地页）。
+
+### 登录视图（原型）
+
+- 组件：`LoginPage`（`operations-dashboard.tsx` 内），默认初始视图；侧边栏资料菜单「退出登录」可返回登录页。
+- Mock 流程：账号 `ops` 直接进入工作台；账号 `admin` 走「首次登录设置新口令」；其余账号返回统一失败文案，连续 3 次触发临时锁定（提供「重置演示」清除）。
+- TOTP 字段为占位，展示生产管理员登录时的校验位。
+- 无真实鉴权：表单校验与流程均为前端 mock；接真实数据时替换为 [`docs/09-api-contract.md`](../../../docs/09-api-contract.md) 的 `/api/auth/*` 契约。
 
 ## 3. 假数据清单（接真数据时的替换点）
 

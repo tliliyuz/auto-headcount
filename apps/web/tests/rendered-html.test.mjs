@@ -2,15 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function render(view = "login") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
+  const headers = { accept: "text/html" };
+  if (view === "app") headers["x-prototype-view"] = "app";
+
   return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
+    new Request("http://localhost/", { headers }),
     {
       ASSETS: {
         fetch: async () => new Response("Not found", { status: 404 }),
@@ -23,8 +24,24 @@ async function render() {
   );
 }
 
-test("服务端渲染沉睡职位运营后台", async () => {
+test("服务端渲染登录页（默认初始视图）", async () => {
   const response = await render();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+
+  const html = await response.text();
+  assert.match(html, /<title>登录｜职位激活台<\/title>/i);
+  assert.match(html, /登录职位激活台/);
+  assert.match(html, /请输入账号/);
+  assert.match(html, /请输入口令/);
+  assert.match(html, /动态验证码/);
+  assert.match(html, /原型演示/);
+  assert.doesNotMatch(html, /海岳智能科技有限公司/);
+  assert.doesNotMatch(html, /浦东新区张江路/);
+});
+
+test("服务端渲染运营后台不泄漏公司与详细地址", async () => {
+  const response = await render("app");
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
@@ -38,13 +55,16 @@ test("服务端渲染沉睡职位运营后台", async () => {
   assert.doesNotMatch(html, /浦东新区张江路/);
 });
 
-test("静态原型覆盖完整运营后台导航页面", async () => {
+test("静态原型覆盖登录页与运营后台导航页面", async () => {
   const source = await readFile(
     new URL("../app/operations-dashboard.tsx", import.meta.url),
     "utf8",
   );
 
   for (const pageMarker of [
+    "登录职位激活台",
+    "设置新口令",
+    "账号或口令不正确",
     "匹配审核队列",
     "活动执行概况",
     "今日跟进",

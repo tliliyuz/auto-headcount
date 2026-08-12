@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
 
 type Job = {
@@ -185,6 +185,113 @@ function SummaryStrip({ items }: { items: Array<{ label: string; value: string; 
   );
 }
 
+type AuthUser = { name: string; role: string };
+
+function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+  const [step, setStep] = useState<"form" | "force-change">("form");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
+  const [error, setError] = useState("");
+  const [attempts, setAttempts] = useState(0);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const locked = attempts >= 3;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (locked) return;
+    if (!username.trim() || !password.trim()) {
+      setError("请输入账号和口令。");
+      return;
+    }
+    if (username.trim().toLowerCase() === "admin") {
+      setStep("force-change");
+      return;
+    }
+    if (username.trim().toLowerCase() === "ops") {
+      onLogin({ name: "林然", role: "招聘运营" });
+      return;
+    }
+    const next = attempts + 1;
+    setAttempts(next);
+    setError(
+      next >= 3
+        ? "连续失败次数过多，账号已临时锁定，请 15 分钟后再试。"
+        : "账号或口令不正确，请重试。",
+    );
+  }
+
+  function handleChangeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (newPassword.trim().length < 8) {
+      setError("新口令至少 8 位，并包含字母与数字。");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("两次输入的新口令不一致。");
+      return;
+    }
+    onLogin({ name: "系统管理员", role: "管理员" });
+  }
+
+  return (
+    <main className="login-shell">
+      <section className="login-brand-panel">
+        <div className="login-brand">
+          <span className="brand-mark" aria-hidden="true">职</span>
+          <div><strong>职位激活台</strong><span>Recruit Ops</span></div>
+        </div>
+        <div className="login-panel-copy">
+          <span className="login-eyebrow"><i />内部运营后台</span>
+          <h1>让沉睡的职位，重新流动起来。</h1>
+          <p>识别长期无推荐的职位，从授权人才库匹配候选人，通过合规触达收集意向，形成可追踪的推荐闭环。</p>
+        </div>
+        <ul className="login-features">
+          <li><i>⌁</i><span><strong>沉睡职位巡检</strong><small>发布 7–30 天、仍有效且零推荐</small></span></li>
+          <li><i>◎</i><span><strong>匹配审核</strong><small>逐条核对证据、缺失项与风险</small></span></li>
+          <li><i>↗</i><span><strong>合规触达</strong><small>人工审批、退订与频控门禁</small></span></li>
+        </ul>
+        <p className="login-panel-foot">受邀请用户登录 · 未开放自主注册</p>
+      </section>
+
+      <section className="login-form-panel">
+        <div className="login-card">
+          {step === "form" ? (
+            <form className="login-form" onSubmit={handleSubmit} noValidate>
+              <div className="login-card-head">
+                <h2>登录职位激活台</h2>
+                <p>使用账号口令登录；生产管理员需校验动态验证码。</p>
+              </div>
+              {locked && <div className="login-notice danger" role="alert"><strong>账号已临时锁定</strong><span>连续失败次数过多，请 15 分钟后再试。</span></div>}
+              {error && !locked && <div className="login-notice danger" role="alert">{error}</div>}
+              <label className="login-field"><span>账号</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="请输入账号" /></label>
+              <label className="login-field"><span>口令</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入口令" /></label>
+              <label className="login-field"><span>动态验证码 <em>生产管理员必填</em></span><input inputMode="numeric" autoComplete="one-time-code" value={totp} onChange={(event) => setTotp(event.target.value)} placeholder="6 位验证码" /></label>
+              <button className="primary-button login-submit" disabled={locked}>登录</button>
+              <div className="login-demo-hint"><strong>原型演示</strong><p>账号 <code>admin</code> 首次登录需设置新口令；账号 <code>ops</code> 直接进入；其余账号触发统一失败，连续 3 次锁定。</p></div>
+              {locked && <button type="button" className="login-reset-demo" onClick={() => { setAttempts(0); setError(""); }}>重置演示（清除锁定）</button>}
+            </form>
+          ) : (
+            <form className="login-form" onSubmit={handleChangeSubmit} noValidate>
+              <div className="login-card-head">
+                <h2>设置新口令</h2>
+                <p>首次登录需设置新口令后才能使用业务功能。</p>
+              </div>
+              {error && <div className="login-notice danger" role="alert">{error}</div>}
+              <label className="login-field"><span>新口令</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 8 位，含字母与数字" /></label>
+              <label className="login-field"><span>确认新口令</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="再次输入新口令" /></label>
+              <button className="primary-button login-submit">确认并进入工作台</button>
+            </form>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function MatchingPage() {
   const [selected, setSelected] = useState(candidates[0].id);
   const [decisions, setDecisions] = useState<Record<string, string>>({});
@@ -284,7 +391,10 @@ function PrototypePage({ page }: { page: Exclude<PageId, "jobs"> }) {
   return <AuditPage />;
 }
 
-export function OperationsDashboard() {
+export function OperationsDashboard({ initialView = "login" }: { initialView?: "login" | "app" } = {}) {
+  const [view, setView] = useState<"login" | "app">(initialView);
+  const [user, setUser] = useState<AuthUser>({ name: "林然", role: "招聘运营" });
+  const [menuOpen, setMenuOpen] = useState(false);
   const [activePage, setActivePage] = useState<PageId>("jobs");
   const [activeCategory, setActiveCategory] = useState("全部");
   const [query, setQuery] = useState("");
@@ -326,6 +436,18 @@ export function OperationsDashboard() {
     window.setTimeout(() => setSyncing(false), 900);
   }
 
+  if (view === "login") {
+    return (
+      <LoginPage
+        onLogin={(nextUser) => {
+          setUser(nextUser);
+          setMenuOpen(false);
+          setView("app");
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -352,9 +474,14 @@ export function OperationsDashboard() {
         <div className="sidebar-footer">
           <div className="source-status"><span />MCP 数据源等待联调</div>
           <div className="profile">
-            <span className="avatar">LR</span>
-            <div><strong>林然</strong><small>招聘运营</small></div>
-            <button aria-label="打开用户菜单">•••</button>
+            {menuOpen && (
+              <div className="profile-menu" role="menu" aria-label="用户菜单">
+                <button onClick={() => { setMenuOpen(false); setView("login"); }}>⏻ 退出登录</button>
+              </div>
+            )}
+            <span className="avatar">{user.name.slice(0, 1)}</span>
+            <div><strong>{user.name}</strong><small>{user.role}</small></div>
+            <button aria-label="打开用户菜单" onClick={() => setMenuOpen((open) => !open)}>•••</button>
           </div>
         </div>
       </aside>
