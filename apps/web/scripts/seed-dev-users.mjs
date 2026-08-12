@@ -6,6 +6,8 @@
  * 测试与生产构建无法启用此路径。种子口令为开发专用 fixture 值，可用环境变量覆盖：
  *   DEV_SEED_OPS_PASSWORD   ops 账号口令（默认 OpsPass2026!）
  *   DEV_SEED_ADMIN_PASSWORD admin 账号口令（默认 AdminPass2026!，强制首改密）
+ * 环境变量以 `replace_with_` 开头的占位值视为「未设置」，回退默认口令，
+ * 避免用户把 .env.example 占位符复制成 .env.local 后占位符变成真实口令。
  * admin 账号启用固定 TOTP secret 便于联调，仅开发用。
  */
 import postgres from "postgres";
@@ -28,8 +30,19 @@ if (!DATABASE_URL) {
 
 const DEFAULT_ORG_NAME = "默认组织";
 const DEV_TOTP_TEST_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
-const opsPassword = process.env.DEV_SEED_OPS_PASSWORD ?? "OpsPass2026!";
-const adminPassword = process.env.DEV_SEED_ADMIN_PASSWORD ?? "AdminPass2026!";
+
+/** 解析种子口令：未设置或 `replace_with_` 占位值一律回退默认开发口令。 */
+function resolveSeedPassword(envName, fallback) {
+  const value = process.env[envName];
+  if (!value || value.startsWith("replace_with_")) return fallback;
+  return value;
+}
+
+const opsPassword = resolveSeedPassword("DEV_SEED_OPS_PASSWORD", "OpsPass2026!");
+const adminPassword = resolveSeedPassword(
+  "DEV_SEED_ADMIN_PASSWORD",
+  "AdminPass2026!",
+);
 
 async function ensureOrg(sql) {
   const inserted = await sql`
@@ -112,13 +125,15 @@ try {
     role: "admin",
     password: adminPassword,
     mustChangePassword: true,
-    totpEnabled: true,
+    // 开发/测试不强制 TOTP（ADR-004），生产管理员由生产初始化与账号管理流程强制绑定。
+    totpEnabled: false,
   });
   process.stdout.write(
     [
       "已写入开发种子用户（仅 development）：",
       `- ops（招聘运营），口令 ${opsPassword}`,
-      `- admin（系统管理员，首登强制改密 + TOTP），口令 ${adminPassword}，TOTP secret ${DEV_TOTP_TEST_SECRET}`,
+      `- admin（系统管理员，首登强制改密），口令 ${adminPassword}`,
+      "开发/测试不强制 TOTP；生产管理员登录需绑定 TOTP。",
       "口令可用 DEV_SEED_*_PASSWORD 覆盖；以上均为开发专用 fixture 值。\n",
     ].join("\n"),
   );
