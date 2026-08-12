@@ -109,10 +109,10 @@
 - [x] 自有登录与服务端 RBAC（`ADR-004`）：登录后端/前端接线已落地；业务只读端点已用 `authorize` 服务端校验角色（operations/admin 允许、recruiter 拒绝，含单元测试）。
 - [x] 保留清理任务：可配置 TTL 清理过期原始快照（成功 30 天/异常 90 天）、关闭职位（180 天）、过期会话与过期审计（365 天），并记录 `retention.run` 审计（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。
 - [x] 审计日志中间件：`audit_logs` 表与 `/api/auth/*` 路由审计已落地（登录后端里程碑）；通用中间件 `withAudit` 已收口 3 只读端点 + 审计查询端点（统一 request_id/IP/actor 解析、未预期异常也写审计、元数据按动作白名单收敛），DB 触发器 `guard_audit_logs` 强制追加写（UPDATE 拒、DELETE 仅保留任务带 `app.audit_retention=on` 放行），审计日志页接真实 `/api/audit-logs`（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。
-- [ ] 测试/生产部署基线。
+- [ ] 测试/生产部署基线（方向：自托管 Node 容器于自有云服务器）：dev/prod 配置分离（生产不烘焙开发数据库凭证，已落地）、`apps/web/Dockerfile` 生产 target 构建与起容器、Secret 经容器环境变量注入、`APP_ENV=production` 强制校验、服务器级定时器（systemd timer / PM2 cron / node-cron）触发同步 tick。Cloudflare Worker 部署（`wrangler deploy`）降级为可选路径，不构成生产承诺。
 - [x] npm 依赖安全公告审计：20 条已审计，升级修复 14 条（cloudflare/vite/react/wrangler 等），剩余 6 条需破坏性降级、记录豁免（验证见 [CHANGELOG 2026-08-12](../CHANGELOG.md)）。
 
-> 当前主要卡点：`wb.jobs.under_served` 已接入可审计 CLI 同步任务（`npm run sync:under-served`），保留清理任务已接线（`npm run retention`，可配置 TTL + `retention.run` 审计），登录后端与前端接线已落地（自有登录 + 本地角色门禁），业务只读端点已接页面（沉睡职位/数据源/审计日志页读真实数据，`operations/admin` 服务端 RBAC + 数据访问审计），通用审计中间件已收口（`withAudit` + DB 追加写触发器 + 审计查询端点），真实定时调度已落地（数据库任务表 `async_tasks` + Worker scheduled tick，cron 部署后生效）。剩余：测试/生产部署基线。
+> 当前主要卡点：`wb.jobs.under_served` 已接入可审计 CLI 同步任务（`npm run sync:under-served`），保留清理任务已接线（`npm run retention`，可配置 TTL + `retention.run` 审计），登录后端与前端接线已落地（自有登录 + 本地角色门禁），业务只读端点已接页面（沉睡职位/数据源/审计日志页读真实数据，`operations/admin` 服务端 RBAC + 数据访问审计），通用审计中间件已收口（`withAudit` + DB 追加写触发器 + 审计查询端点），真实定时调度已落地（数据库任务表 `async_tasks` + Worker scheduled tick，cron 部署后生效），测试/生产部署基线方向已修正为自托管 Node 容器（自有云服务器），Cloudflare Worker 部署降为可选路径；M1 剩余实现项为自托管部署基线（Docker 生产镜像起容器、Secret 注入、服务器定时器触发同步 tick）与其验证证据整理。
 
 ### 范围内工作
 

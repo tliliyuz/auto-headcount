@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 部署基线方向修正：自托管 Node 容器（文档）
+
+> 状态速览：生产平台由「已选 Cloudflare Workers」拨回「自托管 Node 容器于自有云服务器」· Cloudflare Worker 降为可选路径 · 同步触发方式中立化（服务器级定时器 / Worker scheduled）· 纯文档变更，不宣称部署已实现或验证
+
+#### 已实现（implemented）
+
+- 权威文档修正：`docs/02-architecture.md` §5/§6（生产基线改为自有云服务器 Node 容器，CF 降为可选路径）、`docs/05-roadmap.md`（M1 部署基线条目由 `[x]` 拨回 `[ ]`）、`docs/08-development-workflow.md` §3（worker 描述中立化）、`README.md`（当前阶段与「部署」章节改为自托管容器步骤）、`.env.example`（Secret 注入改容器环境变量，HYPERDRIVE/wrangler 注释降为可选）。
+- 对齐 ADR-001「不构成生产平台承诺」：保留 dev/prod 构建分离与产物守卫等安全实践作为构建块，生产平台决定权回归项目负责人。
+- 后续实现项（未做，已在路线图登记）：`apps/web/Dockerfile` 生产 target 起容器、Secret 经容器环境变量注入、服务器级定时器（systemd timer / PM2 cron / node-cron）触发同步 tick、自托管路径端到端验证。
+
+#### 已验证（verified）
+
+- 纯文档/配置变更，无业务 RED；执行 `git diff --check` 与受改 markdown 相对链接检查通过。
+- 本批不宣称自托管部署已实现或验证；M1 部署基线条目保持未勾选，待实现与验证后回填。
+
 ### 2026-08-12 — 审查改进建议修复（I1–I16）
 
 > 状态速览：base32 padding 兼容 · 加密已知向量 + 按 key_version 选钥 · 同步看门狗 · 分页 page 上限 · 触发器 schema 注释 · 前端分页上限/AbortController/dead 态/数据源错误态 · salaryUnit 死字段清理 · 脱敏守卫强化 · HTTP 层鉴权测试 · Fixture 手机号/邮箱守卫 · outputSchema 形状校验 · portal_url 边界固化 · 文档一致性 · 单元 89 + 集成 18 + 渲染 3 通过，HTTP 层测试容器内通过

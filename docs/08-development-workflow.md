@@ -52,7 +52,7 @@ auto-headcount/
 │   ├── tests/                # 单元与集成测试（node:test，.mjs）
 │   ├── fixtures/             # 脱敏 MCP 响应样本（仅虚构数据）
 │   ├── db/ + drizzle/        # drizzle schema 与迁移（追加写触发器见 0003 注释）
-│   ├── worker/               # Cloudflare Worker 入口（fetch + scheduled）
+│   ├── worker/               # 运行时入口（fetch + 定时触发；自托管 Node 容器与 Cloudflare Worker 可选）
 │   └── package.json          # scripts：test / test:unit / test:integration / lint / db:*
 ├── docs/                     # 权威文档矩阵（00–09）+ decisions/ + validation/
 ├── docker-compose.yml        # db / migrate / web 本地编排

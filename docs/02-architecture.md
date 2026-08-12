@@ -68,7 +68,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 失败超过阈值进入 `dead`，后续转人工处理队列。
 - `payload` 为白名单 jsonb，不存敏感字段；外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
 
-触发方式：Worker `scheduled` 处理器按 cron（默认每 15 分钟）跑 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证），自动化路径配置从 Worker env 绑定解析。
+触发方式：由运行环境按 cron（默认每 15 分钟）触发 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。自托管 Node 容器由服务器级定时器（systemd timer / PM2 cron / node-cron）周期调用 `runScheduledTick`；Cloudflare Worker 部署则用 `scheduled` 处理器（可选路径，见 §6）。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证）。
 
 当任务量或并发超过单体承载能力后，再拆分 Worker 并引入专用消息队列。
 
@@ -85,12 +85,20 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 身份、区域和敏感数据存储基线见
 [`ADR-003`](decisions/ADR-003-identity-region-and-data-storage.md)。真实数据上线仍受数据授权与最终保留期限门禁约束。
 
+**工程投影（2026-08-12 基线修正：生产平台为自托管 Node 容器，Cloudflare Worker 降为可选路径）**：
+
+- 应用以 OCI 容器镜像部署（`apps/web/Dockerfile` 生产 target，`node:22` + `npm run start`），运行于自有云服务器；`DATABASE_URL` 指向服务器上的 PostgreSQL（或托管 PostgreSQL）。构建入口：`docker build --target production apps/web/` 后起容器（起容器与发布脚本随部署基线实现补齐）。
+- dev/prod 配置分离：开发经 Docker Compose 运行，Worker 运行时由 Miniflare 本地模拟并连接 Docker Postgres；生产容器**不烘焙开发数据库凭证**，Secret（MCP 凭证、`APP_ENCRYPTION_KEY` 等）经容器环境变量注入，不进镜像与构建产物。
+- 生产环境必须显式注入 `APP_ENV=production`（缺失时生产管理员 TOTP 强制与 Secure Cookie 会静默失效，`getRuntimeEnv` 会告警）；沿用 `scripts/check-deploy-env.mjs` 的 `APP_ENV` 前置校验精神。
+- 定时任务由服务器级定时器触发（见 §5）；日志走服务器进程日志 + `audit_logs` 审计。
+- 可选路径：Cloudflare Worker（`vinext build` → `wrangler deploy`，需 Hyperdrive 与 `scheduled` cron）作为备选 Serverless 方案，**不构成生产平台承诺**（ADR-001）。
+
 部署平台需满足：
 
-- Node.js 容器或 Serverless 运行时。
-- PostgreSQL 17 数据库。
+- Node.js 容器（自托管云服务器，`apps/web/Dockerfile` 生产 target）。
+- PostgreSQL 17 数据库（服务器本地或托管 PostgreSQL）。
 - HTTPS、自定义域名和密钥管理。
-- 定时任务、后台 Worker 和可检索日志。
+- 定时任务、后台任务和可检索日志。
 - 中国大陆短信、域名和数据存储相关要求由业务方确认。
 
 ## 7. 身份与授权边界
