@@ -1,4 +1,5 @@
 import {
+  boolean,
   customType,
   index,
   integer,
@@ -41,6 +42,134 @@ export const rawRecordStatus = pgEnum("raw_record_status", [
   "normalized",
   "invalid",
 ]);
+
+export const userRole = pgEnum("user_role", [
+  "operations",
+  "recruiter",
+  "admin",
+]);
+
+export const userStatus = pgEnum("user_status", ["active", "disabled"]);
+
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    status: text("status").default("active").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("organizations_name_unique").on(table.name)],
+);
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    username: text("username").notNull(),
+    status: userStatus("status").default("active").notNull(),
+    displayName: text("display_name").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    passwordChangedAt: timestamp("password_changed_at", {
+      withTimezone: true,
+    }),
+    mustChangePassword: boolean("must_change_password")
+      .default(false)
+      .notNull(),
+    totpSecret: text("totp_secret"),
+    totpEnabled: boolean("totp_enabled").default(false).notNull(),
+    failedAttempts: integer("failed_attempts").default(0).notNull(),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("users_username_unique").on(table.username),
+    index("users_organization_idx").on(table.organizationId),
+  ],
+);
+
+export const roleAssignments = pgTable(
+  "role_assignments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    role: userRole("role").notNull(),
+    grantedBy: uuid("granted_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("role_assignments_user_role_unique").on(
+      table.userId,
+      table.role,
+    ),
+    index("role_assignments_user_idx").on(table.userId),
+  ],
+);
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    idleExpiresAt: timestamp("idle_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("sessions_token_hash_unique").on(table.tokenHash),
+    index("sessions_user_idx").on(table.userId),
+  ],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    actorType: text("actor_type").notNull(),
+    actorId: uuid("actor_id"),
+    action: text("action").notNull(),
+    resourceType: text("resource_type"),
+    resourceId: text("resource_id"),
+    result: text("result").notNull(),
+    requestId: text("request_id"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+  },
+  (table) => [
+    index("audit_logs_actor_action_idx").on(table.actorType, table.action),
+    index("audit_logs_occurred_at_idx").on(table.occurredAt),
+  ],
+);
 
 export const sourceConnections = pgTable(
   "source_connections",

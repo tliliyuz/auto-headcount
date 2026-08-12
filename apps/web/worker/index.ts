@@ -1,8 +1,9 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { runWithEnv, type WorkerEnv } from "../lib/server/runtime-env";
 
-interface Env {
+interface Env extends WorkerEnv {
   ASSETS: Fetcher;
   DB: D1Database;
   IMAGES: {
@@ -12,6 +13,7 @@ interface Env {
       };
     };
   };
+  HYPERDRIVE?: { connectionString: string };
 }
 
 interface ExecutionContext {
@@ -40,7 +42,8 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    // 把 Worker env 绑定放入请求作用域，供路由/服务端代码经 getWorkerEnv() 读取
+    return runWithEnv(env, () => handler.fetch(request, env, ctx));
   },
 };
 

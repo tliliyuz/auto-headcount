@@ -14,6 +14,16 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
+  // 本地开发经 Miniflare Hyperdrive 代理到 Docker Postgres；生产部署配置真实 Hyperdrive。
+  hyperdrive: [
+    {
+      binding: "HYPERDRIVE",
+      id: "dev-local",
+      localConnectionString:
+        process.env.DATABASE_URL ??
+        "postgresql://auto_headcount:local_dev_only@127.0.0.1:5432/auto_headcount",
+    },
+  ],
   d1_databases: d1
     ? [
         {

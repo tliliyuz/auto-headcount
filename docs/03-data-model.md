@@ -5,9 +5,9 @@
 | 实体 | 关键字段 | 说明 |
 |---|---|---|
 | `organizations` | `id, name, status` | 企业/团队边界，为多租户预留 |
-| `users` | `id, organization_id, status, display_name, password_hash, password_changed_at` | 管理端本地授权主体，保存口令哈希（argon2id/bcrypt），不保存明文口令 |
-| `role_assignments` | `id, user_id, role, granted_by, revoked_at` | `operations/recruiter/admin` 角色分配 |
-| `sessions` | `id, user_id, expires_at, revoked_at` | 服务端可撤销会话；数据库只存会话令牌哈希 |
+| `users` | `id, organization_id, username, status, display_name, password_hash, password_changed_at, must_change_password, totp_secret, totp_enabled, failed_attempts, locked_until` | 管理端本地授权主体，保存口令哈希（bcrypt，成本 12），不保存明文口令；`username` 唯一，`must_change_password` 标记首登强制改密，`failed_attempts`/`locked_until` 支撑失败锁定 |
+| `role_assignments` | `id, user_id, role, granted_by, revoked_at` | `operations/recruiter/admin` 角色分配，`(user_id, role)` 唯一 |
+| `sessions` | `id, user_id, token_hash, expires_at, idle_expires_at, revoked_at` | 服务端可撤销会话；数据库只存会话令牌哈希，空闲 30 分钟与最长 12 小时双过期 |
 | `source_connections` | `id, provider, environment, status` | 外部连接元数据，不保存明文密钥 |
 | `sync_runs` | `id, source_id, type, cursor, status, stats` | 同步批次和游标 |
 | `raw_records` | `id, sync_run_id, entity_type, external_id, schema_version, payload_ciphertext, payload_nonce, key_version, payload_hash, processing_status, captured_at` | 应用层信封加密、追加写的原始数据快照 |

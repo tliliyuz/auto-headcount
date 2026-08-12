@@ -15,6 +15,13 @@
       "when": 1786451171451,
       "tag": "0001_reflective_zaladane",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786506953775,
+      "tag": "0002_steady_cargill",
+      "breakpoints": true
     }
   ]
 }

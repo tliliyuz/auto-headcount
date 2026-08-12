@@ -12,7 +12,7 @@
 
 当前切片是单页交互演示，不是完整产品原型。侧边栏多数模块、创建匹配任务、分页、触达和候选人意向提交仍是未接线占位。
 
-当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-12 已验证职位数据链路（`wb.jobs.under_served`/`wb.jobs.list` 有真实数据）与 `wb.jobs.match_candidates` 匹配摘要（姓名打码、无联系方式）；候选人列表/搜索对当前账号返回空，属权限边界。项目负责人已确认脱敏候选人数据可入库、暂不设固定保留期限上限，匹配分采用供应方 MCP，浏览器采集确认不需要。M1 数据底座已把 `wb.jobs.under_served` 接入可审计 CLI 同步任务（`npm run sync:under-served`：分页拉取、原始快照加密入库、失败记录机器可读错误码），页面/API 与真实定时调度待登录完成后接线。下一交付目标是实现最低权限登录和本地角色门禁。
+当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-12 已验证职位数据链路（`wb.jobs.under_served`/`wb.jobs.list` 有真实数据）与 `wb.jobs.match_candidates` 匹配摘要（姓名打码、无联系方式）；候选人列表/搜索对当前账号返回空，属权限边界。项目负责人已确认脱敏候选人数据可入库、暂不设固定保留期限上限，匹配分采用供应方 MCP，浏览器采集确认不需要。M1 数据底座已把 `wb.jobs.under_served` 接入可审计 CLI 同步任务（`npm run sync:under-served`：分页拉取、原始快照加密入库、失败记录机器可读错误码）。M1 自有登录后端已实现并通过运行时冒烟：`users`/`sessions`/`role_assignments`/`audit_logs` 表与迁移、`/api/auth/login|logout|me|password`、bcrypt 口令、会话令牌、连续失败锁定、首登强制改密、RFC 6238 TOTP（生产管理员强制）、dev 种子（`npm run seed:dev-users`）。页面/API 接线与真实定时调度为下一步；登录页前端仍为 mock，按「后端优先」两步交付。
 
 各里程碑状态、门禁清单与卡点见 [实施路线图](docs/05-roadmap.md)。
 

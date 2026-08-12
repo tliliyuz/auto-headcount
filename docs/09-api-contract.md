@@ -19,13 +19,16 @@
 
 | 接口 | 方法 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|
-| `/api/auth/login` | POST | 匿名 | `{ username, password, totpCode? }` | `200 { user, roles }`；失败统一 `401` |
-| `/api/auth/logout` | POST | 会话 | 会话 Cookie | `204` |
-| `/api/auth/me` | GET | 会话 | 会话 Cookie | `200 { user, roles }` / `401` |
+| `/api/auth/login` | POST | 匿名 | `{ username, password, totpCode? }` | `200 { user, roles, passwordChangeRequired }` + `Set-Cookie`；失败统一 `401`，锁定 `429` |
+| `/api/auth/logout` | POST | 会话 | 会话 Cookie | `204`，清除会话 Cookie |
+| `/api/auth/me` | GET | 会话 | 会话 Cookie | `200 { user, roles, passwordChangeRequired }` / `401` |
+| `/api/auth/password` | POST | 会话 | `{ currentPassword, newPassword }` | `200 { ok: true }`；当前口令错误 `401`，策略不合 `400` |
 
-- 口令校验使用 argon2id/bcrypt；生产管理员须携带并校验 TOTP。
-- 登录失败返回统一文案，不区分账号是否存在；连续失败限流锁定，详见 [`01-mvp-requirements.md`](01-mvp-requirements.md) §2.1。
-- 会话标识只存服务端，数据库只保存会话令牌哈希。
+- 口令校验使用 bcrypt（成本 12）；生产管理员须绑定并校验 TOTP（`totp_required` 未绑定时拒绝登录）。
+- 登录失败返回统一文案，不区分账号是否存在；连续失败（5 次）后临时锁定（15 分钟）返回 `429`。
+- 首次登录或口令重置后 `passwordChangeRequired=true`，改密成功清除且旧口令立即失效。
+- 会话标识只存服务端，数据库只保存会话令牌哈希；`HttpOnly`/`Secure`（生产）/`SameSite=Lax` Cookie，空闲 30 分钟与最长 12 小时双过期。
+- 登录、登出、锁定、改密均写审计；审计不包含口令、口令哈希、手机号、邮箱、令牌等敏感字段。
 
 ## 3. 规划端点（随里程碑补充）
 
