@@ -10,6 +10,35 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — M1 真实定时调度：数据库任务表同步调度器
+
+> 状态速览：`async_tasks` 表 + 同步调度器（周期幂等入队 / `FOR UPDATE SKIP LOCKED` 认领 / 退避重试 / 超阈值 dead）+ Worker `scheduled` 处理器（cron 每 15 分钟 tick）+ `sync.run` 系统审计 · 单元 75 + 集成 17 通过 · 调度路径由集成测试（假 MCP + 真实 DB）权威验证
+
+#### 已实现（implemented）
+
+- 新增 `async_tasks` 表（迁移 `0004_chilly_zaladane`）：`kind`/`idempotency_key`（唯一）/`status`（`pending/running/succeeded/failed/dead`）/`payload`（白名单 jsonb，同步任务只含 source 身份）/`attempts`/`scheduled_at`/`started_at`/`finished_at`/`last_error_code`/`next_attempt_at` + `(status, scheduled_at)` 调度索引。
+- 新增 `lib/jobs/async-task-repository.mjs`：幂等入队（`ON CONFLICT DO NOTHING`）、原子认领（`FOR UPDATE SKIP LOCKED`）、终态/退避状态流转。
+- 新增 `lib/jobs/sync-scheduler.mjs`：纯函数 `syncPeriodKey`/`buildSyncIdempotencyKey`/`decideTaskOutcome`/`nextRetryDelayMs`；`runScheduledTick` 先按周期幂等入队同步任务（默认 6 小时一个槽位）再处理到期任务——网络类错误（`McpDiscoveryError.retryable`，限流/超时/连接）指数退避重试、业务/配置错误不重试、超阈值 `dead`；每个任务完成写 `sync.run` 系统审计（`actor_type=system`、`request_id=task.id`、metadata 仅计数/`errorCode`）。
+- `worker/index.ts` 增 `scheduled` 处理器：`runWithEnv` 包裹 + `getDb().client` 显式建一次并关闭；配置（加密/MCP/同步源）从 Worker env 绑定解析；`vite.config.ts` 声明 cron（`triggers.crons = ["*/15 * * * *"]`，部署后生效）。dev 缺省无凭证时按失败安全处理（机器可读错误码）。
+- `runUnderServedSync` 失败结果追加 `retryable`（读 `McpDiscoveryError.retryable`）；`createDefaultCallTool` 导出并支持 `{ env }`（MCP 配置从 Worker 绑定解析，兼容旧字符串 actorId 调用）。
+- 前端数据源页「立即同步」tooltip 更新为「同步由 CLI 或定时任务触发」；`.env.example` 增 `SYNC_SOURCE_PROVIDER`/`SYNC_SOURCE_DISPLAY_NAME`/`SYNC_INTERVAL_HOURS`（非密钥）。
+- 新增 `tests/jobs/sync-scheduler.unit.test.mjs`（4）与 `tests/async-task-sync.integration.test.mjs`（6：成功/网络退避重跑/业务失败不重试/超阈值 dead/幂等入队/配置缺失）。
+
+#### 已验证（verified）
+
+- RED：单元测试因 `sync-scheduler.mjs` 缺失 `ERR_MODULE_NOT_FOUND`；集成测试因 `async_tasks` 表不存在正确 RED。
+- 实际运行命令：
+  - `docker compose run --rm web npm run test:unit`：75 通过（含新增 sync-scheduler 4）。
+  - `docker compose run --rm web npm test`：Vinext 构建完成（含 `scheduled` 处理器 + cron 声明）、rendered-html 3 通过。
+  - `docker compose run --rm web npm run test:integration`：17 通过（含新增 async-task-sync 6；audit-read 分页断言改为夹具范围，规避共享 DB 并发脆弱性）。
+  - `docker compose run --rm web npm run lint` 通过；`git diff --check` 通过；受改 markdown 相对链接检查通过。
+  - `make db-migrate`：迁移幂等复验通过（`0004` 安全跳过）。
+- 调度路径验证：集成测试为权威证明——假 MCP + 真实 PostgreSQL：enqueue→process 成功（task `succeeded`、职位入库、`sync.run` 审计 system actor + 计数 metadata）、网络错误退避回 `pending`（attempts+1、`next_attempt_at` 门控）到期重跑成功、业务错误 `failed` 不重试、超阈值 `dead`、同周期重复入队幂等、配置缺失 `ENCRYPTION_CONFIG_REQUIRED` 失败安全且不写 `sync_runs`。
+- dev server 未暴露 wrangler `--test-scheduled` 路径（`POST /__scheduled` → 404），cron 触发待部署后生效；`scheduled` 处理器接线由构建（worker 编译含 scheduled 导出）+ 集成测试（`runScheduledTick` 即处理器调用函数）覆盖。
+- 敏感边界复验：`async_tasks.payload` 仅 source 身份；`sync.run` 审计 metadata 仅计数/`errorCode`，无凭证、原始载荷、简历正文；测试后 DB 无 `async_tasks`/`sync.run` 残留。
+
+> 说明：运维直连路径 `npm run sync:under-served` 保持 CLI 直接执行（携带真实 MCP 凭证）；自动化定时路径配置从 Worker env 绑定解析（加密/MCP 凭证在部署基线条目配置，真实数据上线仍以 M0 授权门禁为准）。`async_tasks` 扩展到摘要/匹配/发送（M2+）复用同表。
+
 ### 2026-08-12 — 审查规范问题修复（N1–N12）
 
 > 状态速览：首登强制改密服务端强制 · 种子脚本 fail-closed · 运行时环境判定接线 Worker 绑定并回落告警 · 写路由 CSRF 同源校验 · 同步后关闭陈旧沉睡职位 · 推荐计数 NULL/0 同义 · MCP 公司/城市可为空 + 权限边界错误码 · prototype 头非生产门禁 · 业务请求 401 回落登录 / 403 明确无权限 · 单元 82 通过（本批新增 14）+ 集成 17 通过 · 本批此前记录的两处偏差（rendered-html title 失配、ops-read 真值 0）已修复

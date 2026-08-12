@@ -1,6 +1,8 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { runScheduledTick } from "../lib/jobs/sync-scheduler.mjs";
+import { getDb } from "../lib/server/db";
 import { runWithEnv, type WorkerEnv } from "../lib/server/runtime-env";
 
 interface Env extends WorkerEnv {
@@ -19,6 +21,11 @@ interface Env extends WorkerEnv {
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
   passThroughOnException(): void;
+}
+
+interface ScheduledEvent {
+  cron?: string;
+  scheduledTime?: Date;
 }
 
 // Image security config. SVG sources with .svg extension auto-skip the
@@ -44,6 +51,30 @@ const worker = {
 
     // 把 Worker env 绑定放入请求作用域，供路由/服务端代码经 getWorkerEnv() 读取
     return runWithEnv(env, () => handler.fetch(request, env, ctx));
+  },
+
+  /**
+   * 定时调度：按 cron 触发同步任务表 tick（入队周期任务 + 处理到期任务）。
+   * 配置（加密/MCP/同步源）从 Worker env 绑定解析；getDb() 在非请求作用域每次新建
+   * client，因此在此显式建一次并在 finally 关闭。真实 MCP 凭证只经部署绑定注入，
+   * dev 缺省无凭证时任务按失败安全处理（机器可读错误码）。
+   */
+  async scheduled(event: ScheduledEvent, env: Env) {
+    await runWithEnv(env, async () => {
+      const { client } = getDb();
+      try {
+        const result = await runScheduledTick({ env, sql: client });
+        console.log(
+          `[scheduled:tick] enqueued=${result.enqueued} claimed=${result.claimed} ` +
+            `succeeded=${result.succeeded} retried=${result.retried} ` +
+            `failed=${result.failed} dead=${result.dead}`,
+        );
+      } catch (error) {
+        console.error("[scheduled:tick] 未预期异常", error);
+      } finally {
+        await client.end();
+      }
+    });
   },
 };
 

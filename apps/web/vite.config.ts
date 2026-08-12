@@ -41,6 +41,9 @@ const localBindingConfig = {
         },
       ]
     : [],
+  // 定时调度触发（部署到生产 Workers 后生效）：每 15 分钟 tick 一次，
+  // 同步任务表调度器入队周期任务并处理到期/退避重试任务。
+  triggers: { crons: ["*/15 * * * *"] },
 };
 
 export default defineConfig(async () => {

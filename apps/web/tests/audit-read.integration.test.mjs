@@ -35,7 +35,7 @@ test(
         `;
       }
 
-      // 全局集合按页面请求，断言分页切片互斥（并发写入下不断言全局总数）
+      // 全局集合按页面请求，断言分页切片互斥（并发写入下不断言全局总数/全局首页成员）
       const page1 = await listAuditLogs(sql, { page: 1, pageSize: 2 });
       const page2 = await listAuditLogs(sql, { page: 2, pageSize: 2 });
       assert.equal(page1.page, 1);
@@ -43,13 +43,6 @@ test(
       const ids1 = new Set(page1.list.map((r) => r.id));
       assert.ok(page2.list.every((r) => !ids1.has(r.id)), "两页切片不重叠");
       assert.ok(page1.total >= 3, "全局 total 至少含夹具行");
-
-      // 第一页（pageSize 50）应包含全部夹具 action（按 occurred_at desc 最新 3 条）
-      const top = await listAuditLogs(sql, { page: 1, pageSize: 50 });
-      const topActions = new Set(top.list.map((r) => r.action));
-      for (const action of Object.values(actions)) {
-        assert.ok(topActions.has(action), `第一页应含夹具 action ${action}`);
-      }
 
       // action 精确过滤
       const okRows = await listAuditLogs(sql, { action: actions.ok });

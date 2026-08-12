@@ -60,13 +60,15 @@ MCP 只是该接口的一种实现。浏览器插件导入、CSV 导入或未来
 
 ## 5. 异步任务与可靠性
 
-MVP 使用数据库任务表处理同步、摘要、匹配和发送：
+MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理同步，后续摘要/匹配/发送复用同表：
 
 - 状态：`pending/running/succeeded/failed/dead`。
-- 同一业务操作使用唯一幂等键。
-- 网络类错误采用指数退避，业务校验错误不自动重试。
-- 失败超过阈值进入人工处理队列。
-- 外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
+- 同一业务操作使用唯一幂等键（`idempotency_key`，如 `under-served-sync:<provider>:<周期槽>`），重复入队 `ON CONFLICT DO NOTHING`。
+- 网络类错误（MCP 连接/限流/超时，`McpDiscoveryError.retryable`）指数退避重试（`next_attempt_at` 门控），业务校验错误不自动重试。
+- 失败超过阈值进入 `dead`，后续转人工处理队列。
+- `payload` 为白名单 jsonb，不存敏感字段；外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
+
+触发方式：Worker `scheduled` 处理器按 cron（默认每 15 分钟）跑 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证），自动化路径配置从 Worker env 绑定解析。
 
 当任务量或并发超过单体承载能力后，再拆分 Worker 并引入专用消息队列。
 

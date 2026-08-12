@@ -308,3 +308,41 @@ export const jobs = pgTable(
     index("jobs_raw_record_idx").on(table.rawRecordId),
   ],
 );
+
+export const asyncTaskStatus = pgEnum("async_task_status", [
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+  "dead",
+]);
+
+export const asyncTasks = pgTable(
+  "async_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: asyncTaskStatus("status").default("pending").notNull(),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .default({})
+      .notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("async_tasks_idempotency_key_unique").on(table.idempotencyKey),
+    index("async_tasks_due_idx").on(table.status, table.scheduledAt),
+  ],
+);

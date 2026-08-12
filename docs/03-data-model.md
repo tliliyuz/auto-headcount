@@ -11,7 +11,7 @@
 
 ## 2. 表清单与实现状态
 
-### 2.1 已落库（迁移 0000–0002，共 9 张）
+### 2.1 已落库（迁移 0000–0004，共 10 张）
 
 | 域 | 表 | 一句话职责 |
 |:---|:---|:---|
@@ -24,6 +24,7 @@
 | 数据 | [`sync_runs`](#62-sync_runs) | 同步批次与游标 |
 | 数据 | [`raw_records`](#63-raw_records) | AES-256-GCM 信封加密的原始载荷快照（追加写） |
 | 数据 | [`jobs`](#71-jobs) | 规范化职位；公司名/详细地址不进公开视图 |
+| 任务 | [`async_tasks`](#72-async_tasks任务调度) | 数据库任务表调度（状态/幂等键/退避重试/dead） |
 
 ### 2.2 规划表（M2–M4，未落库）
 
@@ -32,8 +33,8 @@
 ## 3. 通用存储约定
 
 - **标识与时间**：主键统一 UUID（`gen_random_uuid()`）；时间统一 `timestamptz`，服务端 `now()` 写入。
-- **枚举**：`connection_environment`（`development|test|production`）、`connection_status`（`disabled|active|error`）、`sync_run_status`（`pending|running|succeeded|failed`）、`raw_record_status`（`captured|normalized|invalid`）、`user_role`（`operations|recruiter|admin`）、`user_status`（`active|disabled`）。
-- **JSON 使用限制**：`jsonb` 仅用于结构白名单——`sync_runs.stats`（计数）、`jobs.eligibility_evidence`（供应商筛选证据）、`audit_logs.metadata`（白名单元数据）。禁止把外部完整响应或敏感正文塞进 JSON。
+- **枚举**：`connection_environment`（`development|test|production`）、`connection_status`（`disabled|active|error`）、`sync_run_status`（`pending|running|succeeded|failed`）、`raw_record_status`（`captured|normalized|invalid`）、`user_role`（`operations|recruiter|admin`）、`user_status`（`active|disabled`）、`async_task_status`（`pending|running|succeeded|failed|dead`）。
+- **JSON 使用限制**：`jsonb` 仅用于结构白名单——`sync_runs.stats`（计数）、`jobs.eligibility_evidence`（供应商筛选证据）、`audit_logs.metadata`（白名单元数据）、`async_tasks.payload`（任务白名单参数，如 source 身份）。禁止把外部完整响应或敏感正文塞进 JSON。
 - **删除与审计**：`audit_logs` 只追加、不允许应用角色更新；保留任务按策略删除并记录自身审计事件。
 
 ## 4. 领域关系
@@ -165,6 +166,18 @@ erDiagram
 | 证据 | `eligibility_evidence`, `portal_url` | 供应商筛选证据 `jsonb`；`portal_url` 仅内部 |
 | 时间 | `source_updated_at`, `created_at`, `updated_at` | 来源侧更新时间与本地时间分离 |
 
+### 7.2 `async_tasks`（任务调度）
+
+| 字段组 | 主要字段 | 约束与语义 |
+|:---|:---|:---|
+| 身份 | `id`, `kind`, `idempotency_key` | `idempotency_key` 唯一（`async_tasks_idempotency_key_unique`）；同业务操作幂等，重复入队 `ON CONFLICT DO NOTHING` |
+| 状态 | `status` | `async_task_status`：`pending/running/succeeded/failed/dead` |
+| 调度 | `payload`, `scheduled_at`, `started_at`, `finished_at` | `payload` 白名单 `jsonb`（同步任务只含 source 身份）；`scheduled_at` 计划时间，认领后 `started_at` |
+| 重试 | `attempts`, `last_error_code`, `next_attempt_at` | 认领时 `attempts+1`；网络错误指数退避由 `next_attempt_at` 门控；超阈值进 `dead`（后续转人工队列） |
+| 时间 | `created_at`, `updated_at` | 服务端写入 |
+
+**禁含**：MCP 凭证、原始载荷、简历正文、联系方式等敏感字段。`async_tasks_due_idx(status, scheduled_at)` 支撑调度认领（`FOR UPDATE SKIP LOCKED`）。
+
 ## 8. 规划表（M2–M4，未落库）
 
 字段草案见下表；**落地前必须先修订本文件、再写迁移与测试**。这些表在当前数据库**不存在**。
@@ -267,6 +280,7 @@ unknown → permitted → opted_out
 2. **`0001_reflective_zaladane`**：`raw_records` 去重唯一索引调整为 `(source_connection_id, external_id, payload_hash, sync_run_id)`，支持重跑追加快照。
 3. **`0002_steady_cargill`**：建 `user_role`/`user_status` 枚举与 `organizations`/`users`/`role_assignments`/`sessions`/`audit_logs`（含外键与索引）。
 4. **`0003_complete_wallop`**：`audit_logs` 增加 `ip_address`（可空），并建立追加写触发器 `audit_logs_no_modify`（`guard_audit_logs`：`UPDATE` 拒绝、`DELETE` 需 `app.audit_retention=on`）。
+5. **`0004_chilly_zaladane`**：建 `async_task_status` 枚举与 `async_tasks` 表（含唯一幂等键与 `(status, scheduled_at)` 调度索引）。
 
 迁移由 Drizzle journal（`__drizzle_migrations`）保证幂等，重复执行安全跳过。新增表必须在迁移前回写本文件 §2/§8。
 

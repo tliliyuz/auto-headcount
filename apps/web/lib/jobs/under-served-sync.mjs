@@ -108,12 +108,25 @@ export async function runUnderServedSync({
     } catch {
       // 记录失败本身出错时，不掩盖原始错误。
     }
-    return { status: "failed", syncRunId, sourceId, errorCode, stats: failureStats };
+    return {
+      status: "failed",
+      syncRunId,
+      sourceId,
+      errorCode,
+      retryable: isRetryableError(error),
+      stats: failureStats,
+    };
   }
 }
 
-function createDefaultCallTool(actorId) {
-  const config = loadMcpDiscoveryConfig();
+/**
+ * 默认 MCP 调用工具：配置从 `env`（Worker 绑定）或缺省 process.env 解析。
+ * 兼容旧调用 `createDefaultCallTool(actorId)`（字符串）；新调用 `createDefaultCallTool({ env })`。
+ */
+export function createDefaultCallTool(options = {}) {
+  const { actorId, env } =
+    typeof options === "string" ? { actorId: options } : options;
+  const config = loadMcpDiscoveryConfig(env);
   return async (toolName, toolArguments) =>
     callMcpTool({
       ...config,
@@ -129,4 +142,9 @@ function classifySyncError(error) {
     return typeof error.code === "string" && error.code ? error.code : "MCP_ERROR";
   }
   return "SYNC_INTERNAL_ERROR";
+}
+
+/** 网络类错误（MCP 连接/限流/超时）标记 retryable，供任务表调度退避重试。 */
+function isRetryableError(error) {
+  return error instanceof McpDiscoveryError && error.retryable === true;
 }

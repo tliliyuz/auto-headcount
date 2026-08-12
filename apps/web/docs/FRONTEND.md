@@ -22,7 +22,7 @@
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
-| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) | 已接真实数据（连接卡片 / 同步批次 / 健康面板） |
+| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) | 已接真实数据（连接卡片 / 同步批次 / 健康面板；「立即同步」disabled，同步由 CLI 或定时任务触发） |
 | 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（最新 50 条 + 上一页/下一页；筛选控件为占位禁用态） |
 
 导航为 7 个页面（无独立工作台页，沉睡职位巡检为默认落地页）。
