@@ -1,0 +1,24 @@
+{
+  "fixtureVersion": 1,
+  "fixtureType": "sanitized-tools-call-response",
+  "source": {
+    "tool": "wb.jobs.match_candidates",
+    "protocolVersion": "2025-11-25",
+    "fetchedAt": "2026-08-12",
+    "request": {
+      "job_id": "fixture-job-001",
+      "days": 90,
+      "page": 1,
+      "page_size": 3,
+      "min_score": 75,
+      "max_llm_score_count": 1
+    }
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"Code\":0,\"Message\":\"success\",\"Data\":{\"source_id\":\"fixture-job-001\",\"source_type\":\"job\",\"matches\":[{\"candidate_id\":\"fixture-candidate-001\",\"job_id\":null,\"is_own\":false,\"owner_id\":\"fixture-owner-001\",\"owner_name\":\"示例顾问甲\",\"score_from_cache\":null,\"score_updated_at\":null,\"score_status\":\"pending\",\"total_score\":null,\"tier\":null,\"dimension_scores\":null,\"match_highlights\":[],\"gap_analysis\":[],\"risk_flags\":[],\"verification_suggestions\":[],\"recruiter_note\":null,\"candidate_summary\":{\"candidate_id\":\"fixture-candidate-001\",\"portal_url\":\"https://portal.invalid/candidates/fixture-candidate-001\",\"name\":\"张**\",\"current_title\":\"产品经理\",\"current_company\":\"示例科技A\",\"category\":\"\",\"source\":\"headhunter\",\"created_by\":\"示例顾问甲\",\"created_by_id\":\"fixture-owner-001\",\"created_at\":\"2026-08-12 09:00:00\",\"city\":\"北京市\",\"expected_salary_min\":null,\"expected_salary_max\":null,\"experience_years\":0,\"industry\":\"\",\"resume_summary\":\"示例科技A-产品经理\",\"ai_profile\":null,\"ai_profile_updated_at\":null,\"ai_profile_from_cache\":null},\"job_summary\":null},{\"candidate_id\":\"fixture-candidate-002\",\"job_id\":null,\"is_own\":false,\"owner_id\":\"fixture-owner-002\",\"owner_name\":\"示例顾问乙\",\"score_from_cache\":null,\"score_updated_at\":null,\"score_status\":\"pending\",\"total_score\":null,\"tier\":null,\"dimension_scores\":null,\"match_highlights\":[],\"gap_analysis\":[],\"risk_flags\":[],\"verification_suggestions\":[],\"recruiter_note\":null,\"candidate_summary\":{\"candidate_id\":\"fixture-candidate-002\",\"portal_url\":\"https://portal.invalid/candidates/fixture-candidate-002\",\"name\":\"李**\",\"current_title\":\"资深前端工程师\",\"current_company\":\"示例电商B\",\"category\":\"\",\"source\":\"headhunter\",\"created_by\":\"示例顾问乙\",\"created_by_id\":\"fixture-owner-002\",\"created_at\":\"2026-08-11 08:00:00\",\"city\":\"上海市\",\"expected_salary_min\":null,\"expected_salary_max\":null,\"experience_years\":6,\"industry\":\"\",\"resume_summary\":\"示例电商B-资深前端工程师\",\"ai_profile\":null,\"ai_profile_updated_at\":null,\"ai_profile_from_cache\":null},\"job_summary\":null},{\"candidate_id\":\"fixture-candidate-003\",\"job_id\":null,\"is_own\":false,\"owner_id\":\"fixture-owner-003\",\"owner_name\":\"示例顾问丙\",\"score_from_cache\":null,\"score_updated_at\":null,\"score_status\":\"pending\",\"total_score\":null,\"tier\":null,\"dimension_scores\":null,\"match_highlights\":[],\"gap_analysis\":[],\"risk_flags\":[],\"verification_suggestions\":[],\"recruiter_note\":null,\"candidate_summary\":{\"candidate_id\":\"fixture-candidate-003\",\"portal_url\":\"https://portal.invalid/candidates/fixture-candidate-003\",\"name\":\"刘**\",\"current_title\":\"运营\",\"current_company\":\"示例集团C\",\"category\":\"\",\"source\":\"headhunter\",\"created_by\":\"示例顾问丙\",\"created_by_id\":\"fixture-owner-003\",\"created_at\":\"2026-08-11 07:00:00\",\"city\":\"深圳市\",\"expected_salary_min\":null,\"expected_salary_max\":null,\"experience_years\":3,\"industry\":\"\",\"resume_summary\":\"示例集团C-运营\",\"ai_profile\":null,\"ai_profile_updated_at\":null,\"ai_profile_from_cache\":null},\"job_summary\":null}],\"total\":219,\"page\":1,\"page_size\":3,\"total_pages\":73}}"
+    }
+  ],
+  "isError": false
+}

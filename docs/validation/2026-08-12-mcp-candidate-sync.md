@@ -43,6 +43,7 @@
 - 候选人数据链路：匹配摘要经 `wb.jobs.match_candidates` 可用且姓名已打码；候选人列表/搜索对当前账号为空。
 - 浏览器采集确认不需要（2026-08-12 澄清流程偏差），MCP 为唯一主数据接入。
 - 项目负责人确认脱敏候选人数据可入库，暂不设固定保留期限上限。
+- 候选人脱敏 Fixture 已归档：`apps/web/fixtures/mcp/match-candidates-response-2026-08-12.json`（虚构化、无真实 Portal 域名、保留评分 `pending` 边界），2 个 Fixture 一致性测试通过。
 
 ## 下一门禁
 
