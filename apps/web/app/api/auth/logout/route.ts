@@ -6,8 +6,12 @@ import {
   writeAudit,
 } from "../../../../lib/identity/auth-http";
 import { clearSessionCookie } from "../../../../lib/identity/session-token.mjs";
+import { requireSameOrigin } from "../../../../lib/identity/csrf.mjs";
 
 export async function POST(request: Request): Promise<Response> {
+  const csrfBlock = requireSameOrigin(request);
+  if (csrfBlock) return csrfBlock;
+
   const requestId = newRequestId();
   const { service, repo } = getAuthContext();
   const token = readSessionToken(request);

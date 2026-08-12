@@ -6,6 +6,7 @@ import postgres from "postgres";
 
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
 import { runUnderServedSync } from "../lib/jobs/under-served-sync.mjs";
+import { listUnderServedJobs } from "../lib/jobs/job-read-repository.mjs";
 
 const connectionString = process.env.DATABASE_URL;
 const encryption = {
@@ -95,6 +96,7 @@ test(
         eligible: 2,
         skipped: 1,
         persisted: 2,
+        closedStale: 0,
       });
 
       const jobsAfterFirst = await sql`
@@ -249,6 +251,89 @@ test(
       `;
       assert.equal(jobCount.count, 0);
       assert.equal(rawCount.count, 0);
+    } finally {
+      if (sourceId) {
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "同步后关闭陈旧沉睡职位：供应方列表消失的职位标记 closed，退出沉睡列表",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = {
+      provider: `fixture-sync-${marker}`,
+      environment: "test",
+      displayName: "Fixture Under Served Sync",
+    };
+    let sourceId;
+
+    try {
+      // 首次：供应方返回 alpha + beta 两个合格职位
+      const firstPage = fakePage({
+        total: 2,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+        list: [fakeJob("alpha", 9, "SECRET_COMPANY_MARKER_A"), fakeJob("beta", 12, "SECRET_COMPANY_MARKER_B")],
+      });
+      const first = await runUnderServedSync({
+        sql,
+        encryption,
+        source,
+        pageSize: 20,
+        mcp: { callTool: async () => firstPage },
+      });
+      sourceId = first.sourceId;
+      assert.equal(first.status, "succeeded");
+      assert.equal(first.stats.closedStale, 0);
+
+      // 第二次：beta 从供应方列表消失（已关闭/已有推荐）
+      const secondPage = fakePage({
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+        list: [fakeJob("alpha", 10, "SECRET_COMPANY_MARKER_A")],
+      });
+      const second = await runUnderServedSync({
+        sql,
+        encryption,
+        source,
+        pageSize: 20,
+        mcp: { callTool: async () => secondPage },
+      });
+      assert.equal(second.status, "succeeded");
+      assert.equal(second.stats.closedStale, 1, "beta 应被标记 closed");
+
+      const rows = await sql`
+        select external_id, status
+        from jobs
+        where source_connection_id = ${sourceId}
+        order by external_id
+      `;
+      assert.deepEqual(
+        rows.map((r) => [r.external_id, r.status]),
+        [
+          ["alpha", "active"],
+          ["beta", "closed"],
+        ],
+      );
+
+      // beta 不再出现在沉睡列表
+      const dormant = await listUnderServedJobs(sql, { pageSize: 100 });
+      const dormantBeta = dormant.list.some(
+        (job) => job.externalId === "beta",
+      );
+      assert.equal(dormantBeta, false, "closed 职位不应进入沉睡列表");
     } finally {
       if (sourceId) {
         await sql`delete from jobs where source_connection_id = ${sourceId}`;

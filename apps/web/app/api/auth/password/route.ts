@@ -6,8 +6,12 @@ import {
   readSessionToken,
   writeAudit,
 } from "../../../../lib/identity/auth-http";
+import { requireSameOrigin } from "../../../../lib/identity/csrf.mjs";
 
 export async function POST(request: Request): Promise<Response> {
+  const csrfBlock = requireSameOrigin(request);
+  if (csrfBlock) return csrfBlock;
+
   const requestId = newRequestId();
   let payload: { currentPassword?: unknown; newPassword?: unknown };
   try {
@@ -47,7 +51,8 @@ export async function POST(request: Request): Promise<Response> {
     });
     return jsonResponse({ ok: true });
   } catch (error) {
-    writeAudit(repo, {
+    // 与成功分支一致：workerd 下审计必须在本请求上下文内完成，故 await。
+    await writeAudit(repo, {
       actorType: "user",
       actorId: null,
       action: "auth.password_change",

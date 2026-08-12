@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
 import {
   changePasswordRequest,
@@ -304,7 +304,7 @@ function FunnelPage() {
   return <><PageIntro eyebrow="近 30 天运营数据" title="转化趋势" description="从消息发送到完成推荐，按职位、活动和渠道观察每一层转化。" action="导出报表" /><div className="analytics-grid"><section className="surface-card trend-card"><div className="surface-header"><div><h2>触达与意向趋势</h2><p>7 月 13 日 — 8 月 11 日</p></div><div className="legend"><span><i className="blue" />已送达</span><span><i className="green" />表达意向</span></div></div><div className="chart-area"><div className="y-axis"><span>300</span><span>200</span><span>100</span><span>0</span></div><div className="bar-chart">{bars.map((bar, index) => <div key={index}><i style={{ height: `${bar}%` }} /><b style={{ height: `${Math.max(8, bar * .18)}%` }} /></div>)}</div></div><div className="x-labels"><span>7/13</span><span>7/20</span><span>7/27</span><span>8/3</span><span>8/11</span></div></section><section className="surface-card funnel-card"><div className="surface-header"><div><h2>全链路漏斗</h2><p>所有渠道汇总</p></div></div><div className="funnel-steps">{stages.map((stage, index) => <div key={stage[0]} style={{ width: `${100 - index * 7}%` }}><span>{stage[0]}</span><strong>{stage[1]}</strong><em>{stage[2]}</em></div>)}</div></section></div><section className="surface-card data-card channel-performance"><div className="surface-header"><div><h2>职位转化表现</h2><p>按最终推荐率排序</p></div><button className="plain-filter">全部活动⌄</button></div><div className="data-table performance-table"><div className="data-row data-head"><span>职位</span><span>已送达</span><span>点击率</span><span>意向率</span><span>确认联系</span><span>完成推荐</span></div>{[["资深前端工程师","384","32.6%","11.7%","28","9"],["AI 产品经理","296","29.4%","10.1%","19","7"],["高级数据分析师","248","25.8%","7.7%","12","5"],["海外市场负责人","182","31.3%","9.3%","11","4"]].map((row) => <div className="data-row" key={row[0]}>{row.map((cell, index) => <span key={cell}>{index === 0 ? <strong>{cell}</strong> : cell}</span>)}</div>)}</div></section></>;
 }
 
-function SourcesPage() {
+function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [sources, setSources] = useState<SourceView[]>([]);
   const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
@@ -317,15 +317,30 @@ function SourcesPage() {
         fetchSyncRuns({ pageSize: 20 }),
       ]);
       if (cancelled) return;
-      if (sourcesResult.ok) setSources(sourcesResult.data.list);
-      if (runsResult.ok) setSyncRuns(runsResult.data.list);
+      // 会话中途失效：退回登录页，不滞留空工作台。
+      if (!sourcesResult.ok) {
+        if (sourcesResult.status === 401 || sourcesResult.code === "password_change_required") {
+          onAuthExpired();
+          return;
+        }
+      } else {
+        setSources(sourcesResult.data.list);
+      }
+      if (!runsResult.ok) {
+        if (runsResult.status === 401 || runsResult.code === "password_change_required") {
+          onAuthExpired();
+          return;
+        }
+      } else {
+        setSyncRuns(runsResult.data.list);
+      }
     })().finally(() => {
       if (!cancelled) setSourcesLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onAuthExpired]);
 
   const primarySource = sources.find((s) => s.status === "active") ?? sources[0];
 
@@ -346,7 +361,7 @@ function SourcesPage() {
               <div><small>契约版本</small><strong>2025-11-25</strong></div>
             </div>
             <div className="source-actions">
-              <button className="secondary-button" disabled title="同步由 CLI 触发：npm run sync:under-served">立即同步</button>
+              <button className="secondary-button" disabled title="同步由 CLI 或定时任务触发：npm run sync:under-served">立即同步</button>
               <button>查看字段映射</button>
               <button>连接设置</button>
             </div>
@@ -426,7 +441,7 @@ const AUDIT_ACTOR_VIEW: Record<string, string> = {
   system: "系统任务",
 };
 
-function AuditPage() {
+function AuditPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [logs, setLogs] = useState<AuditLogView[]>([]);
   const [auditLoading, setAuditLoading] = useState(true);
   const [auditError, setAuditError] = useState<string | null>(null);
@@ -445,7 +460,11 @@ function AuditPage() {
         setAuditTotal(result.data.total);
         setAuditTotalPages(result.data.total_pages);
         setAuditError(null);
-      } else if (result.status !== 401) {
+      } else if (result.status === 401 || result.code === "password_change_required") {
+        onAuthExpired();
+      } else if (result.status === 403) {
+        setAuditError("无权限访问该数据");
+      } else {
         setAuditError("加载失败，请稍后重试");
       }
     })().finally(() => {
@@ -454,7 +473,7 @@ function AuditPage() {
     return () => {
       cancelled = true;
     };
-  }, [auditPage]);
+  }, [auditPage, onAuthExpired]);
 
   const firstShown = logs.length === 0 ? 0 : (auditPage - 1) * pageSize + 1;
   const lastShown = logs.length === 0 ? 0 : (auditPage - 1) * pageSize + logs.length;
@@ -507,13 +526,19 @@ function AuditPage() {
   );
 }
 
-function PrototypePage({ page }: { page: Exclude<PageId, "jobs"> }) {
+function PrototypePage({
+  page,
+  onAuthExpired,
+}: {
+  page: Exclude<PageId, "jobs">;
+  onAuthExpired: () => void;
+}) {
   if (page === "matching") return <MatchingPage />;
   if (page === "campaigns") return <CampaignsPage />;
   if (page === "followups") return <FollowupsPage />;
   if (page === "funnel") return <FunnelPage />;
-  if (page === "sources") return <SourcesPage />;
-  return <AuditPage />;
+  if (page === "sources") return <SourcesPage onAuthExpired={onAuthExpired} />;
+  return <AuditPage onAuthExpired={onAuthExpired} />;
 }
 
 export function OperationsDashboard({ initialView = "login" }: { initialView?: "login" | "app" } = {}) {
@@ -539,6 +564,12 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     void meRequest().then((result) => {
       if (cancelled) return;
       if (result.ok) {
+        if (result.data.passwordChangeRequired) {
+          // 会话仍带强制改密标记（绕过首登改密的存量会话）：退回登录，
+          // 重新登录时会进入设置新口令步骤。
+          setView("login");
+          return;
+        }
         setUser(toAuthUser(result.data));
         setView("app");
       } else {
@@ -550,8 +581,16 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     };
   }, []);
 
+  // 会话中途失效/改密未完成的统一回落：退回登录页（重新登录后按需进入改密步骤）。
+  // useCallback 保证身份稳定，子页面效果可作为依赖而不会反复重建。
+  const handleAuthExpired = useCallback(() => {
+    setUser({ name: "林然", role: "招聘运营" });
+    setView("login");
+  }, []);
+
   // 业务数据加载：SSR 阶段无数据库，进入工作台后客户端拉取。
-  // 401（会话失效）不在此设置错误文案——meRequest 会把视图切回登录页。
+  // 401（会话中途失效）与 password_change_required 统一退回登录页；
+  // 403 显示明确的无权限文案，其余失败为通用重试文案。
   useEffect(() => {
     if (view !== "app") return;
     let cancelled = false;
@@ -563,7 +602,13 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
         const result = await fetchDormantJobs({ page, pageSize });
         if (cancelled) return;
         if (!result.ok) {
-          if (result.status !== 401) setJobsError("加载失败，请稍后重试");
+          if (result.status === 401 || result.code === "password_change_required") {
+            handleAuthExpired();
+          } else if (result.status === 403) {
+            setJobsError("无权限访问该数据");
+          } else {
+            setJobsError("加载失败，请稍后重试");
+          }
           return;
         }
         collected.push(...result.data.list);
@@ -575,8 +620,11 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
       setDormantJobs(collected);
       setSelectedId((current) => current ?? collected[0]?.id ?? null);
       const latest = await fetchSyncRuns({ pageSize: 1 });
-      if (!cancelled && latest.ok) {
+      if (cancelled) return;
+      if (latest.ok) {
         setLatestSyncAt(latest.data.list[0]?.startedAt ?? null);
+      } else if (latest.status === 401 || latest.code === "password_change_required") {
+        handleAuthExpired();
       }
     })().finally(() => {
       if (!cancelled) setJobsLoading(false);
@@ -584,7 +632,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     return () => {
       cancelled = true;
     };
-  }, [view]);
+  }, [view, handleAuthExpired]);
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -705,7 +753,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
             </div>
             <div className="heading-actions">
               <span className="last-sync">最近同步：{formatDateTime(latestSyncAt)}</span>
-              <button className="secondary-button" disabled title="同步由 CLI 触发：npm run sync:under-served">
+              <button className="secondary-button" disabled title="同步由 CLI 或定时任务触发：npm run sync:under-served">
                 <span>↻</span>同步职位
               </button>
               <button className="primary-button" disabled={selectedRows.length === 0}>
@@ -835,7 +883,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               )}
             </aside>
           </section>
-          </> : <PrototypePage page={activePage} />}
+          </> : <PrototypePage page={activePage} onAuthExpired={handleAuthExpired} />}
         </div>
       </main>
 

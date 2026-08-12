@@ -110,7 +110,7 @@ export async function persistUnderServedJob(
       status = excluded.status,
       published_at = excluded.published_at,
       days_without_recommendation = excluded.days_without_recommendation,
-      valid_recommendation_count = excluded.valid_recommendation_count,
+      /* valid_recommendation_count 由推荐工作流维护，重同步不得用 NULL 覆盖既有计数 */
       eligibility_evidence = excluded.eligibility_evidence,
       portal_url = excluded.portal_url,
       source_updated_at = excluded.source_updated_at,
@@ -119,6 +119,28 @@ export async function persistUnderServedJob(
   `;
 
   return { rawRecordId: rawRecord.id, jobId: savedJob.id };
+}
+
+/**
+ * 同步后关闭陈旧沉睡职位：本次全量同步未见（供应方已关闭/已有推荐/退出沉睡）的
+ * active 且 7–30 天职位标记 `closed`，退出沉睡列表；retention 再按 TTL 清理 closed 行。
+ * `activeExternalIds` 为本次同步实际写入的合格职位 externalId 集合；空数组表示
+ * 供应方当前无任何沉睡职位（`<> all('{}')` 恒真，全部关闭）。
+ */
+export async function closeStaleUnderServedJobs(
+  sql,
+  { sourceId, activeExternalIds },
+) {
+  const ids = Array.isArray(activeExternalIds) ? activeExternalIds : [];
+  const result = await sql`
+    update jobs
+    set status = 'closed', updated_at = now()
+    where source_connection_id = ${sourceId}
+      and status = 'active'
+      and days_without_recommendation between 7 and 30
+      and external_id <> all(${ids})
+  `;
+  return Number(result.count);
 }
 
 export async function finishSyncRun(sql, syncRunId, stats) {

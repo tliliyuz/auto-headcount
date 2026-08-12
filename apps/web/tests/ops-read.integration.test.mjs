@@ -191,3 +191,69 @@ test(
     }
   },
 );
+
+test(
+  "valid_recommendation_count：真值 0 纳入沉睡，重同步不覆盖既有计数",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    let sourceId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-${marker}-n6`,
+        environment: "test",
+        displayName: "Fixture N6 Source",
+      });
+
+      // 首次同步写入两条零推荐职位（NULL）
+      const run1 = await startSyncRun(sql, sourceId, "under_served_jobs");
+      await persistUnderServedJob(sql, {
+        sourceId,
+        syncRunId: run1,
+        rawPayload: { job_id: "n6-zero" },
+        job: fixtureJob("n6-zero", { title: "N6 Zero", category: "Data", city: "Hangzhou", ageDays: 9 }),
+        encryption,
+      });
+      await finishSyncRun(sql, run1, { processed: 1, persisted: 1 });
+
+      // 推荐工作流写入真值 0（而非 NULL）
+      await sql`
+        update jobs set valid_recommendation_count = 0
+        where source_connection_id = ${sourceId} and external_id = 'n6-zero'
+      `;
+
+      // 真值 0 仍应纳入沉睡列表（q 按标题 "N6 Zero" 命中）
+      const afterZero = await listUnderServedJobs(sql, { q: "N6", pageSize: 100 });
+      assert.equal(afterZero.list.length, 1, "valid_recommendation_count=0 应纳入沉睡");
+      assert.equal(afterZero.list[0].recommendationCount, 0);
+
+      // 重同步：upsert 不得用 NULL 覆盖既有计数
+      const run2 = await startSyncRun(sql, sourceId, "under_served_jobs");
+      await persistUnderServedJob(sql, {
+        sourceId,
+        syncRunId: run2,
+        rawPayload: { job_id: "n6-zero" },
+        job: fixtureJob("n6-zero", { title: "N6 Zero", category: "Data", city: "Hangzhou", ageDays: 9 }),
+        encryption,
+      });
+      await finishSyncRun(sql, run2, { processed: 1, persisted: 1 });
+
+      const [row] = await sql`
+        select valid_recommendation_count from jobs
+        where source_connection_id = ${sourceId} and external_id = 'n6-zero'
+      `;
+      assert.equal(row.valid_recommendation_count, 0, "重同步不得用 NULL 覆盖推荐计数");
+      const afterResync = await listUnderServedJobs(sql, { q: "N6", pageSize: 100 });
+      assert.equal(afterResync.list.length, 1, "重同步后真值 0 仍应纳入沉睡");
+    } finally {
+      if (sourceId) {
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);

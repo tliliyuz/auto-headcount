@@ -10,6 +10,34 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 审查规范问题修复（N1–N12）
+
+> 状态速览：首登强制改密服务端强制 · 种子脚本 fail-closed · 运行时环境判定接线 Worker 绑定并回落告警 · 写路由 CSRF 同源校验 · 同步后关闭陈旧沉睡职位 · 推荐计数 NULL/0 同义 · MCP 公司/城市可为空 + 权限边界错误码 · prototype 头非生产门禁 · 业务请求 401 回落登录 / 403 明确无权限 · 单元 82 通过（本批新增 14）+ 集成 17 通过 · 本批此前记录的两处偏差（rendered-html title 失配、ops-read 真值 0）已修复
+
+#### 已实现（implemented）
+
+- 首登强制改密服务端强制（审查 N1）：`lib/server/with-audit-gate.mjs` 新增纯函数判定，`lib/server/with-audit.ts` 在 `allowedRoles` 业务只读端点校验 `passwordChangeRequired`，未改密返回 403 `password_change_required`（denied 审计）；登录/改密/me/logout 认证路由不受影响。
+- 种子脚本门禁 fail-closed（审查 N2）：`scripts/seed-dev-users.mjs` 不再缺省 development 放行，须显式 `APP_ENV=development`/`NODE_ENV=development`，防止误对生产 `DATABASE_URL` 用公开 fixture 凭据建号。
+- 运行时环境判定（审查 N3）：`lib/server/runtime-env.ts` 优先读 Worker `env.APP_ENV` 绑定（生产经 wrangler vars 注入是权威来源），再回落 `process.env`；两者均未声明时回落 development 并**显式告警**，避免生产漏配时静默关闭 TOTP 强制与 Secure Cookie。
+- 写操作 CSRF 防护（审查 N4）：新增 `lib/identity/csrf.mjs` 同源校验（Origin vs 请求自身 origin），`login`/`logout`/`password` 三个 POST 写路由入口执行，补齐 ADR-003/004 与 docs 已登记的缺口。
+- 同步后关闭陈旧沉睡职位（审查 N5）：`lib/jobs/job-sync-repository.mjs` 新增 `closeStaleUnderServedJobs`，`under-served-sync.mjs` 在全量同步成功后关闭本次未出现的 active 7–30 天职位（`maxPages` 截断时跳过），退出沉睡列表；`stats.closedStale` 记数。
+- 推荐计数 NULL/0 口径（审查 N6）：`job-read-repository.mjs` 沉睡查询同时纳入 `NULL` 与真值 `0`；`job-sync-repository.mjs` upsert 不再用 `NULL` 覆盖既有 `valid_recommendation_count`。
+- MCP 契约放宽 + 权限边界错误码（审查 N7/N8）：`mcp-under-served-contract.mjs` 公司/城市接受空/null（归一空串入库，满足 NOT NULL），非字符串仍拒绝；新增 `MCP_PERMISSION_BOUNDARY`（403/1003/1004）与 `MCP_UPSTREAM_ERROR` 区分，供调用方按「不重试/不换身份」处理。
+- `x-prototype-view` 非生产门禁（审查 N9）：`app/page.tsx` 仅在非生产环境放行 prototype 头，`tests/rendered-html.test.mjs` 显式声明 `APP_ENV=development`（vite 构建会把 NODE_ENV 烘焙为 production）。
+- 审计 await 与前端会话/权限处理（审查 N10/N11/N12）：`password` 路由失败分支补 `await writeAudit`；`operations-dashboard.tsx` 业务请求 401/`password_change_required` 统一回落登录、403 显示「无权限访问该数据」，`handleAuthExpired` 经 `useCallback` 稳定透传子页面。
+- 新增测试：`tests/identity/csrf.test.mjs`、`tests/server/with-audit-gate.test.mjs`；扩展 `tests/identity/seed-dev-gate.test.mjs`（未声明环境拒绝）、`tests/mcp-under-served-contract.test.mjs`（空公司/城市、权限边界码）、`tests/ops-read.integration.test.mjs`（真值 0 纳入 + 重同步不覆盖）、`tests/under-served-sync.integration.test.mjs`（陈旧关闭）；`package.json` test:unit 清单同步。
+
+#### 已验证（verified）
+
+- RED：本批新增用例在对应行为缺失时先失败（seed 未声明环境放行、契约拒绝空公司/城市、单码折叠、沉睡忽略真值 0、陈旧职位不关闭）。
+- 实际运行命令（本批范围）：
+  - `node --test`（tests/identity/csrf + tests/server/with-audit-gate）：7 通过。
+  - `npm run test:unit`：82 通过（本批新增 14；含并发在途 sync-scheduler 用例）。
+  - `docker compose run --rm web npm run test:integration`：17 通过（本批新增 2：陈旧关闭、真值 0/不覆盖）。
+  - `docker compose run --rm web npm test`：退出 0，rendered-html 3/3。
+  - 本批改动文件 `npx eslint`：0 问题。
+- 已知偏差（非本批引入，来自并发参与者在途改动）：工作区 `make check` 仍因 `lib/jobs/sync-scheduler.mjs`（`now` 未用）与 `worker/index.ts`（`ctx` 未用）报 2 个 lint error，文件不在本批范围，交由并发参与者收尾。
+
 ### 2026-08-12 — 登录安全加固：TOTP 计入锁定 + 生产首管理员 TOTP 预置
 
 > 状态速览：TOTP 校验失败计入连续失败锁定（堵 MFA 无限爆破）· `init-admin` 预置随机 TOTP 密钥并输出 otpauth URI（解首管理员登录死锁）· 单元 70 通过 · 全量套件受并发在途改动阻塞，见「已知偏差」

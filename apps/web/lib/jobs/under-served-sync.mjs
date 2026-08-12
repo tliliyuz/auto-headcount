@@ -9,6 +9,7 @@ import {
   selectEligibleUnderServedPairs,
 } from "../adapters/mcp-under-served-contract.mjs";
 import {
+  closeStaleUnderServedJobs,
   failSyncRun,
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -47,6 +48,8 @@ export async function runUnderServedSync({
   const sourceId = await getOrCreateSourceConnection(sql, source);
   const syncRunId = await startSyncRun(sql, sourceId, "under_served_jobs");
   const stats = { pages: 0, seen: 0, eligible: 0, skipped: 0, persisted: 0 };
+  // 本次全量同步实际写入的合格职位 externalId（用于关闭陈旧沉睡职位）。
+  const activeExternalIds = [];
 
   try {
     let pageNumber = 1;
@@ -76,6 +79,7 @@ export async function runUnderServedSync({
           encryption,
         });
         stats.persisted += 1;
+        activeExternalIds.push(job.externalId);
       }
 
       if (totalPages === 0) break;
@@ -84,6 +88,14 @@ export async function runUnderServedSync({
 
     if (totalPages > maxPages) {
       stats.maxPagesReached = 1;
+    }
+
+    // 全量拉取成功才关闭陈旧沉睡职位；maxPages 截断时跳过，避免误关未拉取到的职位。
+    if (!stats.maxPagesReached) {
+      stats.closedStale = await closeStaleUnderServedJobs(sql, {
+        sourceId,
+        activeExternalIds,
+      });
     }
 
     await finishSyncRun(sql, syncRunId, stats);

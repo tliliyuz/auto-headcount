@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+// 显式声明非生产环境：vite 构建会把 process.env.NODE_ENV 烘焙为 "production"，
+// 而 `x-prototype-view` 覆盖仅在非生产环境生效（N9 环境门禁），
+// 测试须在 development 语境下验证两个视图的 SSR 渲染。
+process.env.APP_ENV = "development";
+
 async function render(view = "login") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);

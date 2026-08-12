@@ -29,10 +29,11 @@
 - 首次登录或口令重置后 `passwordChangeRequired=true`，改密成功清除且旧口令立即失效。
 - 会话标识只存服务端，数据库只保存会话令牌哈希；`HttpOnly`/`Secure`（生产）/`SameSite=Lax` Cookie，空闲 30 分钟与最长 12 小时双过期。
 - 登录、登出、锁定、改密均写审计；审计不包含口令、口令哈希、手机号、邮箱、令牌等敏感字段。
+- 三个 POST 写路由（`login`/`logout`/`password`）执行同源校验（`Origin` 与请求自身 origin 一致）：跨源返回 `403 { code:"forbidden" }`，缺失 `Origin`（同源导航/非浏览器客户端）放行；主防线为 `SameSite=Lax` Cookie，本检查覆盖同站子域/代理残余边界（CSRF 防护，ADR-003/004）。
 
 ### 2.2 业务只读（M1 · jobs / sources 模块）
 
-统一要求：会话 + RBAC `operations|admin`（`recruiter` 拒绝 → `403 { code:"forbidden", message:"没有权限访问该资源" }`）；每次访问写数据审计（`jobs.list` / `sources.list` / `sync-runs.list`，成功元数据仅计数与分页，角色拒绝记 `result:"denied"`）；分页包络 `{ total, page, page_size, total_pages, list }`；非法分页参数 → `400 { code:"invalid_request" }`。
+统一要求：会话 + RBAC `operations|admin`（`recruiter` 拒绝 → `403 { code:"forbidden", message:"没有权限访问该资源" }`）；会话 `passwordChangeRequired=true`（首登/重置后未改密）→ `403 { code:"password_change_required" }`，改密前不能使用业务功能；每次访问写数据审计（`jobs.list` / `sources.list` / `sync-runs.list`，成功元数据仅计数与分页，角色/改密门禁拒绝记 `result:"denied"`）；分页包络 `{ total, page, page_size, total_pages, list }`；非法分页参数 → `400 { code:"invalid_request" }`。
 
 | 接口 | 方法 | 鉴权 | 请求 Query | 响应 |
 |---|---|---|---|---|

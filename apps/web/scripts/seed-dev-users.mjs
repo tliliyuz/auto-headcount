@@ -2,8 +2,9 @@
 /**
  * 开发环境种子用户（Fixture 登录）。
  *
- * 门禁：仅允许在 development 环境运行（APP_ENV / NODE_ENV 均为非 development 时拒绝），
- * 测试与生产构建无法启用此路径。种子口令为开发专用 fixture 值，可用环境变量覆盖：
+ * 门禁：仅允许显式声明为 development 时运行（APP_ENV=development 或 NODE_ENV=development），
+ * 未声明或声明为 test/production 一律拒绝（fail-closed，与 init-admin 的 fail-closed 语义一致），
+ * 防止误对生产 DATABASE_URL 用公开 fixture 凭据建号。种子口令为开发专用 fixture 值，可用环境变量覆盖：
  *   DEV_SEED_OPS_PASSWORD   ops 账号口令（默认 OpsPass2026!）
  *   DEV_SEED_ADMIN_PASSWORD admin 账号口令（默认 AdminPass2026!，强制首改密）
  * 环境变量以 `replace_with_` 开头的占位值视为「未设置」，回退默认口令，
@@ -14,10 +15,12 @@ import postgres from "postgres";
 
 import { hashPassword } from "../lib/identity/password-hashing.mjs";
 
-const runtimeEnv = process.env.APP_ENV ?? process.env.NODE_ENV ?? "development";
+// 不设缺省：未显式声明 development 即拒绝，避免漏配环境时对任意 DATABASE_URL 放行。
+const runtimeEnv = process.env.APP_ENV ?? process.env.NODE_ENV;
 if (runtimeEnv !== "development") {
   process.stderr.write(
-    `seed-dev-users 仅允许在 development 环境运行（当前：${runtimeEnv}）\n`,
+    `seed-dev-users 仅允许在 development 环境运行（当前：${runtimeEnv ?? "未声明"}）。` +
+      `请显式设置 APP_ENV=development（或 NODE_ENV=development）后重试\n`,
   );
   process.exit(1);
 }

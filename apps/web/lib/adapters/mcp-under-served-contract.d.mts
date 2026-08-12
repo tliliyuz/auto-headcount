@@ -35,7 +35,10 @@ export type UnderServedJobPair = {
 };
 
 export class McpContractError extends Error {
-  code: "MCP_CONTRACT_INVALID" | "MCP_UPSTREAM_ERROR";
+  code:
+    | "MCP_CONTRACT_INVALID"
+    | "MCP_UPSTREAM_ERROR"
+    | "MCP_PERMISSION_BOUNDARY";
 }
 
 export function parseUnderServedJobsResult(result: unknown): UnderServedJobPage;

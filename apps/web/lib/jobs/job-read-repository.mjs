@@ -3,8 +3,9 @@
  *
  * 沉睡规则（01-mvp-requirements §1.1）的 SQL 投影：
  *   status = 'active' AND days_without_recommendation BETWEEN 7 AND 30
- *   AND valid_recommendation_count IS NULL
- * （7/30 天边界包含在内；同步任务把零推荐职位写入 valid_recommendation_count = NULL。）
+ *   AND (valid_recommendation_count IS NULL OR valid_recommendation_count = 0)
+ * （7/30 天边界包含在内；同步任务把零推荐职位写入 valid_recommendation_count = NULL，
+ * 未来推荐工作流写入真值 0 时同样纳入——NULL 与 0 同义。）
  * 此查询命中既有索引 jobs_under_served_idx(status, days_without_recommendation)。
  *
  * 字段投影为内部运营 API 白名单：company_name/detailed_location 仅内部可见；
@@ -21,7 +22,7 @@ export async function listUnderServedJobs(
   const where = sql`
     status = 'active'
     and days_without_recommendation between 7 and 30
-    and valid_recommendation_count is null
+    and (valid_recommendation_count is null or valid_recommendation_count = 0)
     ${categoryFilter ? sql` and category = ${category}` : sql``}
     ${query ? sql` and (title ilike ${needle} or city ilike ${needle})` : sql``}
   `;

@@ -8,6 +8,7 @@ import {
 } from "../identity/auth-http";
 import { authorizeOrForbidden } from "../identity/authz.mjs";
 import { planAudit } from "./audit.mjs";
+import { passwordChangeBlockResponse } from "./with-audit-gate.mjs";
 
 /** 中间件向 handler 提供的上下文：requestId + 原始请求 + 已解析会话（allowedRoles 时非 null）。 */
 export type AuditRouteContext = {
@@ -52,6 +53,7 @@ export function resolveClientIp(request: Request): string | null {
  * 通用审计中间件：统一 request_id / IP / actor 解析与结果推导，
  * 保证受保护路由的每次访问都落审计（含未预期异常写 failure，收口 500 无审计缺口）。
  * handler 返回 { response, audit? }；成功审计元数据只保留 spec.auditMetadataKeys 白名单键。
+ * 有 allowedRoles 时先执行首登强制改密门禁：会话 passwordChangeRequired 则 403 拒绝（denied 审计）。
  */
 export function withAudit(
   spec: AuditSpec,
@@ -72,6 +74,25 @@ export function withAudit(
     }
 
     if (spec.allowedRoles) {
+      const passwordChangeBlock = passwordChangeBlockResponse(
+        sessionUser,
+        spec.allowedRoles,
+      );
+      if (passwordChangeBlock) {
+        await writeAudit(
+          repo,
+          planAudit({
+            requestId,
+            actor: sessionUser?.user ?? null,
+            action: spec.action,
+            resourceType: spec.resourceType,
+            outcome: "denied",
+            ipAddress: resolveClientIp(request),
+          }),
+        );
+        return passwordChangeBlock;
+      }
+
       const forbidden = authorizeOrForbidden(sessionUser, spec.allowedRoles);
       if (forbidden) {
         await writeAudit(

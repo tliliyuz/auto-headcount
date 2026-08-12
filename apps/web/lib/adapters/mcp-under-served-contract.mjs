@@ -6,6 +6,13 @@ export class McpContractError extends Error {
   }
 }
 
+/**
+ * 权限边界业务码：供应商语义上属「越权/数据范围之外」而非瞬时故障
+ * （docs/04 §4「403、业务错误 1004 或空结果按权限边界处理」；实测 match_candidates 返回 1003）。
+ * 调用方据此不重试、不换身份。
+ */
+export const PERMISSION_BOUNDARY_CODES = new Set([403, 1003, 1004]);
+
 export function parseUnderServedJobsResult(result) {
   if (!isObject(result) || !Array.isArray(result.content)) {
     throw invalid("content must be an array");
@@ -35,7 +42,9 @@ export function parseUnderServedJobsResult(result) {
   if (payload.Code !== 0) {
     throw new McpContractError(
       "MCP provider returned a business error",
-      "MCP_UPSTREAM_ERROR",
+      PERMISSION_BOUNDARY_CODES.has(payload.Code)
+        ? "MCP_PERMISSION_BOUNDARY"
+        : "MCP_UPSTREAM_ERROR",
     );
   }
   if (!isObject(payload.Data)) throw invalid("Data must be an object");
@@ -99,7 +108,10 @@ function mapJob(item, index) {
   return {
     externalId: requireString(item.job_id, `${path}.job_id`),
     title: requireString(item.job_title, `${path}.job_title`),
-    companyName: requireString(item.client_company, `${path}.client_company`),
+    companyName: requireCompanyOrCityString(
+      item.client_company,
+      `${path}.client_company`,
+    ),
     ownerExternalId: requireString(item.owner_id, `${path}.owner_id`),
     ownerName: requireString(item.owner_name, `${path}.owner_name`),
     ageDays: requireNonNegativeInteger(
@@ -111,7 +123,7 @@ function mapJob(item, index) {
       `${path}.last_rec_date`,
     ),
     category: requireString(item.category, `${path}.category`),
-    city: requireString(item.city, `${path}.city`),
+    city: requireCompanyOrCityString(item.city, `${path}.city`),
     salaryMin: requireNullableNumber(item.salary_min, `${path}.salary_min`),
     salaryMax: requireNullableNumber(item.salary_max, `${path}.salary_max`),
     portalUrl: requireString(item.portal_url, `${path}.portal_url`),
@@ -130,6 +142,19 @@ function mapJob(item, index) {
 function requireString(value, path) {
   if (typeof value !== "string" || value.trim() === "") {
     throw invalid(`${path} must be a non-empty string`);
+  }
+  return value;
+}
+
+/**
+ * 公司/城市放宽校验：供应商已确认这些字段可为空（docs/04 实测「公司/薪资/城市为空」），
+ * null/空串统一归一为空串（jobs.company_name/city 为 NOT NULL，避免入库约束失败）；
+ * 非字符串仍拒绝（不静默吞类型漂移）。
+ */
+function requireCompanyOrCityString(value, path) {
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "string") {
+    throw invalid(`${path} must be a string or null`);
   }
   return value;
 }

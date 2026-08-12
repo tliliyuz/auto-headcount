@@ -8,8 +8,12 @@ import {
   writeAudit,
 } from "../../../../lib/identity/auth-http";
 import { sessionCookieValue } from "../../../../lib/identity/session-token.mjs";
+import { requireSameOrigin } from "../../../../lib/identity/csrf.mjs";
 
 export async function POST(request: Request): Promise<Response> {
+  const csrfBlock = requireSameOrigin(request);
+  if (csrfBlock) return csrfBlock;
+
   const requestId = newRequestId();
   let payload: { username?: unknown; password?: unknown; totpCode?: unknown };
   try {
