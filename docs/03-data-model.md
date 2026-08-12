@@ -5,8 +5,7 @@
 | 实体 | 关键字段 | 说明 |
 |---|---|---|
 | `organizations` | `id, name, status` | 企业/团队边界，为多租户预留 |
-| `users` | `id, organization_id, status, display_name` | 管理端本地授权主体，不保存员工密码 |
-| `user_identities` | `id, user_id, issuer, subject, email` | OIDC 外部身份映射；`(issuer, subject)` 唯一 |
+| `users` | `id, organization_id, status, display_name, password_hash, password_changed_at` | 管理端本地授权主体，保存口令哈希（argon2id/bcrypt），不保存明文口令 |
 | `role_assignments` | `id, user_id, role, granted_by, revoked_at` | `operations/recruiter/admin` 角色分配 |
 | `sessions` | `id, user_id, expires_at, revoked_at` | 服务端可撤销会话；数据库只存会话令牌哈希 |
 | `source_connections` | `id, provider, environment, status` | 外部连接元数据，不保存明文密钥 |
@@ -73,6 +72,8 @@ unknown → permitted → opted_out
 在最终期限确认前，工程实现按 `ADR-003` 的上限设计为可配置 TTL：原始成功响应 30 天、异常响应最长 90 天、关闭职位和候选人业务数据 180 天、审计日志 365 天、备份 35 天。该上限不构成真实数据处理授权；书面授权未取得前只能使用脱敏 Fixture。
 
 项目负责人已同意开发和测试按上述工程上限实现落库与自动清理。由于当前操作者只能代表低权限接入账号，该同意不扩大 MCP 服务端权限，也不替代数据提供方未来给出的更短期限、删除要求或禁止落库通知；收到更严格要求时以更严格者为准。
+
+2026-08-12 项目负责人书面确认：供应方已脱敏（姓名打码、不含联系方式）的候选人数据可以入库，且暂不设定固定保留期限上限。该确认覆盖脱敏候选人数据的落库与保留；原始载荷加密、可配置 TTL 清理任务与「收到更严格要求以更严格者为准」基线保持不变。完整简历、联系方式与原始载荷在授权与期限明确前仍只允许脱敏 Fixture。
 
 ## 5. 原始、规范化与审计数据约束
 

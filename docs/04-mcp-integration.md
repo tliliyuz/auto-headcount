@@ -28,16 +28,25 @@ npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
 
 不能仅依据口头名称假设工具一定叫 `wb.jobs.under_served`、`match_candidates` 或“推荐接口”；以 `tools/list` 返回值为准。
 
-## 3. 目标能力清单
+## 3. 已确认能力与工具（2026-08-12 更新）
 
-| 业务能力 | 暂定工具名 | 必须确认的内容 |
-|---|---|---|
-| 查询沉睡职位 | `wb.jobs.under_served` | 时间窗口、零推荐口径、分类、分页、增量游标 |
-| 搜索候选人 | 待发现 | 允许的过滤条件、返回字段、是否含联系方式 |
-| 匹配候选人 | `match_candidates` | 输入结构、分数范围、理由字段、批量上限 |
-| 正式推荐 | 待发现 | 幂等、状态查询、失败重试、外部推荐 ID |
+以 `tools/list` 实测为准（协议 `2025-11-25`，共 40 个工具，均未声明 `outputSchema`）。MVP 白名单读工具及返回类型：
 
-2026-08-11 的真实发现结果记录在 [`validation/2026-08-11-mcp-discovery.md`](validation/2026-08-11-mcp-discovery.md)。当前已确认 `wb.jobs.under_served`、`wb.candidates.search`、`wb.jobs.match_candidates` 和 `wb.recommendations.check` 存在，但 40 个工具均未声明 `outputSchema`，且未发现正式推荐写工具。该结果不改变本文件定义的内部适配与安全要求。
+| 业务能力 | 已确认工具 | 返回类型要点 | 状态 |
+|---|---|---|---|
+| 沉睡职位 | `wb.jobs.under_served` | `Data.list[]`：job_id/job_title/client_company/owner_id/owner_name/days_without_rec/category/city/salary_min/salary_max/portal_url/created_at | ✅ 已验证；公司/薪资/城市为空 |
+| 职位列表 | `wb.jobs.list` | `Data.list[]`：job_id/job_title/category/client_company/customer_name/department_path/job_description/salary_min/salary_max/city/created_by/status 等 | ✅ 已验证；MVP 非必需（under_served 已等价产品条件），字段未脱敏，仅限内部 |
+| 候选人匹配 | `wb.jobs.match_candidates` | `Data.matches[]`：candidate_id/is_own/owner_id/owner_name/score_status/total_score/dimension_scores/match_highlights/gap_analysis/risk_flags + candidate_summary{name 已打码, current_title, current_company, resume_summary, portal_url} | ✅ 已验证；建议超时 180s |
+| 候选人搜索 | `wb.candidates.search` | `Data.list[]` | ✅ 发现已确认；当前账号返回空 |
+| 候选人列表 | `wb.candidates.list` | `Data.list[]` | ✅ 发现已确认；当前账号返回空 |
+| 候选人统计 | `wb.candidates.stats` | `Data.total_count/by_category/by_creator/by_source/trend` | ✅ 发现已确认；当前账号为 0 |
+| 候选人详情 | `wb.candidates.get` | 含 AI 画像；可能触发画像回写与 LLM 调用 | 🚫 禁用 |
+| 推荐查重 | `wb.recommendations.check` | 是否已推 `(candidate_id, job_id)` | ⏳ 待接线 |
+| 简历批量创建 | `wb.resumes.batch_create` | 写工具 | 🚫 禁用 |
+| 短信 | `sms_send_marketing_lbd` | 写工具 | 🚫 禁用 |
+| 邮件 | `mail_send_common_lbd` | 写工具 | 🚫 禁用 |
+
+真实发现记录见 [validation/2026-08-11-mcp-discovery.md](validation/2026-08-11-mcp-discovery.md)，2026-08-12 的最小调用验证见 [validation/2026-08-12-mcp-candidate-sync.md](validation/2026-08-12-mcp-candidate-sync.md)。`candidates.list/search/stats` 对当前账号返回空属权限边界，不作为扩大权限的理由。匹配分后续采用供应方 MCP 评分（`wb.jobs.match_candidates`），不建自研评分引擎。
 
 ## 4. 内部适配要求
 
@@ -52,7 +61,7 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 
 - 输入/输出运行时校验。
 - 分页与游标处理。
-- 60 秒总超时和有限重试。
+- 60 秒总超时和有限重试；匹配类工具（`wb.jobs.match_candidates`、`wb.candidates.match_jobs`、`wb.jobs.recommended_candidates` 等）建议 180s，需独立超时策略（当前发现客户端上限 120s）。
 - 请求关联 ID 与不含密钥的结构化日志。
 - 401/403、429、5xx、超时和业务错误的分类处理。
 - 对未知字段兼容，对缺失必填字段明确失败。
@@ -71,16 +80,22 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 - `MCP_ACTOR_ID` 仅在供应商要求时由服务端适配器注入；业务输入不得任意指定其他 Actor。
 - 403、业务错误 `1004` 或空结果按权限边界处理，不自动换用其他账号、扩大团队范围或尝试绕过。
 - MVP 只允许显式列入适配器白名单的读工具。短信、邮件、批量创建、候选人详情及其他可能写入或触发画像回写的工具保持禁用，直到对应审批和数据授权门禁完成。
-- MCP 是主数据接入方式；浏览器采集不是当前里程碑的实现路径。只有供应方明确缺少接口且另行授权时才重新评估。
+- MCP 是唯一主数据接入方式；浏览器采集已确认不需要（2026-08-12 澄清流程偏差，无需自建浏览器爬取职位/简历）。
+- 当前账号 `candidates.list/search/stats` 返回空属权限边界；`wb.jobs.match_candidates` 可跨顾问返回简历摘要（姓名打码、无联系方式），是当前可用的候选人数据路径，MVP 匹配以该工具为主。
 
-## 6. 待向对方确认
+## 6. 待向对方确认（2026-08-12 更新）
 
-- MCP 协议版本、会话要求及是否支持无状态调用。
-- 测试与生产 URL、凭证、IP 白名单和并发限制。
-- 每个工具的完整 JSON Schema、分页与最大批量。
-- 数据字段含义、更新时间、删除/撤回语义。
-- 是否允许本地持久化、二次加工、LLM 处理和触达。
-- SLA、限流、费用、故障联系人和变更通知方式。
+已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；不调用 `wb.candidates.get`（画像回写 + LLM）；`wb.jobs.under_served` 已确认等价产品沉睡条件（active + 有效推荐数 0 + 发布时间），`wb.jobs.list` 不纳入 MVP 数据源。
+
+仍待确认：
+
+- 部署平台与具体中国大陆城市：生产区域已确认，具体云厂商与城市待域名备案、短信资质、MCP 网络连通性和成本确认后选择。
+- `wb.jobs.match_candidates` 超时与评分口径：建议 180s，当前发现客户端上限 120s，需确认实际耗时上限与是否允许放宽；LLM 评分（`max_llm_score_count`）的费用承担方与评分结果可用时机（实测返回 `score_status=pending`）。
+- `candidates.list/search/stats` 对当前账号返回空：是权限范围（self 无自建候选人）还是测试环境无数据；如需候选人列表而非仅匹配摘要，是否授予 team 范围。
+- `portal_url` 使用边界：内部 Portal 链接的有效期、可打开性，是否属于「可使用的落地页令牌」需单独对待。
+- 写工具授权：短信/邮件/简历批量创建/推荐写工具在 M3/M4 的模板、签名、退订、频控、人工审批与幂等要求。
+- `days_without_rec` 起算点与自然日口径、`created_at` 为 null 的语义（见验证记录风险清单）。
+- 正式推荐写工具：未发现，MVP 需确认采用受审计 Portal 记录或新增工具。
 
 ## 7. 原始响应保存契约
 
@@ -88,4 +103,4 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 - 原始记录元数据至少包括工具名/能力标识、同步批次、Schema 或协议版本、外部 ID、采集时间、载荷哈希、映射版本、处理状态和请求关联 ID。
 - 请求头、Access Key、Secret Key、会话 Cookie 和可直接使用的落地页令牌不得进入原始快照。
 - 夹具从已授权样本脱敏生成，保存 Schema 形状和边界值，不保留真实姓名、联系方式、简历正文或可识别企业信息。
-- 原始载荷的加密、访问和工程保留上限以 `ADR-003` 为准；数据授权与最终期限书面确认前只落脱敏样本。
+- 原始载荷的加密、访问和工程保留上限以 `ADR-003` 为准；项目负责人已确认（2026-08-12）脱敏候选人数据可入库且暂不设固定保留期限上限，收到数据提供方更严格要求时以更严格者为准，书面确认前 Fixture 仍须虚构化。

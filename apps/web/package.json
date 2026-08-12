@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node db/migrate.mjs",
     "mcp:discover": "node --env-file-if-exists=../../.env.local --env-file-if-exists=.env.local scripts/discover-mcp.mjs",
-    "mcp:sample-jobs": "node --env-file-if-exists=../../.env.local --env-file-if-exists=.env.local scripts/sample-under-served-jobs.mjs"
+    "mcp:sample-jobs": "node --env-file-if-exists=../../.env.local --env-file-if-exists=.env.local scripts/sample-under-served-jobs.mjs",
+    "mcp:sample-candidates": "node --env-file-if-exists=../../.env.local --env-file-if-exists=.env.local scripts/sample-candidates.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

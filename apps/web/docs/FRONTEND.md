@@ -8,7 +8,7 @@
 
 - 框架：Vinext（React Server Components），文件顶部 `"use client"`，单页应用。
 - 单文件现状：全部页面组件 + 假数据集中在 `operations-dashboard.tsx`（约 530 行）。
-- 尚无 API 层（无 Route Handler / 服务端数据获取），无鉴权（OIDC / RBAC 未实现）。
+- 尚无 API 层（无 Route Handler / 服务端数据获取），无鉴权（自有登录 / RBAC 未实现）。
 - 样式：Tailwind 引入 + `globals.css` 自定义类 + `:root` 设计 token。
 
 ## 2. 页面清单与接线状态
@@ -57,5 +57,5 @@
 1. 拆文件：每页组件从 `operations-dashboard.tsx` 拆到独立文件，按 `02-architecture.md` 的模块名组织。
 2. 建 API 层：用 Vinext Route Handler 或独立模块提供数据，前端经适配器取数，不直连数据库。
 3. 数据驱动：用数据加载替换硬编码数组；沉睡职位页保留 `job-rules` 真实规则。
-4. 鉴权门禁：接入 OIDC 登录与角色权限（ADR-003），未登录不渲染业务数据。
+4. 鉴权门禁：接入自有登录与角色权限（ADR-004 / ADR-003），未登录不渲染业务数据。
 5. 每页接线完成后，在本表更新状态并记入 `CHANGELOG.md`。
