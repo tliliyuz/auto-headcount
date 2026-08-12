@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 路线图变更：M1 生产部署门禁顺延，M2 正式启动
+
+> 状态速览：项目负责人决策「服务器实际部署」不构成 M1 退出阻塞，随开发推进到对应里程碑时执行（开发到哪就部署）· M1 其余 9 条退出门禁逐条对照本日志 verified 证据后勾选 · M1 标记已完成、M2 标记进行中 · 纯文档/路线图变更，不宣称新功能实现
+
+#### 规范已确认（specified）
+
+- M1 退出门禁移除实际部署要求：云服务器 `docker compose up -d`、域名/HTTPS 不构成 M1 退出阻塞，顺延至开发推进到对应里程碑时执行；配置层面分离已就绪（`.env.production` gitignored、生产 compose 独立 env_file、生产镜像 target、生产 compose 用 postgres:17-alpine 与同一迁移），作为部署时的验收依据（验收标准 §6 范围注记）。
+- M1 其余退出门禁逐条核对（依据既有 verified 记录）：标准根目录 compose 拉起 Web/PostgreSQL/迁移 + 健康检查（2026-08-11 数据底座）；开发/测试同套 PostgreSQL 17 迁移幂等（`make db-migrate` 复验）；测试 MCP 分页同步 + 重复同步不重复（M0 真实联调 + under-served-sync 集成测试）；Fixture 登录 fail-closed（seed-dev-gate + prototype-view 非生产门禁）+ 未知账号/已禁用用户/无权限角色服务端拒绝（identity-service 登录与会话双路径）；三角色服务端授权测试（authz/identity-service 单测 + HTTP 层测试）；加密落库可追溯 + 重复同步不覆盖原始快照（集成测试 + `jobs.mapping_version`）；审计无敏感字段 + 追加写触发器（敏感边界复验 + guard 集成测试）；保留清理任务可配置 TTL + `retention.run` 审计（retention 集成测试）；验证证据已入本日志。
+- 备份/恢复演练（验收标准 §6「删除流程覆盖可恢复备份的生命周期」与 §5 演练）随 M4 退出门禁执行，不属 M1。
+- 遗留依赖：M0 卡点「供应方对 `wb.jobs.match_candidates` 评分/超时口径确认」仍开放，作为 M2 匹配分实现与验收的已知前置。
+
+#### 已验证（verified）
+
+- 纯文档/路线图变更，无业务 RED；执行 `git diff --check` 与受改 markdown 相对链接检查通过。
+
 ### 2026-08-12 — M1 测试/生产部署基线（云服务器 · docker compose 编排）
 
 > 状态速览：`docker-compose.prod.yml`（web + db + scheduler）`docker compose up -d` 拉起 · `npm run sync:tick` CLI（含 `--loop`，scheduler 服务每 15 分钟触发任务表）· `.env.production.example` + Dockerfile HEALTHCHECK · 单元 93 + 集成 18 + 渲染 3 通过 · 修复 audit-guard 测试激进 cutoff 的并发删除 bug

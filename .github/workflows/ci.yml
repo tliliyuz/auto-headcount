@@ -53,8 +53,25 @@ jobs:
 
       - name: 空白门禁（受改范围）
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
-        run: git diff --check "${BASE_SHA}"...HEAD
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          # PR 用目标分支合并基；push 用 before。before 在首次推送时为全零 SHA、历史改写后可能是
+          # 已不在检出历史中的孤儿提交，均不可解析，需先校验再回退。
+          base=""
+          # rev-parse 校验对象存在；merge-base 校验与 HEAD 有共同祖先（历史改写/孤儿提交无 merge base，
+          # `A...HEAD` 三点 diff 会 fatal），任一失败都回退。
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ] &&
+             git rev-parse --verify --quiet "${BASE_SHA}^{commit}" >/dev/null 2>&1 &&
+             git merge-base "$BASE_SHA" HEAD >/dev/null 2>&1; then
+            base="$BASE_SHA"
+          elif git rev-parse --verify --quiet 'HEAD~1^{commit}' >/dev/null 2>&1; then
+            echo "::warning::BASE_SHA(${BASE_SHA:-空}) 不可解析或无共同祖先（首次推送/历史改写），空白门禁回退到 HEAD~1"
+            base="HEAD~1"
+          else
+            echo "::warning::仓库首个提交无父提交，跳过空白门禁"
+            exit 0
+          fi
+          git diff --check "$base"...HEAD
 
       - name: markdown 相对链接检查
         working-directory: .
