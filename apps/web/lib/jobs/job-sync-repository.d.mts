@@ -30,3 +30,10 @@ export function finishSyncRun(
   syncRunId: string,
   stats: Record<string, number>,
 ): Promise<void>;
+
+export function failSyncRun(
+  sql: SqlClient,
+  syncRunId: string,
+  errorCode: string,
+  stats?: Record<string, number | string | null>,
+): Promise<void>;

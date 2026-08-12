@@ -25,6 +25,13 @@ export type UnderServedJobPage = {
   pageSize: number;
   totalPages: number;
   jobs: UnderServedJobSourceRecord[];
+  rawItems: unknown[];
+};
+
+export type UnderServedJobPair = {
+  job: UnderServedJobSourceRecord;
+  rawItem: unknown;
+  index: number;
 };
 
 export class McpContractError extends Error {
@@ -36,3 +43,7 @@ export function parseUnderServedJobsResult(result: unknown): UnderServedJobPage;
 export function selectEligibleUnderServedJobs(
   page: UnderServedJobPage,
 ): UnderServedJobSourceRecord[];
+
+export function selectEligibleUnderServedPairs(
+  page: UnderServedJobPage,
+): UnderServedJobPair[];

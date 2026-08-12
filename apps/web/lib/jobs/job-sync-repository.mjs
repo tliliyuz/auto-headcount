@@ -128,3 +128,11 @@ export async function finishSyncRun(sql, syncRunId, stats) {
     where id = ${syncRunId}
   `;
 }
+
+export async function failSyncRun(sql, syncRunId, errorCode, stats = {}) {
+  await sql`
+    update sync_runs
+    set status = 'failed', error_code = ${errorCode}, stats = ${JSON.stringify(stats)}::jsonb, finished_at = now()
+    where id = ${syncRunId}
+  `;
+}

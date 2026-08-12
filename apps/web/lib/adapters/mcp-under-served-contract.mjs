@@ -56,6 +56,7 @@ export function parseUnderServedJobsResult(result) {
     pageSize,
     totalPages,
     jobs: data.list.map((item, index) => mapJob(item, index)),
+    rawItems: data.list,
   };
 }
 
@@ -63,9 +64,32 @@ export function selectEligibleUnderServedJobs(page) {
   if (!isObject(page) || !Array.isArray(page.jobs)) {
     throw invalid("normalized page must contain jobs");
   }
-  return page.jobs.filter(
-    (job) => Number.isInteger(job.ageDays) && job.ageDays >= 7 && job.ageDays <= 30,
-  );
+  return page.jobs.filter(isEligibleAge);
+}
+
+export function selectEligibleUnderServedPairs(page) {
+  if (
+    !isObject(page) ||
+    !Array.isArray(page.jobs) ||
+    !Array.isArray(page.rawItems)
+  ) {
+    throw invalid("normalized page must contain jobs and rawItems");
+  }
+  if (page.jobs.length !== page.rawItems.length) {
+    throw invalid("jobs and rawItems must have the same length");
+  }
+  const pairs = [];
+  for (let index = 0; index < page.jobs.length; index += 1) {
+    const job = page.jobs[index];
+    if (isEligibleAge(job)) {
+      pairs.push({ job, rawItem: page.rawItems[index], index });
+    }
+  }
+  return pairs;
+}
+
+function isEligibleAge(job) {
+  return Number.isInteger(job.ageDays) && job.ageDays >= 7 && job.ageDays <= 30;
 }
 
 function mapJob(item, index) {
