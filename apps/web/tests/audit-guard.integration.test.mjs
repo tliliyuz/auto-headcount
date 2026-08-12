@@ -53,7 +53,10 @@ test(
         returning id
       `;
       const repo = createRetentionRepository(sql);
-      const deleted = await repo.deleteExpiredAuditLogs({ cutoff: new Date() });
+      // cutoff 用 200 天前（只删上面 400 天前的旧夹具行），避免 `new Date()` 全删并发测试的新审计行
+      const deleted = await repo.deleteExpiredAuditLogs({
+        cutoff: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+      });
       assert.ok(deleted >= 1);
       const [oldGone] = await sql`select id from audit_logs where id = ${old.id}`;
       assert.equal(oldGone, undefined);

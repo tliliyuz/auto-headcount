@@ -12,7 +12,7 @@
 
 当前切片是单页交互演示，不是完整产品原型。侧边栏多数模块、创建匹配任务、分页、触达和候选人意向提交仍是未接线占位。
 
-当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-12 已验证职位数据链路（`wb.jobs.under_served`/`wb.jobs.list` 有真实数据）与 `wb.jobs.match_candidates` 匹配摘要（姓名打码、无联系方式）；候选人列表/搜索对当前账号返回空，属权限边界。项目负责人已确认脱敏候选人数据可入库、暂不设固定保留期限上限，匹配分采用供应方 MCP，浏览器采集确认不需要。M1 数据底座已把 `wb.jobs.under_served` 接入可审计 CLI 同步任务（`npm run sync:under-served`：分页拉取、原始快照加密入库、失败记录机器可读错误码）。M1 自有登录后端已实现并通过运行时冒烟：`users`/`sessions`/`role_assignments`/`audit_logs` 表与迁移、`/api/auth/login|logout|me|password`、bcrypt 口令、会话令牌、连续失败锁定、首登强制改密、RFC 6238 TOTP（生产管理员强制）、dev 种子（`npm run seed:dev-users`）。登录页前端已接线真实 API（登录/强制改密/登出/会话恢复），两步交付完成。M1 数据底座保留清理任务已接线（`npm run retention`：可配置 TTL 清理过期原始快照/关闭职位/过期会话/过期审计，并记录 `retention.run` 审计）。业务页面已接真实数据（只读）：沉睡职位巡检页读 `GET /api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则），数据源页读 `GET /api/sources` + `GET /api/sync-runs`（`source_connections`/`sync_runs` 表），审计日志页读 `GET /api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛）；四端点会话 + RBAC `operations|admin` + 数据访问审计。通用审计中间件已收口：`withAudit` 统一 request_id/IP/actor 解析、未预期异常也写审计、成功审计元数据只保留动作白名单键，`audit_logs` 由数据库触发器强制追加写（`UPDATE` 拒绝、`DELETE` 仅保留任务带 `app.audit_retention=on` 放行），审计日志页展示真实审计（含来源 IP）。`npm run sync:under-served` 后可即时看到职位与同步批次。真实定时调度已落地：数据库任务表 `async_tasks` + 同步调度器（周期幂等入队、`FOR UPDATE SKIP LOCKED` 认领、网络错误退避重试、超阈值 `dead`），定时触发（cron 每 15 分钟 tick）随部署环境生效（自托管用服务器级定时器；Cloudflare Worker 用 `scheduled` 处理器），每次任务完成落 `sync.run` 系统审计；运维直连路径仍可用 `npm run sync:under-served`。测试/生产部署基线方向为自托管 Node 容器（自有云服务器），Cloudflare Worker 降为可选路径（见下方「部署」章节），部署基线实现与验证为 M1 剩余项。匹配池（M2）为下一步。
+当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-12 已验证职位数据链路（`wb.jobs.under_served`/`wb.jobs.list` 有真实数据）与 `wb.jobs.match_candidates` 匹配摘要（姓名打码、无联系方式）；候选人列表/搜索对当前账号返回空，属权限边界。项目负责人已确认脱敏候选人数据可入库、暂不设固定保留期限上限，匹配分采用供应方 MCP，浏览器采集确认不需要。M1 数据底座已把 `wb.jobs.under_served` 接入可审计 CLI 同步任务（`npm run sync:under-served`：分页拉取、原始快照加密入库、失败记录机器可读错误码）。M1 自有登录后端已实现并通过运行时冒烟：`users`/`sessions`/`role_assignments`/`audit_logs` 表与迁移、`/api/auth/login|logout|me|password`、bcrypt 口令、会话令牌、连续失败锁定、首登强制改密、RFC 6238 TOTP（生产管理员强制）、dev 种子（`npm run seed:dev-users`）。登录页前端已接线真实 API（登录/强制改密/登出/会话恢复），两步交付完成。M1 数据底座保留清理任务已接线（`npm run retention`：可配置 TTL 清理过期原始快照/关闭职位/过期会话/过期审计，并记录 `retention.run` 审计）。业务页面已接真实数据（只读）：沉睡职位巡检页读 `GET /api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则），数据源页读 `GET /api/sources` + `GET /api/sync-runs`（`source_connections`/`sync_runs` 表），审计日志页读 `GET /api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛）；四端点会话 + RBAC `operations|admin` + 数据访问审计。通用审计中间件已收口：`withAudit` 统一 request_id/IP/actor 解析、未预期异常也写审计、成功审计元数据只保留动作白名单键，`audit_logs` 由数据库触发器强制追加写（`UPDATE` 拒绝、`DELETE` 仅保留任务带 `app.audit_retention=on` 放行），审计日志页展示真实审计（含来源 IP）。`npm run sync:under-served` 后可即时看到职位与同步批次。真实定时调度已落地：数据库任务表 `async_tasks` + 同步调度器（周期幂等入队、`FOR UPDATE SKIP LOCKED` 认领、网络错误退避重试、超阈值 `dead`），定时触发（cron 每 15 分钟 tick）随部署环境生效（自托管用服务器级定时器；Cloudflare Worker 用 `scheduled` 处理器），每次任务完成落 `sync.run` 系统审计；运维直连路径仍可用 `npm run sync:under-served`。测试/生产部署基线已就绪（云服务器 docker compose）：`docker-compose.prod.yml`（web + db + scheduler）`docker compose up -d` 拉起，`scheduler` 服务跑 `npm run sync:tick -- --loop` 每 15 分钟触发任务表，`.env.production`（gitignored）注入配置与凭证；Cloudflare Worker 部署降为可选路径（见下方「部署」章节）。匹配池（M2）为下一步。
 
 各里程碑状态、门禁清单与卡点见 [实施路线图](docs/05-roadmap.md)。
 
@@ -58,6 +58,20 @@ PostgreSQL 与容器基线已由 `ADR-002` 固化。自有账号口令登录由 
 5. 执行 `make test` 运行容器内单元、构建、渲染和 PostgreSQL 集成测试；执行 `make down` 停止环境。
 
 宿主机直接运行 Node.js 或 PostgreSQL 不作为标准验收路径。开发数据库使用命名卷持久化，`make down` 不删除数据；不得把真实 Access Key、Secret Key、手机号、邮箱或完整简历提交到 Git。
+
+## 部署（云服务器 · docker compose）
+
+本项目为 Next.js 式全栈单进程（一个 Node 进程承担 SSR 页面 + API + 静态资源），**一个应用镜像 + 一个 PostgreSQL**即可，无前后端分离双镜像。生产部署用 docker compose 编排（`docker-compose.prod.yml`：`web` + `db` + `scheduler`）。
+
+1. **构建镜像**：`docker compose -f docker-compose.prod.yml build`（Dockerfile `production` target，`vinext start` 起全栈 Node 服务器）。
+2. **准备配置**：复制 `.env.production.example` 为 `.env.production` 并填写（`DATABASE_URL`、`APP_ENV=production`、`APP_ENCRYPTION_KEY/VERSION`、MCP 凭证、`SYNC_*`；`.env.production` 已被 `.gitignore` 排除，不得提交真实凭证）。
+3. **上传到服务器**：`docker-compose.prod.yml` + `.env.production`（+ `apps/web` 目录以构建镜像，或推送镜像后在服务器拉取）。
+4. **拉起服务**：`docker compose -f docker-compose.prod.yml up -d --build`——`db`（postgres:17 + 持久卷 + 健康检查）、`web`（端口 3000）、`scheduler`（跑 `node scripts/run-scheduled-tick.mjs --loop`，每 15 分钟处理同步任务表）。
+5. **验证**：`curl http://<服务器IP>:3000/` 返回登录页；`docker compose -f docker-compose.prod.yml logs scheduler` 查看同步 tick；登录后数据源页可见同步批次。
+6. **初始化首管理员**：容器内执行 `docker compose -f docker-compose.prod.yml run --rm web node scripts/init-admin.mjs`（生成 TOTP 引导配置 URI；仅 production 环境允许）。
+7. **托管 PostgreSQL 扩容**：`.env.production` 的 `DATABASE_URL` 指向外部实例即可（架构 §6）。
+
+> 说明：Cloudflare Worker 部署（`wrangler deploy`）保留为可选路径，不构成生产承诺；定时同步默认由 `scheduler` 服务触发（`runScheduledTick` 平台无关）。实际部署需用户云服务器/域名/HTTPS，中国大陆区域要求由业务方确认（架构 §6）。
 
 ## 部署（自托管 Node 容器）
 

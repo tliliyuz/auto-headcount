@@ -21,4 +21,7 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app ./
 USER node
 EXPOSE 3000
+# node fetch 探活（容器内无 curl），探首页 200 即健康。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["npm", "run", "start", "--", "--hostname", "0.0.0.0"]

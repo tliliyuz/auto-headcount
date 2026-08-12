@@ -68,7 +68,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 失败超过阈值进入 `dead`，后续转人工处理队列。
 - `payload` 为白名单 jsonb，不存敏感字段；外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
 
-触发方式：由运行环境按 cron（默认每 15 分钟）触发 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。自托管 Node 容器由服务器级定时器（systemd timer / PM2 cron / node-cron）周期调用 `runScheduledTick`；Cloudflare Worker 部署则用 `scheduled` 处理器（可选路径，见 §6）。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证）。
+触发方式：由运行环境按 cron（默认每 15 分钟）触发 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。自托管 Node 容器由 docker compose `scheduler` 服务跑 `node scripts/run-scheduled-tick.mjs --loop`（每 15 分钟，见 §6）触发；服务器级定时器（systemd timer / PM2 cron）为可选替代。Cloudflare Worker 部署则用 `scheduled` 处理器（可选路径，见 §6）。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证）。
 
 当任务量或并发超过单体承载能力后，再拆分 Worker 并引入专用消息队列。
 
@@ -80,17 +80,17 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 开发环境通过 Docker Compose 运行 Web、PostgreSQL 与迁移服务。
 - 测试和生产运行同一 OCI 应用镜像，并使用相同 PostgreSQL 大版本与迁移。
 - 测试和生产各自使用独立网络、数据库、MCP 凭证、Secret 和消息渠道。
-- 生产优先使用托管 PostgreSQL，Docker Compose 不作为生产编排方案。
+- MVP 生产用 docker compose 编排（`docker-compose.prod.yml`：`web` + `db` + `scheduler`，用户 2026-08-12 决定）；托管 PostgreSQL 为扩容选项（`DATABASE_URL` 指向外部实例）。
 
 身份、区域和敏感数据存储基线见
 [`ADR-003`](decisions/ADR-003-identity-region-and-data-storage.md)。真实数据上线仍受数据授权与最终保留期限门禁约束。
 
 **工程投影（2026-08-12 基线修正：生产平台为自托管 Node 容器，Cloudflare Worker 降为可选路径）**：
 
-- 应用以 OCI 容器镜像部署（`apps/web/Dockerfile` 生产 target，`node:22` + `npm run start`），运行于自有云服务器；`DATABASE_URL` 指向服务器上的 PostgreSQL（或托管 PostgreSQL）。构建入口：`docker build --target production apps/web/` 后起容器（起容器与发布脚本随部署基线实现补齐）。
+- 应用以 OCI 容器镜像部署（`apps/web/Dockerfile` 生产 target，`node:22` + `npm run start`），运行于自有云服务器；`DATABASE_URL` 指向 compose 内 PostgreSQL（或托管实例）。部署入口：`docker compose -f docker-compose.prod.yml up -d --build`（已落地，见 [README 部署章节](../README.md)）。
 - dev/prod 配置分离：开发经 Docker Compose 运行，Worker 运行时由 Miniflare 本地模拟并连接 Docker Postgres；生产容器**不烘焙开发数据库凭证**，Secret（MCP 凭证、`APP_ENCRYPTION_KEY` 等）经容器环境变量注入，不进镜像与构建产物。
-- 生产环境必须显式注入 `APP_ENV=production`（缺失时生产管理员 TOTP 强制与 Secure Cookie 会静默失效，`getRuntimeEnv` 会告警）；沿用 `scripts/check-deploy-env.mjs` 的 `APP_ENV` 前置校验精神。
-- 定时任务由服务器级定时器触发（见 §5）；日志走服务器进程日志 + `audit_logs` 审计。
+- 生产环境必须显式注入 `APP_ENV=production`（缺失时生产管理员 TOTP 强制与 Secure Cookie 会静默失效，`getRuntimeEnv` 会告警）；`.env.production` 模板强制该值，seed/init-admin 门禁兜底。
+- 定时任务由 docker compose `scheduler` 服务跑 `node scripts/run-scheduled-tick.mjs --loop`（每 15 分钟处理 §5 任务表调度器）触发；服务器级定时器（systemd timer / PM2 cron）为可选替代。日志走服务器进程日志 + `audit_logs` 审计。
 - 可选路径：Cloudflare Worker（`vinext build` → `wrangler deploy`，需 Hyperdrive 与 `scheduled` cron）作为备选 Serverless 方案，**不构成生产平台承诺**（ADR-001）。
 
 部署平台需满足：

@@ -10,6 +10,29 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — M1 测试/生产部署基线（云服务器 · docker compose 编排）
+
+> 状态速览：`docker-compose.prod.yml`（web + db + scheduler）`docker compose up -d` 拉起 · `npm run sync:tick` CLI（含 `--loop`，scheduler 服务每 15 分钟触发任务表）· `.env.production.example` + Dockerfile HEALTHCHECK · 单元 93 + 集成 18 + 渲染 3 通过 · 修复 audit-guard 测试激进 cutoff 的并发删除 bug
+
+#### 已实现（implemented）
+
+- 新增 `docker-compose.prod.yml`（仓库根，生产编排）：`db`（postgres:17-alpine + 持久卷 + healthcheck）、`web`（`build: {context: ./apps/web, target: production}` + `env_file: .env.production` + 端口 3000 + depends_on db healthy）、`scheduler`（同一生产镜像 + `command: node scripts/run-scheduled-tick.mjs --loop`）。项目为 Next.js 式全栈单进程，一个应用镜像 + 一个 PostgreSQL，无前后端分离双镜像。
+- 新增 `scripts/run-scheduled-tick.mjs` + `npm run sync:tick`：Node CLI 调 `runScheduledTick`（任务表调度器），单次模式（DATABASE_URL/加密 key 预检、JSON 输出、异常非零退出）+ `--loop --interval-minutes`（默认 15，setTimeout 链避免重叠，供 scheduler 容器常驻）；配置从 `process.env`（容器 `env_file` 注入）读取，缺 MCP 凭证时任务失败安全。
+- 新增 `.env.production.example`：`POSTGRES_*`、`DATABASE_URL`（`@db:5432`）、`APP_ENV=production`、加密 key、MCP 凭证、`SYNC_*`；`.env.production` 已被 `.gitignore` 排除。
+- `apps/web/Dockerfile` production target 加 `HEALTHCHECK`（node fetch 探活，容器内无 curl）。
+- 文档：README「部署（云服务器）」章节 + 当前阶段；`02-architecture.md` §6 修正（MVP 生产用 docker compose 编排，替换「Docker Compose 不作为生产编排」）+ §5 定时器口径对齐；`05-roadmap.md` 勾选。
+- 修复 `tests/audit-guard.integration.test.mjs` 的并发删除 bug：`deleteExpiredAuditLogs({ cutoff: new Date() })` 会全删并发其他测试的新审计行，改为 200 天前 cutoff（只删 400 天旧夹具行）；同步把 `audit-read` 测试的 result 过滤改为夹具范围（action + result 双条件）。
+
+#### 已验证（verified）
+
+- 新 `tests/scripts/sync-tick-cli.unit.test.mjs`（4 用例）：缺 `DATABASE_URL`/加密 key → exit 2 + 明确 stderr；`--interval-minutes` 非法/0 → exit 2。RED = 脚本缺失。
+- `docker compose -f docker-compose.prod.yml config` 语法校验通过（web/db/scheduler + production target + env_file 注入）。
+- `node scripts/run-scheduled-tick.mjs`（容器内）冒烟：缺加密 key → `ENCRYPTION_CONFIG_REQUIRED` fail-safe 退出；tick 逻辑由 `async-task-sync` 集成测试（假 MCP + 真实 DB）权威覆盖。
+- 回归实际运行：`npm run test:unit`（93，含新增 4）、`npm test`（构建 + rendered-html 3）、`npm run test:integration`（18，连跑 10 次稳定）、`npm run lint`、`make db-migrate`（幂等）、`git diff --check`、受改 markdown 相对链接检查。
+- `vinext start` 作为独立 Node 生产服务器已实测（端口 3999 HTTP 200 + 登录页）；Docker production 镜像构建受本机 Docker Desktop registry 网络阻断（`docker/dockerfile:1.7` EOF，环境问题），以宿主机 `vinext start` 路径 + compose config 校验为凭据。
+
+> 说明：实际部署到云服务器（上传 `docker-compose.prod.yml` + `.env.production`、`docker compose up -d`、域名/HTTPS）需用户基础设施就绪后按 README「部署（云服务器）」执行；Cloudflare Worker 部署保留为可选路径（不构成生产承诺）。M1 实现项已全部勾选，剩外部部署与退出门禁验证证据整理。
+
 ### 2026-08-12 — 引入持续集成（GitHub Actions + make ci）
 
 > 状态速览：`.github/workflows/ci.yml` 分层流水线（静态 → 单元/契约 → 迁移 → 集成 → 构建/渲染/HTTP）· `make ci` 本地同路径 · markdown 相对链接检查脚本 · 修复 2 处既有断链 · 兑现 ADR-002 §44「迁移必须在 CI 中验证」

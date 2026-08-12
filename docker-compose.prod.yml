@@ -1,0 +1,66 @@
+# 生产部署编排（云服务器 · 自托管 docker compose）。
+#
+# 使用方式（服务器上）：
+#   1. 上传本文件与 `.env.production`（从 `.env.production.example` 复制并填写，
+#      `.env.production` 已被 `.gitignore` 排除，不得提交真实凭证）。
+#   2. `docker compose -f docker-compose.prod.yml up -d --build`
+#   3. 验证：`curl http://localhost:3000/`；`docker compose -f docker-compose.prod.yml logs scheduler`
+#
+# 服务：
+#   - db        生产 PostgreSQL（postgres:17，持久卷，健康检查）
+#   - web       生产镜像（Dockerfile production target，`vinext start` 全栈 Node 服务器）
+#   - scheduler 同一镜像跑同步任务表 tick（`node scripts/run-scheduled-tick.mjs --loop`）
+#
+# 本项目为 Next.js 式全栈单进程（SSR + API + 静态），一个应用镜像即可，无前后端分离双镜像。
+# 管理式 PostgreSQL 为扩容选项：替换 `.env.production` 的 `DATABASE_URL` 指向外部实例即可。
+
+name: auto-headcount-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    env_file:
+      - path: ./.env.production
+        required: true
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      target: production
+    env_file:
+      - path: ./.env.production
+        required: true
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ./apps/web
+      target: production
+    command: node scripts/run-scheduled-tick.mjs --loop
+    env_file:
+      - path: ./.env.production
+        required: true
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
