@@ -44,3 +44,16 @@ test("match_candidates 脱敏 Fixture 已虚构化且保留评分边界", async 
     assert.equal(match.total_score, null);
   }
 });
+
+test("match_candidates 脱敏 Fixture 不残留手机号或邮箱", async () => {
+  const fixture = await loadFixture();
+  const rawText = fixture.content[0].text;
+
+  // 手机号（中国大陆 11 位）与邮箱模式在整个 fixture 文本中不得出现
+  assert.doesNotMatch(rawText, /1[3-9]\d{9}/, "不应残留手机号");
+  assert.doesNotMatch(
+    rawText,
+    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
+    "不应残留邮箱",
+  );
+});

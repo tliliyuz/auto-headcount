@@ -7,6 +7,10 @@ import postgres from "postgres";
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
 import { runUnderServedSync } from "../lib/jobs/under-served-sync.mjs";
 import { listUnderServedJobs } from "../lib/jobs/job-read-repository.mjs";
+import {
+  getOrCreateSourceConnection,
+  startSyncRun,
+} from "../lib/jobs/job-sync-repository.mjs";
 
 const connectionString = process.env.DATABASE_URL;
 const encryption = {
@@ -334,6 +338,65 @@ test(
         (job) => job.externalId === "beta",
       );
       assert.equal(dormantBeta, false, "closed 职位不应进入沉睡列表");
+    } finally {
+      if (sourceId) {
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "同步看门狗：崩溃残留的 running 运行被回收为 RUN_STALE_TIMEOUT",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = {
+      provider: `fixture-sync-${marker}`,
+      environment: "test",
+      displayName: "Fixture Under Served Sync",
+    };
+    let sourceId;
+
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      // 直接插入一条卡住的 running 运行（1 小时前启动）
+      const staleRunId = await startSyncRun(sql, sourceId, "under_served_jobs");
+      await sql`
+        update sync_runs
+        set started_at = now() - interval '1 hour'
+        where id = ${staleRunId}
+      `;
+
+      const emptyPage = fakePage({
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+        list: [],
+      });
+      const outcome = await runUnderServedSync({
+        sql,
+        encryption,
+        source,
+        pageSize: 20,
+        staleSyncRunMs: 5 * 60 * 1000,
+        mcp: { callTool: async () => emptyPage },
+      });
+      assert.equal(outcome.status, "succeeded");
+
+      const [staleRun] = await sql`
+        select status, error_code, finished_at
+        from sync_runs where id = ${staleRunId}
+      `;
+      assert.equal(staleRun.status, "failed", "卡住的 running 应被回收");
+      assert.equal(staleRun.error_code, "RUN_STALE_TIMEOUT");
+      assert.notEqual(staleRun.finished_at, null);
     } finally {
       if (sourceId) {
         await sql`delete from jobs where source_connection_id = ${sourceId}`;

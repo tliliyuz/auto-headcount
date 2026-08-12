@@ -130,6 +130,79 @@ test("按 initialize、initialized、tools/list 顺序发现并分页保存工�
   assert.doesNotMatch(JSON.stringify(result), /test-(access|secret)-key/);
 });
 
+test("outputSchema 非对象时明确失败（运行时形状校验）；null 视为未声明可放行", async () => {
+  const responses = [
+    jsonResponse(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          serverInfo: { name: "fixture-server", version: "1.2.3" },
+        },
+      },
+      { headers: { "mcp-session-id": "fixture-session" } },
+    ),
+    new Response(null, { status: 202 }),
+    jsonResponse({
+      jsonrpc: "2.0",
+      id: 2,
+      result: {
+        tools: [
+          {
+            name: "jobs.list",
+            inputSchema: { type: "object" },
+            outputSchema: "not-an-object",
+          },
+        ],
+      },
+    }),
+  ];
+  await assert.rejects(
+    discoverMcpServer({
+      ...credentials,
+      fetchedAt: "2026-08-11T00:00:00.000Z",
+      fetchImpl: async () => responses.shift(),
+    }),
+    (error) =>
+      error instanceof McpDiscoveryError && /outputSchema/.test(error.message),
+  );
+
+  // null outputSchema 视为未声明，正常发现
+  const okResponses = [
+    jsonResponse(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          serverInfo: { name: "fixture-server", version: "1.2.3" },
+        },
+      },
+      { headers: { "mcp-session-id": "fixture-session" } },
+    ),
+    new Response(null, { status: 202 }),
+    jsonResponse({
+      jsonrpc: "2.0",
+      id: 2,
+      result: {
+        tools: [
+          { name: "jobs.list", inputSchema: { type: "object" }, outputSchema: null },
+        ],
+      },
+    }),
+  ];
+  const ok = await discoverMcpServer({
+    ...credentials,
+    fetchedAt: "2026-08-11T00:00:00.000Z",
+    fetchImpl: async () => okResponses.shift(),
+  });
+  assert.equal(ok.tools[0].name, "jobs.list");
+  assert.equal(ok.tools[0].outputSchema, null);
+});
+
 test("支持 Streamable HTTP 的 SSE JSON-RPC 响应", async () => {
   const responses = [
     jsonResponse({

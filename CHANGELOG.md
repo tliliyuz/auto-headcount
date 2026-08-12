@@ -10,6 +10,38 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 审查改进建议修复（I1–I16）
+
+> 状态速览：base32 padding 兼容 · 加密已知向量 + 按 key_version 选钥 · 同步看门狗 · 分页 page 上限 · 触发器 schema 注释 · 前端分页上限/AbortController/dead 态/数据源错误态 · salaryUnit 死字段清理 · 脱敏守卫强化 · HTTP 层鉴权测试 · Fixture 手机号/邮箱守卫 · outputSchema 形状校验 · portal_url 边界固化 · 文档一致性 · 单元 89 + 集成 18 + 渲染 3 通过，HTTP 层测试容器内通过
+
+#### 已实现（implemented）
+
+- I1：`lib/identity/totp.mjs` `decodeBase32` 兼容标准 base32 尾部 padding，带 padding 的 TOTP secret 校验不再抛 `TypeError`。
+- I2：`encryptJsonPayload` 支持注入 `nonce`（测试已知向量），新增 AES-256-GCM 固定 key/nonce 密文与哈希回归断言。
+- I3：`decryptJsonPayload` 支持按 `keyVersion` 从 `keys` 映射选钥（多版本须带版本、单版本无歧义回落、未知版本明确报错），密钥轮换就绪。
+- I4：`job-sync-repository.mjs` 新增 `failStaleRunningSyncRuns` 看门狗，`runUnderServedSync` 开跑前回收崩溃残留的 `running` 运行为 `failed` + `RUN_STALE_TIMEOUT`。
+- I5：`db/schema.ts` `audit_logs` 处注明追加写触发器 `guard_audit_logs` 由迁移 0003 维护、drizzle-kit 不重建但持久生效。
+- I6：`lib/server/pagination.mjs` 增加 `maxPage`（默认 100 万）上限，超大 page 明确拒绝而非 offset 溢出 500。
+- I7：沉睡职位客户端分页拉取加页数上限（50 页）与 `AbortController` 卸载中断；`fetchDormantJobs` 支持 `signal`。
+- I8：`SYNC_STATUS_VIEW` 补 `dead` 态（失败（超限）），与 async_tasks 5 态一致。
+- I9：数据源页 fetch 失败显示明确错误态，与空库区分（401 仍回落登录）。
+- I10：`toPublicJobView` 移除死字段 `salaryUnit`（数据路径从不填充），同步清理 `job-rules.d.mts`。
+- I11：`rendered-html` 守卫定位注释明确（SSR 无业务数据，属名义性烟雾检查）；权威脱敏断言在 `job-rules.test.mjs`（序列化后不残留公司/详细地址）。
+- I12：新增 `tests/http-read.integration.test.mjs` HTTP 层测试（构建后 Worker：无会话 401、空/畸形 Cookie 401、跨源写 CSRF 403、坏请求 400），接 `npm test` 构建后执行；带 DB 的 HTTP 用例受 postgres workerd 编译限制（`cloudflare:` socket）在 Node 不可跑，由逻辑层测试覆盖并记录。
+- I13：`match-candidates` 与 `under-served` 脱敏 Fixture 守卫补手机号/邮箱/真实域名模式扫描。
+- I14：`mcp-discovery` 对 `outputSchema` 做运行时形状校验（非对象拒绝、null 视为未声明），`.d.mts` 允许 null。
+- I15：docs/04 固化 `portal_url` 边界——仅加密存于 `raw_records.payload_ciphertext` 与 `jobs.portal_url`，业务只读 API 投影不返回任何 `portal_*`/`raw_records` 字段，作可触达令牌前须单独确认。
+- I16：`docs/decisions/README` 补 ADR-004 索引；roadmap M0 勾选与「已由项目负责人确认」口径对齐；docs/08 §3 仓库结构更新为实际布局；docs/03 §12 异常响应保留补「问题关闭后 30 天，最长 90 天」投影。
+
+#### 已验证（verified）
+
+- 实际运行命令：
+  - `npm run test:unit`：89 通过（本批新增 7：totp padding、加密已知向量/版本选钥、分页上限、Fixture 守卫 2、outputSchema 校验）。
+  - `docker compose run --rm web npm run test:integration`：18 通过（本批新增 1：同步看门狗）。
+  - `npm test`（build + rendered-html 3 + http-read 容器内）：退出 0。
+  - 本批改动文件 `npx eslint`：0 问题。
+- 已知限制（I12 记录）：构建后 Worker 的 `postgres` 为 workerd 专用编译，Node 中带 DB 的 HTTP 用例无法运行；DB-free 的 HTTP 鉴权/CSRF/包络用例容器内通过。
+
 ### 2026-08-12 — M1 真实定时调度：数据库任务表同步调度器
 
 > 状态速览：`async_tasks` 表 + 同步调度器（周期幂等入队 / `FOR UPDATE SKIP LOCKED` 认领 / 退避重试 / 超阈值 dead）+ Worker `scheduled` 处理器（cron 每 15 分钟 tick）+ `sync.run` 系统审计 · 单元 75 + 集成 17 通过 · 调度路径由集成测试（假 MCP + 真实 DB）权威验证

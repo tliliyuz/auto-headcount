@@ -3,7 +3,8 @@ export type McpToolContract = {
   title?: string;
   description?: string;
   inputSchema: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
+  /** 供应商可选声明的 JSON Schema；null 视为未声明（运行时形状校验见 mcp-discovery.mjs）。 */
+  outputSchema?: Record<string, unknown> | null;
   annotations?: Record<string, unknown>;
   execution?: Record<string, unknown>;
 };

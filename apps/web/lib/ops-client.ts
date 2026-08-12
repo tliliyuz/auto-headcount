@@ -95,6 +95,7 @@ export function fetchDormantJobs(input?: {
   q?: string;
   page?: number;
   pageSize?: number;
+  signal?: AbortSignal;
 }): Promise<AuthResult<Paged<DormantJob>>> {
   return request<Paged<DormantJob>>(
     withQuery("/api/jobs/under-served", {
@@ -103,7 +104,7 @@ export function fetchDormantJobs(input?: {
       page: input?.page,
       page_size: input?.pageSize,
     }),
-    { method: "GET" },
+    { method: "GET", signal: input?.signal },
   );
 }
 

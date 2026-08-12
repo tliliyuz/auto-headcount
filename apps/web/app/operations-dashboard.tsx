@@ -48,6 +48,7 @@ const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
   failed: { label: "失败", className: "status-失败" },
   running: { label: "运行中", className: "status-运行中" },
   pending: { label: "排队中", className: "status-排队中" },
+  dead: { label: "失败（超限）", className: "status-失败" },
 };
 
 
@@ -308,6 +309,7 @@ function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [sources, setSources] = useState<SourceView[]>([]);
   const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -323,6 +325,7 @@ function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
           onAuthExpired();
           return;
         }
+        setSourcesError("数据源加载失败，请稍后重试");
       } else {
         setSources(sourcesResult.data.list);
       }
@@ -331,6 +334,7 @@ function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
           onAuthExpired();
           return;
         }
+        setSourcesError((current) => current ?? "同步批次加载失败，请稍后重试");
       } else {
         setSyncRuns(runsResult.data.list);
       }
@@ -347,6 +351,9 @@ function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   return (
     <>
       <PageIntro eyebrow="连接与同步状态" title="MCP 职位数据源" description="查看连接健康、字段映射、最近同步批次和异常记录。" action="添加数据源" />
+      {sourcesError && (
+        <div className="login-notice danger" role="alert">{sourcesError}</div>
+      )}
       <section className="source-grid">
         {primarySource ? (
           <article className="source-card primary-source">
@@ -591,15 +598,18 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   // 业务数据加载：SSR 阶段无数据库，进入工作台后客户端拉取。
   // 401（会话中途失效）与 password_change_required 统一退回登录页；
   // 403 显示明确的无权限文案，其余失败为通用重试文案。
+  // 分页拉取设置页数上限（防异常数据无限拉全量撑爆内存），卸载时 AbortController 中断在途请求。
   useEffect(() => {
     if (view !== "app") return;
     let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       const collected: DormantJob[] = [];
       let page = 1;
       const pageSize = 100;
+      const maxPages = 50;
       for (;;) {
-        const result = await fetchDormantJobs({ page, pageSize });
+        const result = await fetchDormantJobs({ page, pageSize, signal: controller.signal });
         if (cancelled) return;
         if (!result.ok) {
           if (result.status === 401 || result.code === "password_change_required") {
@@ -612,7 +622,11 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
           return;
         }
         collected.push(...result.data.list);
-        if (collected.length >= result.data.total || result.data.list.length === 0) {
+        if (
+          collected.length >= result.data.total ||
+          result.data.list.length === 0 ||
+          page >= maxPages
+        ) {
           break;
         }
         page += 1;
@@ -631,6 +645,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [view, handleAuthExpired]);
 

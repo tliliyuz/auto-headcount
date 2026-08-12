@@ -24,7 +24,7 @@ export function toPublicJobView(job) {
     title: job.title,
     city: job.city,
     salaryRange: hasSalaryRange
-      ? `${job.salaryMin}–${job.salaryMax}${job.salaryUnit ?? ""}`
+      ? `${job.salaryMin}–${job.salaryMax}`
       : "薪资面议",
     companyLabel: "某科技企业",
   };

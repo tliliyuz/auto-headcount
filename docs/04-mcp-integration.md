@@ -94,6 +94,7 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 - `wb.jobs.match_candidates` 超时与评分口径：建议 180s，当前发现客户端上限 120s，需确认实际耗时上限与是否允许放宽；LLM 评分（`max_llm_score_count`）的费用承担方与评分结果可用时机（实测返回 `score_status=pending`）。
 - `candidates.list/search/stats` 对当前账号返回空：是权限范围（self 无自建候选人）还是测试环境无数据；如需候选人列表而非仅匹配摘要，是否授予 team 范围。
 - `portal_url` 使用边界：内部 Portal 链接的有效期、可打开性，是否属于「可使用的落地页令牌」需单独对待。
+  - 现状决策（2026-08-12 固化）：`portal_url` 仅随原始载荷加密存于 `raw_records.payload_ciphertext` 与规范化 `jobs.portal_url` 列；**业务只读 API 投影不返回任何 `portal_*`/`raw_records` 字段**（`job-read-repository.mjs` 白名单投影），客户端与候选人落地页均不可见。将其作为可触达令牌使用前，须完成链接有效期、打开权限与审计的单独确认。
 - 写工具授权：短信/邮件/简历批量创建/推荐写工具在 M3/M4 的模板、签名、退订、频控、人工审批与幂等要求。
 - `days_without_rec` 起算点与自然日口径、`created_at` 为 null 的语义（见验证记录风险清单）。
 - 正式推荐写工具：未发现，MVP 需确认采用受审计 Portal 记录或新增工具。

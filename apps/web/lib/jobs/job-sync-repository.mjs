@@ -25,6 +25,21 @@ export async function startSyncRun(sql, sourceId, syncType) {
   return row.id;
 }
 
+/**
+ * 同步看门狗：回收崩溃/超时残留的 `running` 运行（started_at 早于 staleBefore 的
+ * 一律标记 failed + `RUN_STALE_TIMEOUT`），防止进程中断后 sync_run 永久卡 running。
+ * 全局回收（不限来源）；仅由同步任务在开启新一轮前调用，正常 running 不受影响。
+ */
+export async function failStaleRunningSyncRuns(sql, { staleBefore }) {
+  const result = await sql`
+    update sync_runs
+    set status = 'failed', error_code = 'RUN_STALE_TIMEOUT', finished_at = now()
+    where status = 'running'
+      and started_at < ${staleBefore}
+  `;
+  return Number(result.count);
+}
+
 export async function persistUnderServedJob(
   sql,
   { sourceId, syncRunId, rawPayload, job, encryption },

@@ -7,8 +7,10 @@
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 export function decodeBase32(input) {
+  // 兼容标准 base32 尾部 padding（`=`），与无 padding 的种子等价；其余字符仍严格拒绝。
+  const normalized = input.toUpperCase().replace(/=+$/, "");
   const bits = [];
-  for (const char of input.toUpperCase()) {
+  for (const char of normalized) {
     const value = BASE32_ALPHABET.indexOf(char);
     if (value === -1) throw new TypeError(`无效的 Base32 字符：${char}`);
     for (let bit = 4; bit >= 0; bit -= 1) bits.push((value >> bit) & 1);

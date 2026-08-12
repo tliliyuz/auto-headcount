@@ -14,7 +14,6 @@ export interface PublicJobInput {
   detailedLocation?: string;
   salaryMin?: number;
   salaryMax?: number;
-  salaryUnit?: string;
 }
 
 export interface PublicJobView {

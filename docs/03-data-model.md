@@ -241,7 +241,7 @@ unknown → permitted → opted_out
 | 数据 | 保留语义 |
 |:---|:---|
 | 原始成功响应（`raw_records`） | 可配置 TTL，默认 30 天 |
-| 异常响应 | 最长 90 天 |
+| 异常响应（`processing_status=invalid`） | 问题关闭后 30 天，最长 90 天（口径见 `ADR-003` §4） |
 | 关闭职位与候选人业务数据 | 180 天 |
 | 审计日志（`audit_logs`） | 365 天 |
 | 备份 | 35 天 |

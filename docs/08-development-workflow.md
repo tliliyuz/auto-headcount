@@ -34,34 +34,34 @@
 8. 同步规范状态、变更记录和实际验证结果。
 9. 进行代码审查后再合并或部署。
 
-## 3. 推荐仓库结构
+## 3. 仓库结构（实际布局）
 
 ```text
 auto-headcount/
-├── apps/
-│   └── web/                  # 内部后台与候选人落地页
-├── src/
-│   ├── modules/              # jobs、candidates、matching 等业务模块
-│   ├── adapters/             # MCP、LLM、SMS、Email、文件导入
-│   └── shared/               # 配置、日志、鉴权、错误与公共类型
-├── db/
-│   ├── migrations/
-│   └── seeds/                # 仅脱敏演示数据
-├── packages/
-│   └── contracts/            # API、事件、MCP 映射 Schema 与 Fixture
-├── tests/
-│   ├── unit/
-│   ├── contract/
-│   ├── integration/
-│   └── e2e/
-├── docs/
-│   └── decisions/
-├── scripts/
-├── docker-compose.yml
-└── Makefile
+├── apps/web/                 # 内部后台与候选人落地页（单应用 monorepo 子包）
+│   ├── app/                  # Next.js App Router：页面（page.tsx / operations-dashboard.tsx）与 Route Handler（api/*/route.ts）
+│   ├── lib/                  # 业务与领域逻辑（纯 .mjs + 配套 .d.mts）
+│   │   ├── adapters/         # MCP 发现与 under_served 契约适配器
+│   │   ├── identity/         # 登录/会话/TOTP/CSRF/审计
+│   │   ├── jobs/             # 同步、调度、职位读写仓储
+│   │   ├── security/         # 载荷加密
+│   │   ├── server/           # 运行时环境、分页、withAudit、DB
+│   │   ├── sources/          # 数据源/同步批次只读仓储
+│   │   └── ops-client.ts     # 客户端业务只读 API 封装
+│   ├── scripts/              # CLI：init-admin / seed-dev-users / sync / retention
+│   ├── tests/                # 单元与集成测试（node:test，.mjs）
+│   ├── fixtures/             # 脱敏 MCP 响应样本（仅虚构数据）
+│   ├── db/ + drizzle/        # drizzle schema 与迁移（追加写触发器见 0003 注释）
+│   ├── worker/               # Cloudflare Worker 入口（fetch + scheduled）
+│   └── package.json          # scripts：test / test:unit / test:integration / lint / db:*
+├── docs/                     # 权威文档矩阵（00–09）+ decisions/ + validation/
+├── docker-compose.yml        # db / migrate / web 本地编排
+├── Makefile                  # dev / check / test / db-migrate / hooks
+├── CLAUDE.md                 # 开发入口与规范驱动流程
+└── CHANGELOG.md              # 变更记录与验证状态
 ```
 
-应用框架边界以 `ADR-001` 为准，PostgreSQL、Drizzle 和容器开发基线以 `ADR-002` 为准。后续改变核心框架、数据库或生产编排方式时必须建立新 ADR，不得只修改实现。
+应用框架边界以 `ADR-001` 为准，PostgreSQL、Drizzle 和容器开发基线以 `ADR-002` 为准。后续改变核心框架、数据库或生产编排方式时必须建立新 ADR，不得只修改实现。新增业务行为先在 `docs/` 权威文档确认口径，再写脱敏 Fixture 驱动的 RED 测试，最后实现。
 
 ## 4. 测试分层
 

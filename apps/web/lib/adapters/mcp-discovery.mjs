@@ -427,6 +427,13 @@ function assertToolsResult(result) {
     if (!isObject(tool.inputSchema)) {
       throw protocolError("Tool contract has no valid inputSchema");
     }
+    // outputSchema 声明为可选的 JSON Schema 对象：存在时必须是普通对象（null 视为未声明），
+    // 缺失时不做形状假设（当前供应商均未声明，见 docs/04）。
+    if (tool.outputSchema !== undefined && tool.outputSchema !== null) {
+      if (!isObject(tool.outputSchema)) {
+        throw protocolError("Tool contract has no valid outputSchema");
+      }
+    }
   }
   if (
     result.nextCursor !== undefined &&

@@ -149,6 +149,10 @@ export const sessions = pgTable(
   ],
 );
 
+// 注意：audit_logs 存在 DB 级追加写触发器 `guard_audit_logs`（UPDATE 无条件拒绝、
+// DELETE 需事务内设 app.audit_retention=on），由迁移 0003_complete_wallop 维护。
+// Drizzle schema 无法表达触发器，drizzle-kit generate 不会重建它——重建库/新环境时
+// 该守卫随 0003 迁移持久生效，切勿在此表定义中显式 delete 路径。
 export const auditLogs = pgTable(
   "audit_logs",
   {

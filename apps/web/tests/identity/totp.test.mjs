@@ -59,6 +59,18 @@ test("generateTOTPSecret 生成的密钥可生成并校验通过（round-trip）
   assert.equal(await verifyTOTP(secret, code, { now }), true);
 });
 
+test("decodeBase32 兼容标准 base32 padding，TOTP 校验带 padding 的 secret 不再抛错", async () => {
+  // 标准 base32('foobar') = "MZXW6YTBOI======"（6 字节 → 10 字符 + 6 padding）
+  assert.deepEqual(
+    Array.from(decodeBase32("MZXW6YTBOI======")),
+    [102, 111, 111, 98, 97, 114],
+  );
+  // 带 padding 与不带 padding 的 secret 校验结果一致
+  const now = 1_700_000_000_000;
+  const code = await generateTOTP("MZXW6YTBOI", { now });
+  assert.equal(await verifyTOTP("MZXW6YTBOI======", code, { now }), true);
+});
+
 test("totpProvisioningUri 生成标准 otpauth URI 并正确 URL 编码", () => {
   const uri = totpProvisioningUri({
     secret: "GEZDGNBVGY3TQOJQ",

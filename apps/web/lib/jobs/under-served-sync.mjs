@@ -10,6 +10,7 @@ import {
 } from "../adapters/mcp-under-served-contract.mjs";
 import {
   closeStaleUnderServedJobs,
+  failStaleRunningSyncRuns,
   failSyncRun,
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -21,6 +22,7 @@ const UNDER_SERVED_TOOL = "wb.jobs.under_served";
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_DAYS_WITHOUT_REC = 7;
+const DEFAULT_STALE_SYNC_RUN_MS = 30 * 60 * 1000;
 
 /**
  * 分页拉取 `wb.jobs.under_served` 并入库的可审计同步任务。
@@ -42,10 +44,17 @@ export async function runUnderServedSync({
   pageSize = DEFAULT_PAGE_SIZE,
   maxPages = DEFAULT_MAX_PAGES,
   daysWithoutRec = DEFAULT_DAYS_WITHOUT_REC,
+  staleSyncRunMs = DEFAULT_STALE_SYNC_RUN_MS,
+  now = () => new Date(),
   mcp,
 }) {
   const callTool = mcp?.callTool ?? createDefaultCallTool(mcp?.actorId);
   const sourceId = await getOrCreateSourceConnection(sql, source);
+  // 看门狗：回收崩溃残留的 running 同步运行（超时标 RUN_STALE_TIMEOUT），
+  // 避免进程中断后 sync_run 永久卡 running。
+  await failStaleRunningSyncRuns(sql, {
+    staleBefore: new Date(now().getTime() - staleSyncRunMs),
+  });
   const syncRunId = await startSyncRun(sql, sourceId, "under_served_jobs");
   const stats = { pages: 0, seen: 0, eligible: 0, skipped: 0, persisted: 0 };
   // 本次全量同步实际写入的合格职位 externalId（用于关闭陈旧沉睡职位）。

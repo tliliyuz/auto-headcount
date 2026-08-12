@@ -7,6 +7,12 @@ import test from "node:test";
 // 测试须在 development 语境下验证两个视图的 SSR 渲染。
 process.env.APP_ENV = "development";
 
+// 说明（I11 守卫定位）：下述 SSR `doesNotMatch` 属名义性烟雾检查——SSR 阶段不携带
+// 业务数据（职位/候选人由客户端在挂载后经 /api/* 拉取），故断言必然通过，
+// 不能作为脱敏守卫的证据。权威的脱敏守卫在逻辑层：`lib/job-rules.mjs` 的
+// `toPublicJobView`（公司固定标签、城市级、薪资范围），其断言见
+// `tests/job-rules.test.mjs`「候选人落地页投影隐藏公司与详细地址」。
+
 async function render(view = "login") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);

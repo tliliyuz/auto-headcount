@@ -179,3 +179,17 @@ test("瞬时上游业务码映射 MCP_UPSTREAM_ERROR，与权限边界区分", (
     (error) => error.code === "MCP_UPSTREAM_ERROR",
   );
 });
+
+test("under-served Fixture 虚构化守卫：无手机号/邮箱/真实域名残留", async () => {
+  const fixture = await loadFixture();
+  const rawText = fixture.content[0].text;
+
+  assert.doesNotMatch(rawText, /1[3-9]\d{9}/, "不应残留手机号");
+  assert.doesNotMatch(
+    rawText,
+    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
+    "不应残留邮箱",
+  );
+  assert.doesNotMatch(rawText, /https:\/\/(?!portal\.invalid)/, "外链应统一用 portal.invalid");
+  assert.ok(rawText.includes("https://portal.invalid/"), "应保留 portal.invalid 链接占位");
+});

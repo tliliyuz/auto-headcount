@@ -53,15 +53,18 @@ test("候选人落地页投影隐藏公司与详细地址", () => {
     detailedLocation: "浦东新区世纪大道 100 号",
     salaryMin: 30,
     salaryMax: 45,
-    salaryUnit: "K/月",
   });
 
   assert.deepEqual(publicJob, {
     title: "资深前端工程师",
     city: "上海",
-    salaryRange: "30–45K/月",
+    salaryRange: "30–45",
     companyLabel: "某科技企业",
   });
   assert.equal("companyName" in publicJob, false);
   assert.equal("detailedLocation" in publicJob, false);
+  // 序列化后也不得残留真实公司名或详细地址（脱敏守卫作用于投影内容，而非仅字段裁剪）
+  const serialized = JSON.stringify(publicJob);
+  assert.doesNotMatch(serialized, /示例科技有限公司/);
+  assert.doesNotMatch(serialized, /浦东新区世纪大道/);
 });
