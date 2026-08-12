@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — npm 依赖安全公告审计与升级
+
+> 状态速览：20 条公告（1 low / 4 moderate / 15 high）→ 升级修复 14 条 → 剩余 6 条需破坏性降级、记录豁免
+
+#### 已实现（implemented）
+
+- 非破坏性升级：`@cloudflare/vite-plugin 1.37.1→1.51.3`（级联修复 wrangler/miniflare/undici/sharp/ws）、`vite 8.0.13→8.2.1`、`react/react-dom/react-server-dom-webpack 19.2.6→19.2.8`、`wrangler 4.92.0→4.121.0`；应用 `npm audit fix` 修复 `@babel/core`/`brace-expansion`/`fast-uri`/`js-yaml` 等传递依赖。package.json 与 lock 已更新。
+- 豁免记录（修复需破坏性降级，不可行）：`drizzle-kit`/`esbuild`/`@esbuild-kit`（fix 指向降到 0.18.1，moderate，仅 dev 迁移工具）；`vinext`/`image-size`（fix 指向降到 0.0.45，与当前 `1.0.0-beta.2` 冲突，high）。
+
+#### 已验证（verified）
+
+- `npm audit`：20 条（1 low / 4 moderate / 15 high）→ 升级后 6 条（4 moderate / 2 high），全部为需降级的豁免项。
+- 升级后实际运行命令：`make check`（lint）、`docker compose run --rm web npm test`（unit 47 + 构建 + rendered-html 3）、`docker compose run --rm web npm run test:integration`（6）、`make db-migrate`（幂等）——升级后的 vite/cloudflare/wrangler 工具链无回归。
+- 注意：node_modules 卷已刷新，运行中的 dev server 需重启生效。
+
 ### 2026-08-12 — M1 数据底座 · 保留清理任务
 
 > 状态速览：可配置 TTL 清理过期原始快照/关闭职位/过期会话/过期审计，并写入 `retention.run` 审计 · CLI `npm run retention` · 单元 47 + 集成 6 通过
