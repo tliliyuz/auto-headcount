@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { generateTOTP, verifyTOTP } from "../../lib/identity/totp.mjs";
+import {
+  decodeBase32,
+  generateTOTP,
+  generateTOTPSecret,
+  totpProvisioningUri,
+  verifyTOTP,
+} from "../../lib/identity/totp.mjs";
 
 // RFC 6238 附录 B 测试向量：secret = base32('12345678901234567890')
 const RFC_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
@@ -35,4 +41,32 @@ test("verifyTOTP 接受当前窗口与 ±1 步偏移，拒绝错误码", async (
   // 过期两个窗口之外被拒绝
   const far = await generateTOTP(RFC_SECRET, { now: now - 90_000 });
   assert.equal(await verifyTOTP(RFC_SECRET, far, { now }), false);
+});
+
+test("generateTOTPSecret 返回 20 字节 base32（32 字符），且每次随机不同", () => {
+  const a = generateTOTPSecret();
+  const b = generateTOTPSecret();
+  assert.equal(a.length, 32);
+  assert.match(a, /^[A-Z2-7]{32}$/);
+  assert.notEqual(a, b);
+  assert.equal(decodeBase32(a).length, 20);
+});
+
+test("generateTOTPSecret 生成的密钥可生成并校验通过（round-trip）", async () => {
+  const secret = generateTOTPSecret();
+  const now = 1234567890 * 1000;
+  const code = await generateTOTP(secret, { now });
+  assert.equal(await verifyTOTP(secret, code, { now }), true);
+});
+
+test("totpProvisioningUri 生成标准 otpauth URI 并正确 URL 编码", () => {
+  const uri = totpProvisioningUri({
+    secret: "GEZDGNBVGY3TQOJQ",
+    accountName: "admin",
+    issuer: "Auto Headcount",
+  });
+  assert.equal(
+    uri,
+    "otpauth://totp/Auto%20Headcount:admin?secret=GEZDGNBVGY3TQOJQ&issuer=Auto+Headcount",
+  );
 });

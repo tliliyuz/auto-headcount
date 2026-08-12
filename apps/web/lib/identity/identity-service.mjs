@@ -69,7 +69,6 @@ export function createIdentityService({
       throw new AuthError(AUTH_ERROR_CODES.invalidCredentials, LOGIN_FAILURE_MESSAGE);
     }
 
-    await repo.resetLoginFailures(user.id);
     const roles = await repo.getActiveRoles(user.id);
     const isAdmin = roles.includes("admin");
 
@@ -78,9 +77,18 @@ export function createIdentityService({
     }
     if (user.totpEnabled) {
       if (!totpCode || !(await verifyTOTP(user.totpSecret, totpCode, { now: now() }))) {
+        // TOTP 失败同样计入连续失败锁定，避免口令正确时对 6 位动态码无限爆破
+        await repo.recordLoginFailure(user.id, {
+          threshold: LOGIN_FAILURE_THRESHOLD,
+          lockMs: LOGIN_LOCK_MS,
+          now: now(),
+        });
         throw new AuthError(AUTH_ERROR_CODES.invalidCredentials, LOGIN_FAILURE_MESSAGE);
       }
     }
+
+    // 口令 + TOTP 全部通过后才清零失败计数
+    await repo.resetLoginFailures(user.id);
 
     return {
       user: {

@@ -71,3 +71,34 @@ export async function verifyTOTP(
   }
   return false;
 }
+
+/**
+ * 生成随机 TOTP 共享密钥：20 字节（160 位，RFC 4226 推荐），base32 编码无填充。
+ * 供初始化脚本在创建生产管理员时预置，操作者录入认证器 App 后即可登录。
+ */
+export function generateTOTPSecret() {
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  let bits = 0;
+  let bitCount = 0;
+  for (const byte of bytes) {
+    bits = (bits << 8) | byte;
+    bitCount += 8;
+    while (bitCount >= 5) {
+      out += BASE32_ALPHABET[(bits >>> (bitCount - 5)) & 0x1f];
+      bitCount -= 5;
+    }
+  }
+  return out;
+}
+
+/**
+ * 生成 otpauth:// 配置 URI（供二维码或手动录入）。
+ * 格式：otpauth://totp/{issuer}:{accountName}?secret=...&issuer=...
+ */
+export function totpProvisioningUri({ secret, accountName, issuer }) {
+  const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}`;
+  const params = new URLSearchParams({ secret, issuer });
+  return `otpauth://totp/${label}?${params.toString()}`;
+}

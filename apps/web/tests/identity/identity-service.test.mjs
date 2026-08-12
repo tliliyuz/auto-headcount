@@ -259,6 +259,64 @@ test("生产管理员绑定 TOTP 后必须校验正确验证码", async () => {
   );
 });
 
+test("正确口令 + 错误 TOTP 计入失败锁定：5 次后锁定、第 6 次即使验证码正确也拒绝", async () => {
+  const repo = createMemoryRepo({ users: await seedBaseUsers(), roles: rolesFor() });
+  const service = makeService(repo);
+
+  for (let i = 0; i < 5; i += 1) {
+    await assert.rejects(
+      service.authenticate({
+        username: "admin-totp",
+        password: "AdminPass2026!",
+        totpCode: "000000",
+      }),
+      (err) => err.code === AUTH_ERROR_CODES.invalidCredentials,
+    );
+  }
+  const user = await repo.getUserByUsername("admin-totp");
+  assert.equal(user.failedAttempts, 5, "错误 TOTP 应累计到失败计数");
+  assert.ok(user.lockedUntil, "达到阈值应被锁定");
+
+  const code = await generateTOTP(RFC_SECRET, { now: NOW_MS });
+  await assert.rejects(
+    service.authenticate({
+      username: "admin-totp",
+      password: "AdminPass2026!",
+      totpCode: code,
+    }),
+    (err) => err.code === AUTH_ERROR_CODES.locked,
+  );
+});
+
+test("TOTP 验证成功后清零失败计数", async () => {
+  const repo = createMemoryRepo({ users: await seedBaseUsers(), roles: rolesFor() });
+  const service = makeService(repo);
+
+  for (let i = 0; i < 2; i += 1) {
+    await assert.rejects(
+      service.authenticate({
+        username: "admin-totp",
+        password: "AdminPass2026!",
+        totpCode: "000000",
+      }),
+      (err) => err.code === AUTH_ERROR_CODES.invalidCredentials,
+    );
+  }
+  let user = await repo.getUserByUsername("admin-totp");
+  assert.equal(user.failedAttempts, 2);
+
+  const code = await generateTOTP(RFC_SECRET, { now: NOW_MS });
+  const ok = await service.authenticate({
+    username: "admin-totp",
+    password: "AdminPass2026!",
+    totpCode: code,
+  });
+  assert.equal(ok.user.username, "admin-totp");
+
+  user = await repo.getUserByUsername("admin-totp");
+  assert.equal(user.failedAttempts, 0, "TOTP 验证成功后应清零失败计数");
+});
+
 test("非生产环境下已绑定 TOTP 的账号仍需正确验证码", async () => {
   const repo = createMemoryRepo({ users: await seedBaseUsers(), roles: rolesFor() });
   const service = makeService(repo, "development");

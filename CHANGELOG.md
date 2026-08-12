@@ -10,6 +10,28 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 登录安全加固：TOTP 计入锁定 + 生产首管理员 TOTP 预置
+
+> 状态速览：TOTP 校验失败计入连续失败锁定（堵 MFA 无限爆破）· `init-admin` 预置随机 TOTP 密钥并输出 otpauth URI（解首管理员登录死锁）· 单元 70 通过 · 全量套件受并发在途改动阻塞，见「已知偏差」
+
+#### 已实现（implemented）
+
+- 修复 TOTP 无节流（审查 S1）：`lib/identity/identity-service.mjs` 登录流程调整——TOTP 校验失败同样 `recordLoginFailure`（阈值 5 次/锁定 15 分钟），仅口令 + TOTP 全部通过后 `resetLoginFailures`；杜绝正确口令下对 6 位动态码的无限爆破。
+- 修复生产首管理员引导死锁（审查 S2）：`lib/identity/totp.mjs` 新增 `generateTOTPSecret`（20 字节 base32）与 `totpProvisioningUri`（标准 otpauth URI）；`scripts/init-admin.mjs` 创建管理员时生成并预置 TOTP 密钥（`totp_enabled=true`），一次性输出密钥与配置 URI，操作者录入认证器后首登即用「口令 + 动态码」，不再依赖后续绑定端点。
+- 新增测试：`tests/identity/init-admin.test.mjs`（非 production 拒绝、缺 `ADMIN_INIT_PASSWORD` 拒绝）；`tests/identity/totp.test.mjs` 增加密钥生成/provisioning URI/round-trip；`tests/identity/identity-service.test.mjs` 增加 TOTP 计入锁定与成功后清零用例。
+- 文档同步：`docs/01` 登录方案、`docs/06` §4.1 更新锁定口径（口令或 TOTP 失败均计入）与首管理员 TOTP 预置流程；`init-admin.mjs` 头注释同步。
+
+#### 已验证（verified）
+
+- RED：TOTP 计入锁定 2 用例因目标行为缺失失败（错误 TOTP 未累计失败计数）；`generateTOTPSecret` 缺失导出致 `ERR_MODULE_NOT_FOUND` 正确 RED。
+- 实际运行命令（本变更范围）：
+  - `docker compose run --rm web node --test tests/identity/identity-service.test.mjs`：15 通过。
+  - `docker compose run --rm web node --test tests/identity/totp.test.mjs tests/identity/init-admin.test.mjs`：7 通过。
+  - `docker compose run --rm web npm run test:unit`：70 通过（含本变更新增 7）。
+  - 本变更 6 个文件 `npx eslint`：0 问题。
+  - `init-admin` 端到端冒烟（dev DB，production 门禁 + 一次性口令）：输出 32 字符 base32 密钥与 `otpauth://totp/...` URI，落库 `totp_enabled=true`/`totp_secret` 32 字符；测试管理员已清理。
+- 已知偏差（非本变更引入，来自并发参与者在途改动）：工作区 `make check` 因 `lib/jobs/sync-scheduler.mjs`（`now` 未用）与 `worker/index.ts`（`ctx` 未用）报 2 个 lint error；`npm test` 中 rendered-html「服务端渲染运营后台」断言锚点（`<title>`）失配；`test:integration` 中 `ops-read.integration.test.mjs:195`「valid_recommendation_count 真值 0」RED。上述文件均不在本变更范围。
+
 ### 2026-08-12 — 开发工具链：提交门禁与代码审查命令
 
 > 状态速览：pre-commit/commit-msg 钩子 + `make hooks` 引导 · `.claude` 代码审查基础设施（`/review` 命令 + eslint 报告钩子）· 两道门禁已实测通过
