@@ -1,0 +1,44 @@
+# 内部 API 契约
+
+本文档是系统内部 API（管理后台 Web/API 应用对外端点）的唯一权威契约。产品行为以 [`01-mvp-requirements.md`](01-mvp-requirements.md)、可执行验收以 [`07-acceptance-criteria.md`](07-acceptance-criteria.md)、模块边界以 [`02-architecture.md`](02-architecture.md) 为准；外部 MCP 接入见 [`04-mcp-integration.md`](04-mcp-integration.md)。
+
+## 1. 通用约定
+
+- 基路径：`/api`；响应统一为 JSON。
+- 鉴权：管理端端点要求有效会话（`HttpOnly`/`Secure`/`SameSite=Lax` 会话 Cookie）；未登录返回 `401`。
+- 授权：由服务端按角色判定（`operations`/`recruiter`/`admin`），前端隐藏入口不作为授权措施。
+- 错误响应：统一 `{ "code": "<机器码>", "message": "<人读文案>" }`，HTTP 状态码表示类别（400/401/403/404/409/429/500）。
+- 分页：请求 `page`（从 1 起）与 `page_size`；响应 `{ total, page, page_size, total_pages, list }`，与 MCP 响应包络保持一致。
+- 幂等：写操作使用服务端幂等键，重复提交不产生重复数据。
+- 审计：登录、登出、数据导出、角色变更、触达、推荐、删除等记录审计事件，且不含口令、口令哈希、手机号、邮箱、简历正文或令牌。
+- 脱敏：对外响应经白名单投影，禁止回显口令/口令哈希、联系方式、完整简历、Secret；候选人落地页另有独立白名单 DTO，见产品规则。
+
+## 2. 已确认端点
+
+### 2.1 认证（M1 · `identity` 模块）
+
+| 接口 | 方法 | 鉴权 | 请求 | 响应 |
+|---|---|---|---|---|
+| `/api/auth/login` | POST | 匿名 | `{ username, password, totpCode? }` | `200 { user, roles }`；失败统一 `401` |
+| `/api/auth/logout` | POST | 会话 | 会话 Cookie | `204` |
+| `/api/auth/me` | GET | 会话 | 会话 Cookie | `200 { user, roles }` / `401` |
+
+- 口令校验使用 argon2id/bcrypt；生产管理员须携带并校验 TOTP。
+- 登录失败返回统一文案，不区分账号是否存在；连续失败限流锁定，详见 [`01-mvp-requirements.md`](01-mvp-requirements.md) §2.1。
+- 会话标识只存服务端，数据库只保存会话令牌哈希。
+
+## 3. 规划端点（随里程碑补充）
+
+以下按页面模块列出规划端点，**路径为草案**，契约须在对应里程碑实现前完成并回写本文档：
+
+| 模块（里程碑） | 规划端点（草案） | 状态 |
+|---|---|---|
+| 职位巡检（M1） | `GET /api/jobs/under-served`、`GET /api/jobs` | 待设计 |
+| 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 待设计 |
+| 审计（M1） | `GET /api/audit-logs` | 待设计 |
+| 匹配（M2） | `POST /api/match-tasks`、`GET /api/matches` | 待设计 |
+| 触达活动（M3） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |
+| 跟进任务（M4） | `GET/POST /api/followups` | 待设计 |
+| 漏斗（M4） | `GET /api/funnel` | 待设计 |
+
+> 候选人落地页端点属于独立身份域，只接受令牌哈希校验，契约在 M3 另行定义，不并入本管理端契约。

@@ -46,6 +46,7 @@ PostgreSQL 与容器基线已由 `ADR-002` 固化。自有账号口令登录由 
 - [安全与合规](docs/06-security-compliance.md)
 - [验收标准](docs/07-acceptance-criteria.md)
 - [开发与交付流程](docs/08-development-workflow.md)
+- [内部 API 契约](docs/09-api-contract.md)
 - [架构决策记录](docs/decisions/README.md)
 
 ## 本地开发

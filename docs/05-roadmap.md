@@ -123,7 +123,7 @@
 - `ADR-002`（PostgreSQL、Drizzle 迁移、容器基线）的工程投影。
 - `ADR-003`（身份、区域、存储分层）的工程投影。
 - [数据模型](03-data-model.md) 中数据保留、原始/规范化/审计约束的可执行实现。
-- 登录方案规范（[01-mvp-requirements](01-mvp-requirements.md) §2.1、[07-acceptance-criteria](07-acceptance-criteria.md) §6、[02-architecture](02-architecture.md) §7）。
+- 登录方案与内部 API 契约（[01-mvp-requirements](01-mvp-requirements.md) §2.1、[07-acceptance-criteria](07-acceptance-criteria.md) §6、[09-api-contract](09-api-contract.md)）。
 
 ### 主要交付物
 
