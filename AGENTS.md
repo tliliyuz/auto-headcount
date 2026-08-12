@@ -40,6 +40,7 @@
 | 数据安全与触达门禁 | `docs/06-security-compliance.md` |
 | 可执行验收条件 | `docs/07-acceptance-criteria.md` |
 | 开发、测试和交付流程 | `docs/08-development-workflow.md` |
+| 页面、交互与接线状态 | `apps/web/docs/FRONTEND.md` |
 | 长期技术取舍 | `docs/decisions/ADR-NNN-*.md` |
 | 已交付变更与验证状态 | `CHANGELOG.md` |
 
