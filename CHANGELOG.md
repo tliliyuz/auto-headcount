@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 引入持续集成（GitHub Actions + make ci）
+
+> 状态速览：`.github/workflows/ci.yml` 分层流水线（静态 → 单元/契约 → 迁移 → 集成 → 构建/渲染/HTTP）· `make ci` 本地同路径 · markdown 相对链接检查脚本 · 修复 2 处既有断链 · 兑现 ADR-002 §44「迁移必须在 CI 中验证」
+
+#### 已实现（implemented）
+
+- 新增 `.github/workflows/ci.yml`：push（`main`/`dev`）与 PR 触发；Node 22 + `npm ci`（不走 compose 镜像，避免烘焙陈旧 package.json）；PostgreSQL 17 服务容器 + `node db/migrate.mjs` 后跑集成测试；分层：空白门禁 → markdown 链接 → ESLint → `test:unit` → 迁移 → `test:integration` → 构建 + rendered-html + http-read。
+- `Makefile` 新增 `make ci`：与 CI 同路径的本地流水线（`docker compose build web` 重建镜像解决非挂载文件陈旧 → 迁移 → lint/unit/integration → 构建 + 渲染 + HTTP → md 链接检查）。
+- 新增 `scripts/check-md-links.mjs`：全仓 markdown 相对链接检查，纳入 CI 与 `make ci`；修复 `.claude/commands/review.md` 既有断链（`../docs` → `../../docs`）。`docs/02` 部署基线改写中新引入的 README 链接已校正为 `../README.md`（随该改写一并入库，不在本批）。
+- 文档同步：`docs/08-development-workflow.md` §4 增「CI 实现（GitHub Actions）」小节。
+- ADR 检查：GitHub Actions 对 GitHub 仓库属局部可替换工具链实现（同既有 git hooks），不构成长期平台绑定，无需新 ADR。
+
+#### 已验证（verified）
+
+- `node scripts/check-md-links.mjs`：通过（26 个文件，0 断链）。
+- `make ci` 等价流水线实跑：lint / `test:unit`（89）/ 迁移（幂等）/ `test:integration`（18）/ 构建 + rendered-html（3）+ http-read（容器内）/ md 链接 —— 全绿，见下条验证记录。
+- workflow YAML 语法与本地流水线各步骤逐一对应；实际 GitHub Actions 运行需推送到远程后观察（本批未执行远程触发）。
+
 ### 2026-08-12 — 部署基线方向修正：自托管 Node 容器（文档）
 
 > 状态速览：生产平台由「已选 Cloudflare Workers」拨回「自托管 Node 容器于自有云服务器」· Cloudflare Worker 降为可选路径 · 同步触发方式中立化（服务器级定时器 / Worker scheduled）· 纯文档变更，不宣称部署已实现或验证

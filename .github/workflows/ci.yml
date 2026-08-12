@@ -1,0 +1,76 @@
+# 持续集成：静态检查 → 单元/契约 → 迁移 → 集成 → 构建/渲染/HTTP 层
+#
+# 对齐 docs/08 §4 测试分层：快速门禁只跑脱敏 Fixture，不调真实 MCP/LLM/短信；
+# 集成测试使用 GitHub Actions 提供的 PostgreSQL 17 服务（ADR-002 §44「迁移必须在 CI 中验证」）。
+# CI 直接 `npm ci` + Node 执行（不走 docker compose 镜像，避免镜像烘焙陈旧 package.json）。
+
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: auto_headcount
+          POSTGRES_USER: auto_headcount
+          POSTGRES_PASSWORD: ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U auto_headcount"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://auto_headcount:ci_test_only@127.0.0.1:5432/auto_headcount
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 空白门禁（受改范围）
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
+        run: git diff --check "${BASE_SHA}"...HEAD
+
+      - name: markdown 相对链接检查
+        working-directory: .
+        run: node scripts/check-md-links.mjs
+
+      - name: 静态检查（ESLint）
+        run: npm run lint
+
+      - name: 单元 + 契约测试
+        run: npm run test:unit
+
+      - name: 数据库迁移（集成前提，ADR-002 验证点）
+        run: node db/migrate.mjs
+
+      - name: 集成测试
+        run: npm run test:integration
+
+      - name: 构建 + 服务端渲染 + HTTP 层
+        run: npm run build && node --test tests/rendered-html.test.mjs tests/http-read.integration.test.mjs
