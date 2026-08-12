@@ -35,7 +35,7 @@ test("服务端渲染登录页（默认初始视图）", async () => {
   assert.match(html, /请输入账号/);
   assert.match(html, /请输入口令/);
   assert.match(html, /动态验证码/);
-  assert.match(html, /原型演示/);
+  assert.match(html, /开发提示/);
   assert.doesNotMatch(html, /海岳智能科技有限公司/);
   assert.doesNotMatch(html, /浦东新区张江路/);
 });

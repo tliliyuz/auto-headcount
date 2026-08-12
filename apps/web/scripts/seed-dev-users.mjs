@@ -69,7 +69,9 @@ async function upsertUser(sql, orgId, {
         password_hash = ${passwordHash},
         must_change_password = ${mustChangePassword},
         totp_enabled = ${totpEnabled},
-        totp_secret = ${totpSecret}
+        totp_secret = ${totpSecret},
+        failed_attempts = 0,
+        locked_until = null
       where id = ${userId}
     `;
   } else {

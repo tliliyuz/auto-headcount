@@ -27,13 +27,15 @@
 
 导航为 7 个页面（无独立工作台页，沉睡职位巡检为默认落地页）。
 
-### 登录视图（原型）
+### 登录视图（已接线真实 API）
 
 - 组件：`LoginPage`（`operations-dashboard.tsx` 内），默认初始视图；侧边栏资料菜单「退出登录」可返回登录页。
-- Mock 流程：账号 `ops` 直接进入工作台；账号 `admin` 走「首次登录设置新口令」；其余账号返回统一失败文案，连续 3 次触发临时锁定（提供「重置演示」清除）。
-- TOTP 字段为占位，展示生产管理员登录时的校验位。
-
-> **后端已就绪（后端优先，前端待接线）**：`/api/auth/login|logout|me|password` 已实现并通过运行时冒烟（登录/me/登出/统一 401/TOTP 强制/首登强制改密均验证）。契约见 [`docs/09-api-contract.md`](../../../docs/09-api-contract.md) §2.1。前端表单仍为 mock，未接真实 API；接线时替换为对应契约：登录、`me` 恢复会话与资料、登出、`passwordChangeRequired` 时走强制改密流程。
+- **已接线**：登录/强制改密/登出/会话恢复均走 [`docs/09-api-contract.md`](../../../docs/09-api-contract.md) §2.1 的 `/api/auth/*`：
+  - 登录表单 `POST /api/auth/login`（含 TOTP 校验位）；统一失败文案由服务端返回，连续失败锁定由后端 `429` 驱动（无本地计数）。
+  - `passwordChangeRequired` 时进入「设置新口令」步，`POST /api/auth/password` 改密成功后进入工作台。
+  - 侧边栏「退出登录」`POST /api/auth/logout` 后回登录页。
+- **会话门禁分层**：SSR（`page.tsx`）按 `x-prototype-view: app` 请求头或 `session_token` Cookie 存在性渲染视图（不查库）；客户端挂载后无条件 `GET /api/auth/me` 核实会话——`200` 用真实用户刷新资料区，`401`（过期/撤销/禁用）退回登录页。会话 Cookie 为 HttpOnly，JS 无法探测，因此不能用 `document.cookie` 判断登录态。
+- 客户端认证封装见 [`lib/auth-client.ts`](../lib/auth-client.ts)。
 
 ## 3. 假数据清单（接真数据时的替换点）
 

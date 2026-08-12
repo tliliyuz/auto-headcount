@@ -2,9 +2,17 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { OperationsDashboard } from "./operations-dashboard";
 
+/**
+ * SSR 门禁（不查库，保持渲染轻量、Node 渲染测试可跑）：
+ * - `x-prototype-view: app` 请求头强制工作台（供服务端渲染测试覆盖两个视图）；
+ * - 请求携带 `session_token` Cookie 视为已登录 → 渲染工作台，客户端再用 /api/auth/me 核实；
+ * - 否则渲染登录页。
+ */
 async function prototypeView(): Promise<"login" | "app"> {
   const requestHeaders = await headers();
-  return requestHeaders.get("x-prototype-view") === "app" ? "app" : "login";
+  const forcedApp = requestHeaders.get("x-prototype-view") === "app";
+  const cookie = requestHeaders.get("cookie") ?? "";
+  return forcedApp || cookie.includes("session_token=") ? "app" : "login";
 }
 
 export async function generateMetadata(): Promise<Metadata> {

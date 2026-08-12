@@ -1,7 +1,14 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
+import {
+  changePasswordRequest,
+  loginRequest,
+  logoutRequest,
+  meRequest,
+  type AuthSession,
+} from "@/lib/auth-client";
 
 type Job = {
   id: string;
@@ -187,54 +194,83 @@ function SummaryStrip({ items }: { items: Array<{ label: string; value: string; 
 
 type AuthUser = { name: string; role: string };
 
+const ROLE_LABELS: Record<string, string> = {
+  operations: "招聘运营",
+  recruiter: "招聘顾问",
+  admin: "管理员",
+};
+
+function toAuthUser(session: AuthSession): AuthUser {
+  return {
+    name: session.user.displayName,
+    role: ROLE_LABELS[session.roles[0]] ?? session.roles[0],
+  };
+}
+
+/** 登录失败兜底文案：服务端可能返回更具体文案，此处保证统一口径存在。 */
+const LOGIN_FAILED_FALLBACK = "账号或口令不正确";
+
 function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   const [step, setStep] = useState<"form" | "force-change">("form");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
   const [error, setError] = useState("");
-  const [attempts, setAttempts] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [loginSession, setLoginSession] = useState<AuthSession | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const locked = attempts >= 3;
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (locked) return;
+    if (busy) return;
     if (!username.trim() || !password.trim()) {
       setError("请输入账号和口令。");
       return;
     }
-    if (username.trim().toLowerCase() === "admin") {
+    setBusy(true);
+    const result = await loginRequest({
+      username: username.trim(),
+      password,
+      totpCode: totp.trim() || undefined,
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message || LOGIN_FAILED_FALLBACK);
+      return;
+    }
+    if (result.data.passwordChangeRequired) {
+      setLoginSession(result.data);
       setStep("force-change");
       return;
     }
-    if (username.trim().toLowerCase() === "ops") {
-      onLogin({ name: "林然", role: "招聘运营" });
-      return;
-    }
-    const next = attempts + 1;
-    setAttempts(next);
-    setError(
-      next >= 3
-        ? "连续失败次数过多，账号已临时锁定，请 15 分钟后再试。"
-        : "账号或口令不正确，请重试。",
-    );
+    onLogin(toAuthUser(result.data));
   }
 
-  function handleChangeSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleChangeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (newPassword.trim().length < 8) {
-      setError("新口令至少 8 位，并包含字母与数字。");
-      return;
-    }
+    if (busy) return;
     if (newPassword !== confirmPassword) {
       setError("两次输入的新口令不一致。");
       return;
     }
-    onLogin({ name: "系统管理员", role: "管理员" });
+    setBusy(true);
+    const result = await changePasswordRequest({
+      currentPassword: password,
+      newPassword,
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    if (loginSession) {
+      onLogin(toAuthUser(loginSession));
+    } else {
+      setStep("form");
+    }
   }
 
   return (
@@ -265,14 +301,12 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
                 <h2>登录职位激活台</h2>
                 <p>使用账号口令登录；生产管理员需校验动态验证码。</p>
               </div>
-              {locked && <div className="login-notice danger" role="alert"><strong>账号已临时锁定</strong><span>连续失败次数过多，请 15 分钟后再试。</span></div>}
-              {error && !locked && <div className="login-notice danger" role="alert">{error}</div>}
+              {error && <div className="login-notice danger" role="alert">{error}</div>}
               <label className="login-field"><span>账号</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="请输入账号" /></label>
               <label className="login-field"><span>口令</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入口令" /></label>
               <label className="login-field"><span>动态验证码 <em>生产管理员必填</em></span><input inputMode="numeric" autoComplete="one-time-code" value={totp} onChange={(event) => setTotp(event.target.value)} placeholder="6 位验证码" /></label>
-              <button className="primary-button login-submit" disabled={locked}>登录</button>
-              <div className="login-demo-hint"><strong>原型演示</strong><p>账号 <code>admin</code> 首次登录需设置新口令；账号 <code>ops</code> 直接进入；其余账号触发统一失败，连续 3 次锁定。</p></div>
-              {locked && <button type="button" className="login-reset-demo" onClick={() => { setAttempts(0); setError(""); }}>重置演示（清除锁定）</button>}
+              <button className="primary-button login-submit" disabled={busy}>{busy ? "登录中…" : "登录"}</button>
+              <div className="login-demo-hint"><strong>开发提示</strong><p>开发种子账号 <code>ops</code> 直接进入；<code>admin</code> 首次登录需设置新口令。生产环境账号由管理员创建。</p></div>
             </form>
           ) : (
             <form className="login-form" onSubmit={handleChangeSubmit} noValidate>
@@ -281,9 +315,9 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
                 <p>首次登录需设置新口令后才能使用业务功能。</p>
               </div>
               {error && <div className="login-notice danger" role="alert">{error}</div>}
-              <label className="login-field"><span>新口令</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 8 位，含字母与数字" /></label>
+              <label className="login-field"><span>新口令</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 12 位，含字母与数字" /></label>
               <label className="login-field"><span>确认新口令</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="再次输入新口令" /></label>
-              <button className="primary-button login-submit">确认并进入工作台</button>
+              <button className="primary-button login-submit" disabled={busy}>{busy ? "提交中…" : "确认并进入工作台"}</button>
             </form>
           )}
         </div>
@@ -403,6 +437,38 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [syncing, setSyncing] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
 
+  // 会话核实：会话 Cookie 为 HttpOnly，JS 无法探测，因此无条件调 /api/auth/me。
+  // SSR 已按 Cookie 存在性渲染视图；这里用 me 确认真实会话与用户，
+  // 过期/撤销/禁用返回 401 时退回登录页。
+  useEffect(() => {
+    let cancelled = false;
+    void meRequest().then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setUser(toAuthUser(result.data));
+        setView("app");
+      } else {
+        setView("login");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleLogout() {
+    setMenuOpen(false);
+    await logoutRequest();
+    setUser({ name: "林然", role: "招聘运营" });
+    setView("login");
+  }
+
+  // 视图切换时同步浏览器标签标题（客户端侧登录/登出不触发 SSR title）。
+  useEffect(() => {
+    document.title =
+      view === "app" ? "沉睡职位巡检｜职位激活台" : "登录｜职位激活台";
+  }, [view]);
+
   const sleepingJobs = useMemo(
     () => jobs.filter((job) => isUnderServedJob(job)),
     [],
@@ -476,7 +542,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
           <div className="profile">
             {menuOpen && (
               <div className="profile-menu" role="menu" aria-label="用户菜单">
-                <button onClick={() => { setMenuOpen(false); setView("login"); }}>⏻ 退出登录</button>
+                <button onClick={() => void handleLogout()}>⏻ 退出登录</button>
               </div>
             )}
             <span className="avatar">{user.name.slice(0, 1)}</span>
