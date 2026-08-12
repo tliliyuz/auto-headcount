@@ -111,7 +111,7 @@ erDiagram
 | `actor_type`, `actor_id` | actor 类型 + 语义引用 ID（**无外键**，审计事实不随用户删除丢失） |
 | `action`, `result` | 动作与结果（如 `login/success`、`logout`） |
 | `resource_type`, `resource_id` | 操作对象 |
-| `request_id`, `metadata` | 请求链关联；`metadata` 为白名单 `jsonb`，默认 `{}` |
+| `request_id`, `ip_address`, `metadata` | 请求链关联；尽力捕获的客户端 IP（可为空）；`metadata` 为白名单 `jsonb`，默认 `{}` |
 
 **禁含**：口令、口令哈希、Cookie、令牌、手机号、邮箱、简历正文、Secret、完整外部响应。`audit_logs_actor_action_idx`、`audit_logs_occurred_at_idx` 支撑审计查询。
 
@@ -257,7 +257,7 @@ unknown → permitted → opted_out
 - **数据域**：`sync_runs`/`raw_records`/`jobs` 指向 `source_connections` 一律 `RESTRICT`——不允许删掉有历史数据的来源；`jobs.raw_record_id` `SET NULL`——原始快照可清理但职位保留。
 - **`raw_records` 只追加**，不由业务更新覆盖；普通应用查询无解密权限。
 - **规范化实体必须可追溯**到数据源、原始记录及映射版本（`source_connection_id` + `raw_record_id` + `mapping_version`）。
-- **`audit_logs` 不允许应用角色更新**；保留任务按策略删除并记录自身审计事件。
+- **`audit_logs` 不允许应用角色更新**：数据库层触发器 `guard_audit_logs` 强制（`UPDATE` 无条件拒绝；`DELETE` 仅保留任务在事务内设 `app.audit_retention=on` 时放行）；保留任务按策略删除并记录自身审计事件。
 - **审计元数据不得包含**简历正文、手机号、邮箱、令牌、Cookie、Secret 或完整外部响应。
 - 主密钥（`APP_ENCRYPTION_KEY`）不得进入数据库。
 
@@ -266,6 +266,7 @@ unknown → permitted → opted_out
 1. **`0000_broken_king_cobra`**：建 `connection_environment`/`connection_status`/`sync_run_status`/`raw_record_status` 枚举与 `source_connections`/`sync_runs`/`raw_records`/`jobs`（含索引）。
 2. **`0001_reflective_zaladane`**：`raw_records` 去重唯一索引调整为 `(source_connection_id, external_id, payload_hash, sync_run_id)`，支持重跑追加快照。
 3. **`0002_steady_cargill`**：建 `user_role`/`user_status` 枚举与 `organizations`/`users`/`role_assignments`/`sessions`/`audit_logs`（含外键与索引）。
+4. **`0003_complete_wallop`**：`audit_logs` 增加 `ip_address`（可空），并建立追加写触发器 `audit_logs_no_modify`（`guard_audit_logs`：`UPDATE` 拒绝、`DELETE` 需 `app.audit_retention=on`）。
 
 迁移由 Drizzle journal（`__drizzle_migrations`）保证幂等，重复执行安全跳过。新增表必须在迁移前回写本文件 §2/§8。
 

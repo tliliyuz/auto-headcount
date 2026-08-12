@@ -10,9 +10,11 @@ import {
   type AuthSession,
 } from "@/lib/auth-client";
 import {
+  fetchAuditLogs,
   fetchDormantJobs,
   fetchSources,
   fetchSyncRuns,
+  type AuditLogView,
   type DormantJob,
   type SourceView,
   type SyncRunView,
@@ -394,8 +396,115 @@ function SourcesPage() {
   );
 }
 
+const AUDIT_RESULT_VIEW: Record<string, { label: string; className: string }> = {
+  success: { label: "成功", className: "status-成功" },
+  failure: { label: "失败", className: "status-失败" },
+  denied: { label: "已拒绝", className: "status-已拒绝" },
+};
+
+const AUDIT_ACTION_VIEW: Record<string, string> = {
+  "auth.login": "登录",
+  "auth.logout": "登出",
+  "auth.password_change": "改密",
+  "jobs.list": "沉睡职位访问",
+  "sources.list": "数据源访问",
+  "sync-runs.list": "同步批次访问",
+  "audit-logs.list": "审计日志访问",
+  "retention.run": "保留清理",
+};
+
+const AUDIT_RESOURCE_VIEW: Record<string, string> = {
+  user: "用户",
+  job: "职位",
+  source_connection: "数据源",
+  sync_run: "同步批次",
+  audit_log: "审计日志",
+};
+
+const AUDIT_ACTOR_VIEW: Record<string, string> = {
+  user: "运营用户",
+  system: "系统任务",
+};
+
 function AuditPage() {
-  return <><PageIntro eyebrow="安全与可追踪性" title="操作审计记录" description="查看管理操作、审批、同步和数据访问记录；现有记录不可修改。" action="导出审计记录" /><section className="audit-filters surface-card"><label><span>搜索操作人或关联 ID</span><input placeholder="输入关键词" /></label><button>事件类型：全部⌄</button><button>风险等级：全部⌄</button><button>时间：近 7 天⌄</button><button className="secondary-button">筛选</button></section><section className="surface-card data-card audit-card"><div className="surface-header"><div><h2>审计事件</h2><p>共 1,284 条 · 展示脱敏后的最小必要信息</p></div><span className="immutable-label">▣ 追加写保护</span></div><div className="data-table audit-table"><div className="data-row data-head"><span>时间 / 事件</span><span>操作人</span><span>对象</span><span>结果</span><span>关联 ID</span><span>风险</span></div>{[["14:36:22","活动审批通过","徐安","前端高匹配人才激活","成功","REQ-82F1","低"],["14:32:08","职位同步完成","系统任务","招聘业务 MCP","成功","SYNC-1432","低"],["13:48:51","候选人匹配拒绝","林然","C-1961 / JOB-0821","成功","REQ-813A","低"],["12:17:09","数据导出申请","周屿","跟进任务报表","已拒绝","REQ-79CD","中"],["11:42:36","正式推荐登记","徐安","候选人 C-1884","成功","REC-1042","中"],["10:03:14","连接配置查看","管理员","招聘业务 MCP","成功","REQ-772B","高"]].map((row) => <div className="data-row" key={row[5]}><span><strong>{row[1]}</strong><small>今天 {row[0]}</small></span><span>{row[2]}</span><span>{row[3]}</span><span><em className={`status-tag ${row[4] === "成功" ? "status-成功" : "status-已拒绝"}`}>{row[4]}</em></span><span><code>{row[5]}</code></span><span><em className={`risk risk-${row[6]}`}>{row[6]}</em></span></div>)}</div><div className="table-footer"><span>显示 1–6 条，共 1,284 条</span><div><button disabled>‹</button><button className="active">1</button><button>2</button><button>3</button><button>›</button></div></div></section></>;
+  const [logs, setLogs] = useState<AuditLogView[]>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditTotalPages, setAuditTotalPages] = useState(0);
+  const pageSize = 50;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchAuditLogs({ page: auditPage, pageSize });
+      if (cancelled) return;
+      if (result.ok) {
+        setLogs(result.data.list);
+        setAuditTotal(result.data.total);
+        setAuditTotalPages(result.data.total_pages);
+        setAuditError(null);
+      } else if (result.status !== 401) {
+        setAuditError("加载失败，请稍后重试");
+      }
+    })().finally(() => {
+      if (!cancelled) setAuditLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [auditPage]);
+
+  const firstShown = logs.length === 0 ? 0 : (auditPage - 1) * pageSize + 1;
+  const lastShown = logs.length === 0 ? 0 : (auditPage - 1) * pageSize + logs.length;
+
+  return (
+    <>
+      <PageIntro eyebrow="安全与可追踪性" title="操作审计记录" description="查看管理操作、审批、同步和数据访问记录；现有记录不可修改，仅保留任务按策略清理。" action="导出审计记录" />
+      <section className="audit-filters surface-card">
+        <label><span>搜索操作人或关联 ID</span><input placeholder="输入关键词" disabled /></label>
+        <button disabled>事件类型：全部⌄</button>
+        <button disabled>结果：全部⌄</button>
+        <button className="secondary-button" disabled>筛选</button>
+      </section>
+      <section className="surface-card data-card audit-card">
+        <div className="surface-header">
+          <div><h2>审计事件</h2><p>{auditLoading ? "加载中…" : `共 ${auditTotal} 条 · 写入时已按动作白名单收敛，不含敏感正文`}</p></div>
+          <span className="immutable-label">▣ 追加写保护</span>
+        </div>
+        <div className="data-table audit-table">
+          <div className="data-row data-head"><span>时间 / 事件</span><span>操作人</span><span>对象</span><span>结果</span><span>关联 ID</span><span>来源 IP</span></div>
+          {auditLoading ? (
+            <div className="empty-state">正在加载审计记录…</div>
+          ) : auditError ? (
+            <div className="empty-state">{auditError}</div>
+          ) : logs.length === 0 ? (
+            <div className="empty-state">暂无审计记录</div>
+          ) : (
+            logs.map((log) => (
+              <div className="data-row" key={log.id}>
+                <span><strong>{AUDIT_ACTION_VIEW[log.action] ?? log.action}</strong><small>{formatDateTime(log.occurredAt)}</small></span>
+                <span>{AUDIT_ACTOR_VIEW[log.actorType] ?? log.actorType}</span>
+                <span>{log.resourceType ? `${AUDIT_RESOURCE_VIEW[log.resourceType] ?? log.resourceType}${log.resourceId ? " · " + log.resourceId.slice(0, 8) : ""}` : "—"}</span>
+                <span><em className={`status-tag ${AUDIT_RESULT_VIEW[log.result]?.className ?? ""}`}>{AUDIT_RESULT_VIEW[log.result]?.label ?? log.result}</em></span>
+                <span><code>{log.requestId ? log.requestId.slice(0, 8) : "—"}</code></span>
+                <span><code>{log.ipAddress ?? "—"}</code></span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="table-footer">
+          <span>{auditLoading ? "加载中…" : `显示 ${firstShown}–${lastShown} 条，共 ${auditTotal} 条`}</span>
+          <div>
+            <button disabled={auditPage <= 1} onClick={() => setAuditPage((p) => Math.max(1, p - 1))}>‹</button>
+            <button className="active">{auditPage}</button>
+            <button disabled={auditTotalPages <= auditPage} onClick={() => setAuditPage((p) => p + 1)}>›</button>
+          </div>
+        </div>
+      </section>
+    </>
+  );
 }
 
 function PrototypePage({ page }: { page: Exclude<PageId, "jobs"> }) {

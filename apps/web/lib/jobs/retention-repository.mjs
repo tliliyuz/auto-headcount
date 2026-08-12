@@ -43,12 +43,15 @@ export function createRetentionRepository(sql) {
       return Number(result.count);
     },
 
-    /** 过期审计日志按 cutoff 删除。 */
+    /** 过期审计日志按 cutoff 删除；追加写触发器只放行带 app.audit_retention=on 的删除（保留任务专用）。 */
     async deleteExpiredAuditLogs({ cutoff }) {
-      const result = await sql`
-        delete from audit_logs
-        where occurred_at < ${cutoff}
-      `;
+      const result = await sql.begin(async (t) => {
+        await t`set local app.audit_retention = 'on'`;
+        return t`
+          delete from audit_logs
+          where occurred_at < ${cutoff}
+        `;
+      });
       return Number(result.count);
     },
 

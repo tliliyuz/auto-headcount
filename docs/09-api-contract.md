@@ -10,7 +10,7 @@
 - 错误响应：统一 `{ "code": "<机器码>", "message": "<人读文案>" }`，HTTP 状态码表示类别（400/401/403/404/409/429/500）。
 - 分页：请求 `page`（从 1 起）与 `page_size`；响应 `{ total, page, page_size, total_pages, list }`，与 MCP 响应包络保持一致。
 - 幂等：写操作使用服务端幂等键，重复提交不产生重复数据。
-- 审计：登录、登出、数据导出、角色变更、触达、推荐、删除等记录审计事件，且不含口令、口令哈希、手机号、邮箱、简历正文或令牌。
+- 审计：登录、登出、数据导出、角色变更、触达、推荐、删除等记录审计事件，且不含口令、口令哈希、手机号、邮箱、简历正文或令牌；`audit_logs` 为追加写（数据库层触发器强制，普通应用角色不能更新，删除仅保留任务在事务内带 `app.audit_retention=on` 时放行），并记录尽力捕获的客户端 IP（`ip_address`，可为空）。
 - 脱敏：对外响应经白名单投影，禁止回显口令/口令哈希、联系方式、完整简历、Secret；候选人落地页另有独立白名单 DTO，见产品规则。
 
 ## 2. 已确认端点
@@ -52,6 +52,20 @@
 - `sync_runs.error_code` 为机器可读码（如 `RATE_LIMITED`），不映射为散文文案。
 - 未登录 → `401 { code:"unauthorized" }`；角色无权 → `403 { code:"forbidden" }`。
 
+### 2.3 审计查询（M1 · `audit_logs`）
+
+统一要求：会话 + RBAC `operations|admin`（`recruiter` 拒绝 → `403`）；每次访问写数据审计（`audit-logs.list`，成功元数据仅计数与分页）；分页包络 `{ total, page, page_size, total_pages, list }`；非法分页或过滤参数 → `400 { code:"invalid_request" }`。
+
+| 接口 | 方法 | 鉴权 | 请求 Query | 响应 |
+|---|---|---|---|---|
+| `/api/audit-logs` | GET | 会话 + `operations\|admin` | `action?`（精确）、`actor_type?`（`user`/`system`）、`result?`（`success`/`failure`/`denied`）、`page`、`page_size` | `200` 分页包络，`list[]` 为审计投影 |
+
+**审计投影（`/api/audit-logs` `list[]`）**：`id`、`occurredAt`、`actorType`、`actorId`（对 `users` 为无外键语义引用）、`action`、`resourceType`、`resourceId`、`result`、`requestId`、`metadata`、`ipAddress`。
+
+**规则与敏感边界**：
+- 元数据在写入时已按动作白名单收敛（`lib/server/audit.mjs` 的 `pickMetadata`），读回不含 Secret、Cookie、令牌、手机号、邮箱、简历正文或完整外部响应。
+- `audit_logs` 追加写由数据库触发器强制：`UPDATE` 无条件拒绝；`DELETE` 仅保留任务在事务内设 `app.audit_retention=on` 时放行。未登录 → `401`；角色无权 → `403`。
+
 ## 3. 规划端点（随里程碑补充）
 
 以下按页面模块列出规划端点，**路径为草案**，契约须在对应里程碑实现前完成并回写本文档：
@@ -60,7 +74,7 @@
 |---|---|---|
 | 职位巡检（M1） | `GET /api/jobs/under-served`、`GET /api/jobs` | 已设计（under-served 见 §2.2；`/api/jobs` 待设计） |
 | 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 已设计（见 §2.2） |
-| 审计（M1） | `GET /api/audit-logs` | 待设计 |
+| 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
 | 匹配（M2） | `POST /api/match-tasks`、`GET /api/matches` | 待设计 |
 | 触达活动（M3） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |
 | 跟进任务（M4） | `GET/POST /api/followups` | 待设计 |

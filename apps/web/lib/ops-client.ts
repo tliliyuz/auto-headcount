@@ -67,6 +67,20 @@ export type SyncRunView = {
   createdAt: string;
 };
 
+export type AuditLogView = {
+  id: string;
+  occurredAt: string;
+  actorType: string;
+  actorId: string | null;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  result: string;
+  requestId: string | null;
+  metadata: Record<string, unknown>;
+  ipAddress: string | null;
+};
+
 function withQuery(path: string, params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -114,6 +128,25 @@ export function fetchSyncRuns(input?: {
   return request<Paged<SyncRunView>>(
     withQuery("/api/sync-runs", {
       status: input?.status,
+      page: input?.page,
+      page_size: input?.pageSize,
+    }),
+    { method: "GET" },
+  );
+}
+
+export function fetchAuditLogs(input?: {
+  action?: string;
+  actorType?: string;
+  result?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<AuthResult<Paged<AuditLogView>>> {
+  return request<Paged<AuditLogView>>(
+    withQuery("/api/audit-logs", {
+      action: input?.action,
+      actor_type: input?.actorType,
+      result: input?.result,
       page: input?.page,
       page_size: input?.pageSize,
     }),

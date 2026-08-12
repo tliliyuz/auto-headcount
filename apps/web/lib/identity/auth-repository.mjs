@@ -159,11 +159,12 @@ export function createAuthRepository(sql) {
       await sql`
         insert into audit_logs (
           actor_type, actor_id, action, resource_type, resource_id,
-          result, request_id, metadata
+          result, request_id, ip_address, metadata
         ) values (
           ${entry.actorType}, ${entry.actorId ?? null}, ${entry.action},
           ${entry.resourceType ?? null}, ${entry.resourceId ?? null},
-          ${entry.result}, ${entry.requestId ?? null}, ${sql.json(entry.metadata ?? {})}
+          ${entry.result}, ${entry.requestId ?? null}, ${entry.ipAddress ?? null},
+          ${sql.json(entry.metadata ?? {})}
         )
       `;
     },

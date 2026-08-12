@@ -28,6 +28,35 @@
 - 钩子脚本 `bash -n` 语法检查通过；`.githooks` 已由 `make hooks` 激活（`core.hooksPath` 指向 `.githooks`）。
 - 说明：完整 `npm test` 不进入提交门禁（保留给 pre-push/CI），pre-commit 仅跑静态门禁控制提交噪音。
 
+### 2026-08-12 — M1 通用审计中间件 + 审计查询端点与页面
+
+> 状态速览：`withAudit` 收口只读端点审计（request_id/IP/actor 统一、未预期异常也写审计、元数据动作白名单）· DB 触发器强制追加写（UPDATE 拒、DELETE 需保留标记）· `GET /api/audit-logs` + 审计日志页接真实数据 · 单元 61 + 集成 9 通过 · 浏览器实测审计落库含 IP 与计数元数据
+
+#### 已实现（implemented）
+
+- 新增通用审计中间件 `lib/server/with-audit.ts` 与纯逻辑 `lib/server/audit.mjs`（`planAudit`/`pickMetadata`）：统一 `request_id`/IP/actor 解析与结果推导（`success`/`denied`/`failure` 白名单，`unauthorized` 不审计避免扫描器洪泛）；成功审计元数据只保留动作白名单键（`auditMetadataKeys`，防误记敏感正文）；未预期异常也写 `failure` 审计（收口原 500 无审计缺口）；IP 尽力捕获（`cf-connecting-ip` → `x-forwarded-for` 首段 → null）。
+- 3 只读端点（`/api/jobs/under-served`、`/api/sources`、`/api/sync-runs`）收口到 `withAudit`：401 不审计、403 `denied` 审计、成功带计数审计、400 直接返回不审计；行为与既有契约一致。
+- `audit_logs` 增加 `ip_address` 列（可空）与追加写触发器 `guard_audit_logs`（迁移 `0003_complete_wallop`）：`UPDATE` 无条件拒绝；`DELETE` 仅保留任务在事务内设 `app.audit_retention=on` 时放行（触发器放行路径返回 `OLD`，`BEFORE DELETE` 返回 `NULL` 会静默跳过删除）；`insertAudit` 写入 `ip_address`。
+- 保留任务 `deleteExpiredAuditLogs` 改为事务内 `set local app.audit_retention=on`，兑现「保留任务按策略删除」豁免。
+- 新增审计查询端点 `GET /api/audit-logs`（RBAC `operations|admin`，`action?`/`actor_type?`/`result?` 过滤 + 分页包络 + 数据访问审计 `audit-logs.list`）与只读仓储 `lib/identity/audit-read-repository.mjs`（投影含 `ipAddress`；元数据写入时已按动作白名单收敛）。
+- 前端审计日志页 `AuditPage` 接真实 `/api/audit-logs`：最新 50 条 + 上一页/下一页，`result`→`status-tag`（成功/失败/已拒绝），展示动作/操作人/对象/关联 ID/来源 IP，含加载/错误/空态；筛选控件为占位禁用态。
+- 新增 `tests/server/audit.test.mjs`、`tests/audit-guard.integration.test.mjs`、`tests/audit-read.integration.test.mjs`；适配既有保留/身份集成测试清理（触发器下审计删除需带保留标记）。
+
+#### 已验证（verified）
+
+- RED：单元测试因 `audit.mjs` 缺失 `ERR_MODULE_NOT_FOUND`；守卫集成测试因触发器不存在（`UPDATE` 未拒绝）正确 RED；审计查询集成测试因仓储缺失正确 RED。
+- 实际运行命令：
+  - `docker compose run --rm web npm run test:unit`：61 通过（新增 audit 7）。
+  - `docker compose run --rm web npm test`：Vinext 构建完成（含 4 个只读端点）、rendered-html 3 通过。
+  - `docker compose run --rm web npm run test:integration`：9 通过（新增追加写守卫 + 审计查询；保留/身份清理适配后仍绿）。
+  - `docker compose run --rm web npm run lint` 通过；`git diff --check` 通过；受改 markdown 相对链接检查通过。
+  - `make db-migrate`：迁移幂等复验通过（`0003` 安全跳过）。
+- dev server 浏览器实测（真实 Worker + Hyperdrive → Postgres）：ops 登录后审计日志页渲染真实记录（登录/沉睡职位访问/同步批次访问/审计日志访问，含结果、关联 ID、来源 IP）；中间件路由审计落库含 `ip_address`（127.0.0.1）与白名单计数元数据（`page`/`pageSize`/`total`），`auth.login` 未走中间件故无 IP；`GET /api/audit-logs` 与 `GET /api/jobs/under-served` 未登录均 `401 { code:"unauthorized" }`。
+- DB 追加写守卫：`UPDATE audit_logs` 拒绝、`DELETE` 无保留标记拒绝、事务内 `set local app.audit_retention=on` 放行、保留仓储路径可用（集成测试覆盖）。
+- 敏感边界复验：审计元数据仅计数/分页，不含 Secret、Cookie、令牌、手机号、邮箱、简历正文。
+
+> 说明：认证路由（login/logout/password）actor 语义特殊（匿名登录失败、登出无会话），保留显式写入；审计页筛选控件为占位禁用态（过滤查询端点已就绪，筛选 UI 接线留后续）。
+
 ### 2026-08-12 — M1 业务页面接真实数据（只读 API）
 
 > 状态速览：沉睡职位巡检 + 数据源页接真实 `jobs`/`source_connections`/`sync_runs` · 3 个只读端点（会话 + RBAC operations/admin + 数据访问审计）· 单元 54 + 集成 7 通过 · 浏览器实测两页渲染真实数据

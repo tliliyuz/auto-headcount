@@ -9,7 +9,7 @@
 ## 1. 技术基线
 
 - 框架：Vinext（React Server Components），文件顶部 `"use client"`，单页应用。
-- 单文件现状：全部页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、数据源三处已接真实 API，其余页面仍为静态原型。
+- 单文件现状：全部页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、数据源、审计日志四处已接真实 API，其余页面仍为静态原型。
 - 已建 API 层：认证 `/api/auth/*`（§2.1）与业务只读 `/api/jobs/under-served`、`/api/sources`、`/api/sync-runs`（§2.2，会话 + RBAC `operations|admin`）。
 - 样式：Tailwind 引入 + `globals.css` 自定义类 + `:root` 设计 token。
 
@@ -23,7 +23,7 @@
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
 | 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) | 已接真实数据（连接卡片 / 同步批次 / 健康面板） |
-| 审计日志 | `AuditPage` | 内联审计记录数组 | 静态原型 |
+| 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（最新 50 条 + 上一页/下一页；筛选控件为占位禁用态） |
 
 导航为 7 个页面（无独立工作台页，沉睡职位巡检为默认落地页）。
 
@@ -45,9 +45,9 @@
 | `campaignRows`（4 个活动） | 文件顶部 | `campaigns` / `campaign_recipients` 表（M3） |
 | `followupColumns`（看板列） | 文件顶部 | `follow_up_tasks` 表（M4） |
 | 漏斗/转化数据（内联） | `FunnelPage` | `funnel_events` 聚合（M4） |
-| 审计记录（内联） | `AuditPage` | `audit_logs` 表（M1） |
+| 审计记录（内联） | ~~`AuditPage`~~ | `audit_logs` 表（M1，已接真实数据） |
 
-> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则）；数据源页不再使用内联同步批次/健康数组，数据来自 `/api/sources` + `/api/sync-runs`（`source_connections` / `sync_runs` 表）。原始载荷密文与游标令牌永不进入响应。
+> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则）；数据源页不再使用内联同步批次/健康数组，数据来自 `/api/sources` + `/api/sync-runs`（`source_connections` / `sync_runs` 表）；审计日志页不再使用内联 mock 记录，数据来自 `/api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛，`ip_address` 尽力捕获可为空）。原始载荷密文与游标令牌永不进入响应。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
 

@@ -101,7 +101,11 @@ test(
       if (userId) {
         await sql`delete from role_assignments where user_id = ${userId}`;
         await sql`delete from sessions where user_id = ${userId}`;
-        await sql`delete from audit_logs where actor_id = ${userId}`;
+        // 追加写触发器只放行带保留标记的删除，测试清理走事务内 set local
+        await sql.begin(async (t) => {
+          await t`set local app.audit_retention = 'on'`;
+          await t`delete from audit_logs where actor_id = ${userId}`;
+        });
         await sql`delete from users where id = ${userId}`;
       }
       if (orgId) {

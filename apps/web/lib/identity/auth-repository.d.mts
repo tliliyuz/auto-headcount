@@ -41,6 +41,7 @@ export interface AuditEntry {
   resourceId?: string | null;
   result: string;
   requestId?: string | null;
+  ipAddress?: string | null;
   metadata?: Record<string, unknown>;
 }
 

@@ -146,11 +146,15 @@ test(
       assert.ok(retentionAudit.metadata.auditLogsDeleted >= 1);
     } finally {
       if (userId) {
-        await sql`
-          delete from audit_logs
-          where (action = 'test.retention.fixture' and metadata->>'marker' = ${marker})
-             or (action = 'retention.run' and request_id = ${marker})
-        `;
+        // 追加写触发器只放行带保留标记的删除，测试清理走事务内 set local
+        await sql.begin(async (t) => {
+          await t`set local app.audit_retention = 'on'`;
+          await t`
+            delete from audit_logs
+            where (action = 'test.retention.fixture' and metadata->>'marker' = ${marker})
+               or (action = 'retention.run' and request_id = ${marker})
+          `;
+        });
         await sql`delete from sessions where user_id = ${userId}`;
         await sql`delete from users where id = ${userId}`;
       }
