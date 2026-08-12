@@ -9,6 +9,10 @@ if [[ -z "$msg_file" || ! -f "$msg_file" ]]; then
   exit 0
 fi
 
+# 移除自动附加的 AI 协作者署名（本项目不需要该署名；可移植临时文件写法）
+tmp="$(mktemp)"
+sed '/^Co-Authored-By: Claude <noreply@anthropic.com>$/d' "$msg_file" > "$tmp" && mv "$tmp" "$msg_file"
+
 # 去掉注释行与空行，取首行非空内容
 first="$(grep -v '^#' "$msg_file" | grep -v '^[[:space:]]*$' | head -n 1)"
 
