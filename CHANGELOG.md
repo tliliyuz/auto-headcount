@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### 2026-08-12 — 开发工具链：提交门禁与代码审查命令
+
+> 状态速览：pre-commit/commit-msg 钩子 + `make hooks` 引导 · `.claude` 代码审查基础设施（`/review` 命令 + eslint 报告钩子）· 两道门禁已实测通过
+
+#### 已实现（implemented）
+
+- 新增 `.githooks/pre-commit`：提交前跑 `git diff --cached --check`（空白）与容器内 `npm run lint`（ESLint，与 `make check` 同执行路径）；`SKIP_GIT_HOOKS=1` 可临时放行。
+- 新增 `.githooks/commit-msg`：Conventional Commits 格式门禁（`feat/fix/docs/chore/refactor/test/build/ci/perf/revert` + 可选 scope；Merge 与空信息放行）。
+- `Makefile` 新增 `make hooks`：`git config core.hooksPath .githooks` 并赋可执行位（本地配置，不入库）。
+- 引入 `.claude/` 代码审查基础设施（借鉴 evidsight，适配本仓库）：`commands/review.md` 审查命令（对照权威文档矩阵与规范门禁）、`hooks/web-lint-report.sh`（PostToolUse 编辑/写入后报告 eslint `--fix-dry-run` 改动预览，适配 npm、覆盖 `.mjs/.mts`）、`settings.json` 挂载钩子与 eslint `--fix` 权限弹窗。
+
+#### 已验证（verified）
+
+- commit-msg 门禁：历史提交风格（`feat:`/`docs:`/`chore:`/`fix(ops):`）PASS，无前缀/仅 type/缩进注释 REJECT，`Merge` 提交放行。
+- pre-commit 门禁端到端：暂存交付文件后实际运行钩子，`git diff --cached --check` 通过 + `docker compose run --rm web npm run lint` 退出 0。
+- 钩子脚本 `bash -n` 语法检查通过；`.githooks` 已由 `make hooks` 激活（`core.hooksPath` 指向 `.githooks`）。
+- 说明：完整 `npm test` 不进入提交门禁（保留给 pre-push/CI），pre-commit 仅跑静态门禁控制提交噪音。
+
 ### 2026-08-12 — M1 业务页面接真实数据（只读 API）
 
 > 状态速览：沉睡职位巡检 + 数据源页接真实 `jobs`/`source_connections`/`sync_runs` · 3 个只读端点（会话 + RBAC operations/admin + 数据访问审计）· 单元 54 + 集成 7 通过 · 浏览器实测两页渲染真实数据

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# 提交信息格式门禁：Conventional Commits。
+#   type(可选 scope): 描述
+#   允许 type：feat fix docs chore refactor test build ci perf revert
+set -uo pipefail
+
+msg_file="${1:-}"
+if [[ -z "$msg_file" || ! -f "$msg_file" ]]; then
+  exit 0
+fi
+
+# 去掉注释行与空行，取首行非空内容
+first="$(grep -v '^#' "$msg_file" | grep -v '^[[:space:]]*$' | head -n 1)"
+
+# 空信息（--allow-empty-message）与 Merge 提交放行
+if [[ -z "$first" || "$first" =~ ^Merge[[:space:]] ]]; then
+  exit 0
+fi
+
+if [[ ! "$first" =~ ^(feat|fix|docs|chore|refactor|test|build|ci|perf|revert)(\([a-z0-9-]+\))?:[[:space:]]+[^[:space:]] ]]; then
+  echo "══ commit-msg：提交信息不符合 Conventional Commits ══" >&2
+  echo "期望格式：type(可选 scope): 描述" >&2
+  echo "允许 type：feat fix docs chore refactor test build ci perf revert" >&2
+  echo "示例：feat: 前端登录接线真实 API（两步交付完成）" >&2
+  exit 1
+fi
+
+exit 0

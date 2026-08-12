@@ -1,4 +1,9 @@
-.PHONY: dev down check test build db-migrate logs
+.PHONY: dev down check test build db-migrate logs hooks
+
+hooks:
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-commit .githooks/commit-msg
+	@echo "已启用 .githooks 钩子（pre-commit + commit-msg）；SKIP_GIT_HOOKS=1 可临时放行"
 
 dev:
 	docker compose up --build

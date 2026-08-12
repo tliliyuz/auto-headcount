@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# 提交前静态门禁：空白检查 + apps/web ESLint（容器内）。
+# 只报告、不修改文件；与 make check 同一执行路径（docker compose run --rm web）。
+# 紧急放行：SKIP_GIT_HOOKS=1 git commit …
+set -uo pipefail
+
+if [[ "${SKIP_GIT_HOOKS:-0}" == "1" ]]; then
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$root" || exit 0
+
+# 无暂存内容（空提交、--amend 后再提交）时不重复检查
+if git diff --cached --quiet; then
+  exit 0
+fi
+
+# 1) 空白错误：只检查将要提交的内容
+if ! git diff --cached --check; then
+  echo "══ pre-commit：存在空白错误，修复后重新提交 ══" >&2
+  exit 1
+fi
+
+# 2) ESLint：容器内全量（与 make check 一致）
+echo "── pre-commit：docker compose run --rm web npm run lint ──"
+if ! docker compose run --rm web npm run lint; then
+  echo "══ pre-commit：ESLint 未通过，修复后重新提交 ══" >&2
+  exit 1
+fi
+
+exit 0
