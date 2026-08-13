@@ -27,6 +27,12 @@
 
 纯文档、注释和不可执行配置可以不制造业务 RED，但必须执行适用的链接、格式、Schema 或配置检查。
 
+## 提交规范
+
+- 格式：`type(可选 scope): 中文 subject`。subject 用中文描述，特定名词（如 ADR、MCP、JD、CSDN-Agent 等）可保留原文；type 取 `feat fix docs chore refactor test build ci perf revert`。
+- **必须写 body** 描述实际做了什么：空行后用 `- ` 分条列出改动，禁止只交一个 subject 而不说明内容。
+- 提交信息不得含 `Co-Authored-By: Claude` 署名（`.githooks/commit-msg` 钩子自动剥离）。
+
 ## 权威文档矩阵
 
 | 主题 | 唯一权威来源 |
