@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 浏览器连接预检状态标准化
+
+> 状态：CSDN-Agent Provider `verified`；auto-headcount 自动任务接线未实现。
+
+- CSDN-Agent `f992bcb` 新增只读 `csdn_get_browser_connection_status`，Node Bridge 与 Rust Relay 统一输出 `READY`、页面未注册、session 缺失、需登录、来源错误和实体错误状态及恢复动作。
+- 诊断按 `userId + deviceId` 隔离并复用 `liebide-job-detail-v1` 来源/实体约束；返回值不含完整 URL、标题、页面内容、auth 对象或 session ID。
+- 明确当前 Relay 没有独立 device/plugin 在线信号：`PAGE_NOT_REGISTERED` 不能被解释为设备离线，只能引导刷新页面或重载插件后复检。
+- CSDN-Agent `npm run check`、Node 全量 69/69 和 Rust 定向 1/1 通过；尚未部署，auto-headcount 尚未在任务编排中自动调用预检。
+
 ### 2026-08-13 — 浏览器提取契约双端一致性检查
 
 > 状态：`verified`。仅增加契约验证工具与标准命令，不新增数据采集、入库或无人值守能力。
@@ -17,7 +26,7 @@
 - auto-headcount 新增 `make check-browser-contract`：校验 Consumer 常量、关闭字段白名单、Schema SHA-256 和契约/Relay 现有行为测试，共 7/7 通过。
 - CSDN-Agent `b74e369` 新增同名 Provider Schema、`npm run check:extraction-contract` 和漂移测试；定向 5/5、插件全量 68/68 通过。
 - `make check-browser-contract-cross-repo` 使用显式 `CSDN_AGENT_REPO` 比较完整规范化 JSON Schema；RED 阶段因 Provider Schema 缺失失败，GREEN 后请求哈希 `ea9331…e583`、回执哈希 `8ba4b0…e04e` 一致。
-- 校验命令不读取供应方网站、真实职位、浏览器会话或凭证，可进入日常开发/CI；浏览器连接诊断仍属于下一切片。
+- 校验命令不读取供应方网站、真实职位、浏览器会话或凭证，可进入日常开发/CI；后续 `f992bcb` 已完成 Provider 连接预检，Consumer 任务接线仍属后续切片。
 
 ### 2026-08-13 — CSDN-Agent 依赖建立新 Git 基线
 
