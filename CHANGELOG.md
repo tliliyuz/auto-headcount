@@ -10,6 +10,26 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 同步串行化 + MCP 只入库可操作∩沉睡（operability_status + jobs.get 补 JD）
+
+> 状态速览：`claimDueTasks` 按 kind 单飞（同一 kind 同时只跑一个，EXISTS 原子加锁）· MCP 同步只入库「账号可操作（`wb.jobs.list` 24 个）∩ 沉睡」，`under_served` page_size 提到 200（100 页→14 页，拉取减 7 倍）· `jobs` 新增 `operability_status`（迁移 0006：actionable / not_in_access_scope / match_unavailable / source_incomplete）· 不可操作的上游仍沉睡职位标记 `not_in_access_scope`（**非 closed**），closeStale 只关闭真正未见的 · `job_details_jobs` 改为 DB 驱动 + `wb.jobs.get` 补 JD（只对可操作∩沉睡缺 JD 职位调用）。**真实同步实测：771 个沉睡收敛到 2 个可操作**（767 标记不可操作，2 个关闭）。
+
+#### 已实现（implemented）
+
+- 串行化：`async-task-repository.claimDueTasks` 加 per-kind cap（`not exists running` + `not exists earlier` 行比较取最早，`FOR UPDATE SKIP LOCKED` 跨进程原子）；`.d.mts` 更新。
+- 可操作收敛：`under-served-sync.runUnderServedSync` 先 `wb.jobs.list` 拉可操作集（page_size 200 拉 under_served），只持久化可操作∩7-30 天；`markOperabilityStatus` 批量标记 seen 不可操作职位为 `not_in_access_scope`；closeStale 改用完整 seen 集（不误标不可操作为 closed）；stats 加 `operable`/`inoperableSeen`（审计白名单同步）。
+- JD 补全：`job-details-sync` 改为 DB 驱动——查询可操作∩沉睡缺 JD 职位，逐个 `wb.jobs.get(job_id)` 补全（单职位失败计数 `failed` 跳过，不毒化整轮）；白名单收紧到 `[wb.jobs.get]`；新增 `parseJobsGetResult` 契约（含权限边界码）。
+- 数据模型：`schema.ts` `jobs` 加可空 `operability_status`（迁移 0006）；读仓储 `listUnderServedJobs` 只展示 `actionable`（null 兼容迁移过渡）。
+
+#### 已验证（verified）
+
+- `npm run lint` 0 问题；`npm run build` 通过。
+- `npm run test:unit` 109 通过；`npm run test:integration` 28 通过（新增串行化认领 3 场景、可操作过滤/不可操作标记/沉睡视图收敛、DB 驱动 JD 补全命中幂等 null 安全单职位失败）。
+- **真实 MCP 同步**（2026-08-13）：eligible 769 / operable 24 / persisted 2 / inoperableSeen 767 / closedStale 2；`operability_status` 分布 2 actionable + 767 not_in_access_scope；沉睡视图 771 → 2（搜推算法leader / 搜推架构leader）。
+- **受控能力验证**：`wb.jobs.get` 对沉睡职位（含非可操作）均 Code=0 + JD；`match_candidates` 对交集职位 Code=0（score_status cached/pending 均正常态），`score_status=pending` 为 LLM 打分中非失败；可操作边界 = `wb.jobs.list`（match_candidates 成功）。
+
+> 已知边界：`match_unavailable`/`source_incomplete` 状态为未来匹配工作流预留，当前同步只写 `actionable`/`not_in_access_scope`；宽口径沉睡由第二条数据源（网站爬虫，决策中）承接。
+
 ### 2026-08-13 — 手动同步去重 + 同步状态反馈与自动刷新
 
 > 状态速览：`/api/sync/under-served` 手动触发去重（`enqueueTaskIfIdle` 原子保证同 kind 至多一个活跃任务，重复点击/并发触发返回 `deduplicated:true` + 既有任务 id）· 调度 tick 加任务看门狗（回收 running 超 30 分钟的任务为 `TASK_STALE_TIMEOUT`，防止卡死任务永久锁死去重守卫）· 前端「同步职位」按钮不再只显示「已触发」，改为完整状态机：已入队（等待调度 tick）→ 同步中 → 同步完成：{persisted} 个职位 / 同步失败：{errorCode}，终态后自动刷新列表与「最近同步」时间戳。根因：此前 5 次点击 = 5 个并发同步任务同时打 MCP 触发限流/假死（「点完无事发生」）；同步拉不全（maxPages 截断）+ 从不清洗陈旧职位导致 DB 沉睡数堆积 771 vs 真实约 366（后者属 maxPages 修复范畴，见 docs/05 后续）。

@@ -161,7 +161,8 @@ erDiagram
 |:---|:---|:---|
 | 归属与追溯 | `id`, `source_connection_id`, `raw_record_id`, `external_id`, `mapping_version` | `source_connection_id` FK `RESTRICT`；`raw_record_id` FK `SET NULL`（可追溯到原始快照）；`(source_connection_id, external_id)` 唯一 → 幂等 upsert |
 | 职位信息 | `title`, `company_name`, `category`, `city`, `detailed_location` | 公司名/详细地址**不进公开视图**；落地页只投影城市 |
-| 职位详情 | `job_description` | 完整 JD，可空；`wb.jobs.list` 补全（见 `04-mcp-integration`）；仅内部运营详情视图，落地页白名单禁止输出 |
+| 职位详情 | `job_description` | 完整 JD，可空；`wb.jobs.get` 补全（2026-08-13 决策，见 `04-mcp-integration`）；仅内部运营详情视图，落地页白名单禁止输出 |
+| 可操作状态 | `operability_status` | 迁移 0006；`actionable`（账号自身作用域 `wb.jobs.list`，可建匹配任务）/ `not_in_access_scope`（上游仍沉睡但不可操作，**非 closed**）/ `match_unavailable`（作用域内但 match_candidates 权限边界，未来写入）/ `source_incomplete`（数据源不完整，未来写入）。沉睡巡检视图只展示 `actionable` |
 | 薪资 | `salary_min`, `salary_max` | 整数；落地页只展示范围，异常/缺失时不推断精确薪资 |
 | 沉睡判定 | `status`, `published_at`, `days_without_recommendation`, `valid_recommendation_count` | `days_without_recommendation` 非空；`jobs_under_served_idx(status, days_without_recommendation)` 支撑沉睡查询 |
 | 证据 | `eligibility_evidence`, `portal_url` | 供应商筛选证据 `jsonb`；`portal_url` 仅内部 |

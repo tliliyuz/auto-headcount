@@ -48,7 +48,7 @@
 | 漏斗/转化数据（内联） | `FunnelPage` | `funnel_events` 聚合（M4） |
 | 审计记录（内联） | ~~`AuditPage`~~ | `audit_logs` 表（M1，已接真实数据） |
 
-> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则）；数据源页不再使用内联同步批次/健康数组，数据来自 `/api/sources` + `/api/sync-runs`（`source_connections` / `sync_runs` 表）；审计日志页不再使用内联 mock 记录，数据来自 `/api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛，`ip_address` 尽力捕获可为空）。原始载荷密文与游标令牌永不进入响应。
+> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则；2026-08-13 起只返回 `operability_status='actionable'` 的可操作沉睡职位，不可操作的上游职位不进入列表，宽口径由第二条数据源承接）；数据源页不再使用内联同步批次/健康数组，数据来自 `/api/sources` + `/api/sync-runs`（`source_connections` / `sync_runs` 表）；审计日志页不再使用内联 mock 记录，数据来自 `/api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛，`ip_address` 尽力捕获可为空）。原始载荷密文与游标令牌永不进入响应。
 
 ### 同步触发状态机（2026-08-13）
 

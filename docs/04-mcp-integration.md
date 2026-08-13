@@ -34,8 +34,9 @@ npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
 
 | 业务能力 | 已确认工具 | 返回类型要点 | 状态 |
 |---|---|---|---|
-| 沉睡职位 | `wb.jobs.under_served` | `Data.list[]`：job_id/job_title/client_company/owner_id/owner_name/days_without_rec/category/city/salary_min/salary_max/portal_url/created_at | ✅ 已验证；公司/薪资/城市为空 |
-| 职位列表 | `wb.jobs.list` | `Data.list[]`：job_id/job_title/category/client_company/customer_name/department_path/job_description/salary_min/salary_max/city/created_by/status 等 | ✅ 已接入（内部 JD 补全：`job_details_jobs` 同步写入 `jobs.job_description`，管理端详情视图可见；落地页白名单仍禁 JD）；字段未脱敏，仅限内部 |
+| 沉睡职位 | `wb.jobs.under_served` | `Data.list[]`：job_id/job_title/client_company/owner_id/owner_name/days_without_rec/category/city/salary_min/salary_max/portal_url/created_at | ✅ 已验证；公司/薪资/城市为空；**跨账号作用域**（含非本账号可操作职位） |
+| 职位列表 | `wb.jobs.list` | `Data.list[]`：job_id/job_title/category/client_company/customer_name/department_path/job_description/salary_min/salary_max/city/created_by/status 等 | ✅ 已接入；**账号自身作用域（可操作集边界）**：`runUnderServedSync` 拉取它与 `under_served` 取交集，只入库可操作∩沉睡；落地页白名单仍禁 JD |
+| 职位详情 | `wb.jobs.get` | `Data` 单对象：job_id/job_title/category/client_company/job_description/salary_min/salary_max/city/created_by/status/portal_url 等 | ✅ 2026-08-13 受控验证：对沉睡职位（含非可操作）均返回 Code=0 + job_description；`job_details_jobs` 同步改为 DB 驱动 + `jobs.get` 补全（只对可操作∩沉睡缺 JD 职位调用）；**无 days_without_rec/推荐数** |
 | 候选人匹配 | `wb.jobs.match_candidates` | `Data.matches[]`：candidate_id/is_own/owner_id/owner_name/score_status/total_score/dimension_scores/match_highlights/gap_analysis/risk_flags + candidate_summary{name 已打码, current_title, current_company, resume_summary, portal_url} | ✅ 已验证；建议超时 180s |
 | 候选人搜索 | `wb.candidates.search` | `Data.list[]` | ✅ 发现已确认；当前账号返回空 |
 | 候选人列表 | `wb.candidates.list` | `Data.list[]` | ✅ 发现已确认；当前账号返回空 |
@@ -87,6 +88,12 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 ## 6. 待向对方确认（2026-08-12 更新）
 
 已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；不调用 `wb.candidates.get`（画像回写 + LLM）；`wb.jobs.under_served` 已确认等价产品沉睡条件（active + 有效推荐数 0 + 发布时间）；`wb.jobs.list` **2026-08-13 已纳入内部 JD 详情补全**（独立 `job_details_jobs` 同步，仅写 `jobs.job_description`，不作为职位行来源、不进入落地页白名单）。
+
+**2026-08-13 供应方能力受控验证与可操作收敛（fix4 决策）**：
+- `wb.jobs.get` 受控调用（3 个沉睡职位含 1 个非可操作）：**均返回 Code=0 + job_description**（此前文档「get 对 775 个返回 1003」是从 `match_candidates` 推断，实测 get 不受限）。**JD 补全路径 = `under_served + jobs.get`**（`job_details_jobs` 同步已改为 DB 驱动 + `jobs.get`，只对可操作∩沉睡缺 JD 职位调用，不给 771 个逐个补）。
+- **「可操作」边界 = `wb.jobs.list` 账号自身作用域（24 个）**，判据 `match_candidates` 对该集合成功、对 under_served 非自身职位返回 `1003 Data not found`（validation 2026-08-12）。`match_candidates` 评分 `score_status=pending` 是**正常业务状态**（LLM 打分中），后续轮询/重读，不视为失败。
+- **fix4 只入库可操作∩沉睡**：`under_served` page_size 提到 200（100 页→14 页，拉取减 7 倍）；`wb.jobs.list` 拉可操作集；只持久化两者交集；**不在交集的上游仍沉睡职位标记 `operability_status=not_in_access_scope`，不用 closeStale 标 closed**（「上游职位关闭」≠「当前账号无法匹配」）。closeStale 只关闭本次完整拉取真正未见的职位。
+- 真实同步实测（2026-08-13）：eligible 769 / operable 24 / persisted 2 / inoperableSeen 767 / closedStale 2；沉睡视图从 771 收敛到 2 个可操作职位。宽口径沉睡由第二条数据源（网站爬虫，决策中）承接。
 
 仍待确认：
 
