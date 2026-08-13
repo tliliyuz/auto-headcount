@@ -1,4 +1,4 @@
-.PHONY: dev down check test ci build db-migrate logs hooks
+.PHONY: dev down check test ci build db-migrate logs hooks check-browser-contract check-browser-contract-cross-repo
 
 hooks:
 	git config core.hooksPath .githooks
@@ -38,3 +38,11 @@ db-migrate:
 
 logs:
 	docker compose logs -f web db
+
+check-browser-contract:
+	node scripts/check-browser-contracts.mjs
+	cd apps/web && node --test tests/browser-collection-contract.test.mjs tests/browser-contract-schema-check.test.mjs
+
+check-browser-contract-cross-repo: check-browser-contract
+	@test -n "$(CSDN_AGENT_REPO)" || (echo "CSDN_AGENT_REPO is required" && exit 1)
+	node scripts/check-browser-contracts.mjs --provider-repo "$(CSDN_AGENT_REPO)"

@@ -86,7 +86,7 @@ auto-headcount/
 5. 候选版本只运行单实体受控 smoke test，输出限制为字段存在性、类型、长度、哈希、耗时和机器错误码。
 6. 每次真实联调在 `docs/validation/` 保存脱敏证据并关联两端 commit/tag；任一执行端未版本化时必须登记偏差，不能声明可复现发布。
 
-当前职位详情协议使用 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json)。统一根命令、双端 Schema 哈希和连接诊断属于后续实现门禁，在落地前不得把人工联调描述为无人值守采集能力。
+当前职位详情协议使用 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json)。`make check-browser-contract` 校验 Consumer 实现与本仓 Schema；设置 `CSDN_AGENT_REPO` 后运行 `make check-browser-contract-cross-repo`，还会比较 Provider/Consumer 的完整规范化 Schema 哈希。浏览器连接诊断仍属后续实现门禁，在落地前不得把人工联调描述为无人值守采集能力。
 
 ### CI 实现（GitHub Actions）
 

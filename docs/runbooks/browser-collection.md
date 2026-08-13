@@ -65,14 +65,27 @@
 6. 仅在内存或被 Git 忽略的本地环境中提供 `userId + deviceId + browserSessionId`；验证记录只保存不可逆指纹或“已匹配”，不保存完整值。
 7. 先执行 Fixture 测试，再执行单职位真实 smoke test。
 
-当前 Consumer Fixture 验证命令：
+当前 Consumer 标准验证命令：
 
 ```bash
-cd apps/web
-node --test tests/browser-collection-contract.test.mjs
+make check-browser-contract
 ```
 
-CSDN-Agent 端应运行其仓库内的 `npm run check` 和提取契约测试。统一根命令与双端 Schema 哈希检查属于下一标准化切片；在其落地前必须在验证记录中分别列出两端结果。
+CSDN-Agent Provider 标准验证命令：
+
+```bash
+cd plugins/csdn-browser-agent
+npm run check:extraction-contract
+```
+
+同时拥有两个仓库时执行完整一致性检查：
+
+```bash
+CSDN_AGENT_REPO=/absolute/path/to/csdn-agent \
+  make check-browser-contract-cross-repo
+```
+
+命令会分别校验两端实现常量和关闭字段白名单，再比较请求/回执 Schema 的规范化 SHA-256；任何语义漂移均失败。连接诊断仍属于下一标准化切片。
 
 ## 5. 故障与恢复矩阵
 

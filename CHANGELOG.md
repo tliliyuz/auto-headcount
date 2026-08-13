@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 浏览器提取契约双端一致性检查
+
+> 状态：`verified`。仅增加契约验证工具与标准命令，不新增数据采集、入库或无人值守能力。
+
+- auto-headcount 新增 `make check-browser-contract`：校验 Consumer 常量、关闭字段白名单、Schema SHA-256 和契约/Relay 现有行为测试，共 7/7 通过。
+- CSDN-Agent `b74e369` 新增同名 Provider Schema、`npm run check:extraction-contract` 和漂移测试；定向 5/5、插件全量 68/68 通过。
+- `make check-browser-contract-cross-repo` 使用显式 `CSDN_AGENT_REPO` 比较完整规范化 JSON Schema；RED 阶段因 Provider Schema 缺失失败，GREEN 后请求哈希 `ea9331…e583`、回执哈希 `8ba4b0…e04e` 一致。
+- 校验命令不读取供应方网站、真实职位、浏览器会话或凭证，可进入日常开发/CI；浏览器连接诊断仍属于下一切片。
+
 ### 2026-08-13 — CSDN-Agent 依赖建立新 Git 基线
 
 > 状态：`verified`（本地版本化与插件测试）；未配置远端、未推送、未部署。
