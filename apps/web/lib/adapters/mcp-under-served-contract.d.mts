@@ -65,3 +65,44 @@ export type JobsListPage = {
 };
 
 export function parseJobsListResult(result: unknown): JobsListPage;
+
+export type JobsGetDetail = {
+  externalId: string;
+  jobDescription: string | null;
+};
+
+/** `wb.jobs.get(job_id)`：Data 为单职位对象（非 list 包裹）。 */
+export function parseJobsGetResult(result: unknown): JobsGetDetail;
+
+export type MatchCandidateView = {
+  candidateId: string;
+  isOwn: boolean;
+  ownerId: string | null;
+  ownerName: string | null;
+  /** cached / pending（LLM 打分中，正常态）/ failed。 */
+  scoreStatus: string;
+  totalScore: number | null;
+  tier: string | null;
+  candidate: {
+    name: string | null;
+    currentTitle: string | null;
+    currentCompany: string | null;
+    city: string | null;
+    experienceYears: number | null;
+    resumeSummary: string | null;
+  } | null;
+};
+
+export type MatchCandidatesResult = {
+  sourceId: string;
+  sourceType: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  matches: MatchCandidateView[];
+};
+
+export function parseMatchCandidatesResult(
+  result: unknown,
+): MatchCandidatesResult;

@@ -195,6 +195,109 @@ export function parseJobsGetResult(result) {
   };
 }
 
+/**
+ * 解析 `wb.jobs.match_candidates` 响应（内部运营只读投影，docs/04 §3 已确认字段）。
+ * 评分以供应方为准（docs/01 §1.3）：`score_status` 为 `cached`/`pending`（LLM 打分中，**正常态**，
+ * 后续轮询/重读）/`failed`（上游失败）；`total_score`/`tier` 在 pending 时为 null。
+ * 权限边界码（403/1003/1004）映射 MCP_PERMISSION_BOUNDARY（可操作边界 = wb.jobs.list 作用域，
+ * 对非自身职位不重试、不换身份）。
+ * 投影收敛：只取候选人基础信息与打码名（不投影完整简历/联系方式——MVP 边界，见 docs/06）。
+ */
+export function parseMatchCandidatesResult(result) {
+  if (!isObject(result) || !Array.isArray(result.content)) {
+    throw invalid("content must be an array");
+  }
+  if (result.isError === true) {
+    throw new McpContractError(
+      "MCP tool reported an error",
+      "MCP_UPSTREAM_ERROR",
+    );
+  }
+
+  const textBlock = result.content.find(
+    (item) => isObject(item) && item.type === "text" && typeof item.text === "string",
+  );
+  if (!textBlock) throw invalid("content has no text result");
+
+  let payload;
+  try {
+    payload = JSON.parse(textBlock.text);
+  } catch {
+    throw invalid("text result is not valid JSON");
+  }
+
+  if (!isObject(payload)) throw invalid("payload must be an object");
+  requireNumber(payload.Code, "Code");
+  requireString(payload.Message, "Message");
+  if (payload.Code !== 0) {
+    throw new McpContractError(
+      "MCP provider returned a business error",
+      PERMISSION_BOUNDARY_CODES.has(payload.Code)
+        ? "MCP_PERMISSION_BOUNDARY"
+        : "MCP_UPSTREAM_ERROR",
+    );
+  }
+  if (!isObject(payload.Data)) throw invalid("Data must be an object");
+
+  const data = payload.Data;
+  const total = requireNonNegativeInteger(data.total, "Data.total");
+  const page = requirePositiveInteger(data.page, "Data.page");
+  const pageSize = requirePositiveInteger(data.page_size, "Data.page_size");
+  const totalPages = requireNonNegativeInteger(
+    data.total_pages,
+    "Data.total_pages",
+  );
+  if (!Array.isArray(data.matches)) throw invalid("Data.matches must be an array");
+
+  return {
+    sourceId: requireString(data.source_id, "Data.source_id"),
+    sourceType: requireString(data.source_type, "Data.source_type"),
+    total,
+    page,
+    pageSize,
+    totalPages,
+    matches: data.matches.map((item, index) => mapMatchCandidate(item, index)),
+  };
+}
+
+function mapMatchCandidate(item, index) {
+  const path = `Data.matches[${index}]`;
+  if (!isObject(item)) throw invalid(`${path} must be an object`);
+
+  const summary = isObject(item.candidate_summary) ? item.candidate_summary : null;
+  return {
+    candidateId: requireString(item.candidate_id, `${path}.candidate_id`),
+    isOwn: item.is_own === true,
+    ownerId: requireNullableString(item.owner_id, `${path}.owner_id`),
+    ownerName: requireNullableString(item.owner_name, `${path}.owner_name`),
+    scoreStatus: requireString(item.score_status, `${path}.score_status`),
+    totalScore: requireNullableNumber(item.total_score, `${path}.total_score`),
+    tier: requireNullableString(item.tier, `${path}.tier`),
+    candidate: summary
+      ? {
+          name: requireNullableString(summary.name, `${path}.candidate_summary.name`),
+          currentTitle: requireNullableString(
+            summary.current_title,
+            `${path}.candidate_summary.current_title`,
+          ),
+          currentCompany: requireNullableString(
+            summary.current_company,
+            `${path}.candidate_summary.current_company`,
+          ),
+          city: requireNullableString(summary.city, `${path}.candidate_summary.city`),
+          experienceYears: requireNullableNumber(
+            summary.experience_years,
+            `${path}.candidate_summary.experience_years`,
+          ),
+          resumeSummary: requireNullableString(
+            summary.resume_summary,
+            `${path}.candidate_summary.resume_summary`,
+          ),
+        }
+      : null,
+  };
+}
+
 /** 职位描述：null/undefined/空串归一为 null（无 JD），非字符串拒绝（不吞类型漂移）。 */
 function requireJobDescription(value, path) {
   if (value === null || value === undefined) return null;

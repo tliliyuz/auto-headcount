@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   parseJobsListResult,
+  parseMatchCandidatesResult,
   parseUnderServedJobsResult,
   selectEligibleUnderServedJobs,
   selectEligibleUnderServedPairs,
@@ -19,12 +20,21 @@ const jobsListFixtureUrl = new URL(
   import.meta.url,
 );
 
+const matchCandidatesFixtureUrl = new URL(
+  "../fixtures/mcp/match-candidates-response-2026-08-12.json",
+  import.meta.url,
+);
+
 async function loadFixture() {
   return JSON.parse(await readFile(fixtureUrl, "utf8"));
 }
 
 async function loadJobsListFixture() {
   return JSON.parse(await readFile(jobsListFixtureUrl, "utf8"));
+}
+
+async function loadMatchCandidatesFixture() {
+  return JSON.parse(await readFile(matchCandidatesFixtureUrl, "utf8"));
 }
 
 test("解析真实响应形状并保留供应商筛选证据", async () => {
@@ -289,4 +299,103 @@ test("wb-jobs-list Fixture 虚构化守卫：无手机号/邮箱/真实域名残
   );
   assert.doesNotMatch(rawText, /https:\/\/(?!portal\.invalid)/, "外链应统一用 portal.invalid");
   assert.ok(rawText.includes("https://portal.invalid/"), "应保留 portal.invalid 链接占位");
+});
+
+test("parseMatchCandidatesResult：解析真实响应形状（score_status=pending 正常态，不视为失败）", async () => {
+  const fixture = await loadMatchCandidatesFixture();
+  const parsed = parseMatchCandidatesResult(fixture);
+  assert.equal(parsed.sourceId, "fixture-job-001");
+  assert.equal(parsed.sourceType, "job");
+  assert.equal(parsed.total, 219);
+  assert.equal(parsed.matches.length, 3);
+  const first = parsed.matches[0];
+  assert.equal(first.candidateId, "fixture-candidate-001");
+  assert.equal(first.scoreStatus, "pending");
+  assert.equal(first.totalScore, null, "pending 时分数为 null 属正常");
+  assert.equal(first.tier, null);
+  assert.equal(first.candidate.name, "张**");
+  assert.equal(first.candidate.currentTitle, "产品经理");
+  assert.equal(first.candidate.city, "北京市");
+  // 投影收敛：保留已打码摘要，不暴露 portal_url
+  assert.equal("portal_url" in first.candidate, false, "不投影 portal_url");
+});
+
+test("parseMatchCandidatesResult：cached 评分（真实验证形状：total_score + tier）", () => {
+  const result = {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          Code: 0,
+          Message: "success",
+          Data: {
+            source_id: "job-x",
+            source_type: "job",
+            total: 1,
+            page: 1,
+            page_size: 5,
+            total_pages: 1,
+            matches: [
+              {
+                candidate_id: "c-1",
+                is_own: true,
+                owner_id: "o-1",
+                owner_name: "示例顾问",
+                score_status: "cached",
+                total_score: 78,
+                tier: "moderate",
+                candidate_summary: {
+                  candidate_id: "c-1",
+                  name: "王**",
+                  current_title: "算法工程师",
+                  current_company: "示例公司",
+                  city: "上海",
+                  experience_years: 5,
+                  resume_summary: "示例公司-算法工程师",
+                },
+              },
+            ],
+          },
+        }),
+      },
+    ],
+  };
+  const parsed = parseMatchCandidatesResult(result);
+  assert.equal(parsed.matches[0].scoreStatus, "cached");
+  assert.equal(parsed.matches[0].totalScore, 78);
+  assert.equal(parsed.matches[0].tier, "moderate");
+  assert.equal(parsed.matches[0].isOwn, true);
+});
+
+test("parseMatchCandidatesResult：权限边界业务码（1003）映射 MCP_PERMISSION_BOUNDARY，不重试不换身份", () => {
+  const result = {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          Code: 1003,
+          Message: "Data not found",
+          Data: null,
+        }),
+      },
+    ],
+  };
+  assert.throws(
+    () => parseMatchCandidatesResult(result),
+    (error) => error.code === "MCP_PERMISSION_BOUNDARY",
+  );
+});
+
+test("match-candidates Fixture 虚构化守卫：无手机号/邮箱/真实域名残留，候选人名已打码", async () => {
+  const fixture = await loadMatchCandidatesFixture();
+  const rawText = fixture.content[0].text;
+  assert.doesNotMatch(rawText, /1[3-9]\d{9}/, "不应残留手机号");
+  assert.doesNotMatch(
+    rawText,
+    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
+    "不应残留邮箱",
+  );
+  assert.doesNotMatch(rawText, /https:\/\/(?!portal\.invalid)/, "外链应统一用 portal.invalid");
+  assert.ok(rawText.includes("portal.invalid"), "应保留 portal.invalid 链接占位");
+  assert.match(rawText, /"[^"]*\*\*"/, "候选人名应为打码形式（含 *）");
 });
