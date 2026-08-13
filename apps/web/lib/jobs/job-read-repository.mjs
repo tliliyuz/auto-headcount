@@ -53,7 +53,8 @@ export async function listUnderServedJobs(
       published_at as "publishedAt",
       source_updated_at as "sourceUpdatedAt",
       created_at as "createdAt",
-      updated_at as "updatedAt"
+      updated_at as "updatedAt",
+      (job_description is not null) as "hasDescription"
     from jobs
     where ${where}
     order by days_without_recommendation desc, created_at desc

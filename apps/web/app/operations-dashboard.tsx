@@ -615,6 +615,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [jobPage, setJobPage] = useState(1);
   const [jumpValue, setJumpValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [onlyWithDetail, setOnlyWithDetail] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [dormantJobs, setDormantJobs] = useState<DormantJob[]>([]);
@@ -779,7 +780,8 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
       `${job.title}${job.city}${job.category}`
         .toLowerCase()
         .includes(query.trim().toLowerCase());
-    return categoryMatches && queryMatches;
+    const detailMatches = !onlyWithDetail || job.hasDescription;
+    return categoryMatches && queryMatches && detailMatches;
   });
 
   const filteredTotal = filteredJobs.length;
@@ -991,6 +993,10 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
 
               <div className="table-tools">
                 <label className="table-search"><span>⌕</span><input value={query} onChange={(event) => { setQuery(event.target.value); setJobPage(1); }} placeholder="搜索职位名称或城市" /></label>
+                <label className="detail-filter">
+                  <input type="checkbox" checked={onlyWithDetail} onChange={(event) => { setOnlyWithDetail(event.target.checked); setJobPage(1); }} />
+                  只看有详情
+                </label>
                 <button>发布时间：7–30 天⌄</button>
                 <button>负责人：全部⌄</button>
                 <button className="filter-button">≡ 筛选</button>
@@ -1003,7 +1009,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     {pageJobs.map((job) => (
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><input aria-label={`选择 ${job.title}`} type="checkbox" checked={selectedRows.includes(job.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleRow(job.id)} /></td>
-                        <td><strong>{job.title}</strong><small>{job.externalId} · 更新于 {formatDateTime(job.updatedAt)}</small></td>
+                        <td><strong>{job.title}{job.hasDescription && <span className="detail-badge">有详情</span>}</strong><small>{job.externalId} · 更新于 {formatDateTime(job.updatedAt)}</small></td>
                         <td><span>{job.category}</span><small>{job.city}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
                         <td><strong>待匹配</strong><small><i className="dot high" />高 — <i className="dot medium" />中 —</small></td>

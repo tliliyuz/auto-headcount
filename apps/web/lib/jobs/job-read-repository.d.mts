@@ -30,6 +30,7 @@ export type UnderServedJobRow = {
   sourceUpdatedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  hasDescription: boolean;
 };
 
 export function listUnderServedJobs(

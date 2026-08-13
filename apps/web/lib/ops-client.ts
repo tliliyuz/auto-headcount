@@ -34,6 +34,8 @@ export type DormantJob = {
   sourceUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 是否有完整 JD（`jobs.job_description` 非空）；用于列表「只看有详情」筛选与行内标记。 */
+  hasDescription: boolean;
 };
 
 export type SourceView = {
