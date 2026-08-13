@@ -1,0 +1,20 @@
+{
+  "fixtureVersion": 1,
+  "fixtureType": "sanitized-tools-call-response",
+  "source": {
+    "tool": "wb.jobs.list",
+    "protocolVersion": "2025-11-25",
+    "fetchedAt": "2026-08-13",
+    "request": {
+      "page": 1,
+      "page_size": 2
+    }
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"Code\":0,\"Message\":\"success\",\"Data\":{\"total\":2,\"page\":1,\"page_size\":2,\"total_pages\":1,\"list\":[{\"job_id\":\"fixture-job-list-001\",\"job_title\":\"示例全栈工程师\",\"category\":\"技术研发\",\"client_company\":\"示例企业有限公司\",\"customer_name\":\"示例客户\",\"department_path\":\"技术部/平台组\",\"job_description\":\"负责内部运营平台前后端开发，五年以上经验，熟悉 TypeScript 与 PostgreSQL。薪资面议。\",\"salary\":\"25-40K·14薪\",\"city\":\"上海\",\"created_by\":\"示例顾问\",\"status\":\"active\",\"portal_url\":\"https://portal.invalid/jobs/fixture-job-list-001\"},{\"job_id\":\"fixture-job-list-002\",\"job_title\":\"示例数据工程师\",\"category\":\"数据智能\",\"client_company\":\"示例数据科技\",\"customer_name\":\"示例客户\",\"department_path\":\"数据部/基建组\",\"job_description\":\"负责数据管道与指标体系建设，三年以上经验，熟悉数仓建模。\",\"salary\":\"20-35K·14薪\",\"city\":\"北京\",\"created_by\":\"示例顾问\",\"status\":\"active\",\"portal_url\":\"https://portal.invalid/jobs/fixture-job-list-002\"}]}}"
+    }
+  ],
+  "isError": false
+}

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
 import {
   JOB_CATEGORY_BUCKETS,
@@ -16,11 +23,13 @@ import {
 import {
   fetchAuditLogs,
   fetchDormantJobs,
+  fetchJobDetail,
   fetchSources,
   fetchSyncRuns,
   triggerSync,
   type AuditLogView,
   type DormantJob,
+  type JobDetail,
   type SourceView,
   type SyncRunView,
 } from "@/lib/ops-client";
@@ -612,6 +621,11 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [latestSyncAt, setLatestSyncAt] = useState<string | null>(null);
+  const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  // 请求序号 ref：丢弃快速切换职位时的陈旧详情响应，防竞态。
+  const detailRequestSeq = useRef(0);
 
   // 会话核实：会话 Cookie 为 HttpOnly，JS 无法探测，因此无条件调 /api/auth/me。
   // SSR 已按 Cookie 存在性渲染视图；这里用 me 确认真实会话与用户，
@@ -789,6 +803,36 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     sleepingJobs.find((job) => job.id === selectedId) ?? sleepingJobs[0];
   const publicJob = selectedJob ? toPublicJobView(selectedJob) : null;
 
+  // 职位详情：选中职位变化时按需拉取完整 JD（列表投影不含 JD，保持列表精简）。
+  // 请求序号 ref 丢弃陈旧响应；401/改密回落登录，403 显式无权限，404 视为已下架。
+  // setState 一律放在 async IIFE 内（与业务数据加载 effect 同款写法），满足 react-hooks 门禁。
+  useEffect(() => {
+    const jobId = selectedJob?.id;
+    if (!jobId) return; // 无选中职位时由渲染分支展示「未选择职位」，无需重置详情状态
+    const seq = ++detailRequestSeq.current;
+    const controller = new AbortController();
+    void (async () => {
+      setJobDetail(null);
+      setDetailLoading(true);
+      setDetailError(null);
+      const result = await fetchJobDetail(jobId, { signal: controller.signal });
+      if (seq !== detailRequestSeq.current) return; // 陈旧响应直接丢弃
+      setDetailLoading(false);
+      if (result.ok) {
+        setJobDetail(result.data);
+      } else if (result.status === 401 || result.code === "password_change_required") {
+        handleAuthExpired();
+      } else if (result.status === 403) {
+        setDetailError("无权限访问职位详情");
+      } else if (result.status === 404) {
+        setDetailError("职位不存在或已下架");
+      } else {
+        setDetailError("详情加载失败，请稍后重试");
+      }
+    })();
+    return () => controller.abort();
+  }, [selectedJob?.id, handleAuthExpired]);
+
   function toggleRow(id: string) {
     setSelectedRows((current) =>
       current.includes(id)
@@ -964,7 +1008,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
                         <td><strong>待匹配</strong><small><i className="dot high" />高 — <i className="dot medium" />中 —</small></td>
                         <td><span className="owner-avatar">—</span>—</td>
-                        <td><button aria-label={`查看 ${job.title}`}>›</button></td>
+                        <td><button aria-label={`查看 ${job.title}`} onClick={() => setSelectedId(job.id)}>›</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1016,6 +1060,19 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                   </div>
 
                   <div className="sleeping-alert"><span>!</span><div><strong>已沉睡 {selectedJob.ageDays} 天</strong><p>距 30 天观察上限还有 {30 - selectedJob.ageDays} 天</p></div></div>
+
+                  <div className="panel-section">
+                    <div className="section-title"><h3>职位详情（完整 JD）</h3><span className="internal-label">仅内部</span></div>
+                    {detailLoading ? (
+                      <p className="muted-note">正在加载职位详情…</p>
+                    ) : detailError ? (
+                      <p className="muted-note">{detailError}</p>
+                    ) : jobDetail?.jobDescription ? (
+                      <div className="jd-detail">{jobDetail.jobDescription}</div>
+                    ) : (
+                      <p className="muted-note">暂无详情</p>
+                    )}
+                  </div>
 
                   <div className="panel-section">
                     <div className="section-title"><h3>候选人匹配池</h3><button>查看全部</button></div>

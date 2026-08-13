@@ -48,6 +48,22 @@ test("成功元数据只保留白名单键，未声明键被剔除", () => {
   assert.ok(!("resume" in entry.metadata));
 });
 
+test("jobs.detail 审计元数据不得含 JD 正文（白名单只放 found）", () => {
+  const entry = planAudit({
+    ...BASE,
+    action: "jobs.detail",
+    outcome: "success",
+    metadataKeys: ["found"],
+    audit: {
+      resourceId: "job-1",
+      metadata: { found: true, jobDescription: "完整 JD 正文", resume: "..." },
+    },
+  });
+  assert.deepEqual(entry.metadata, { found: true });
+  assert.ok(!("jobDescription" in entry.metadata), "JD 正文不得进入审计元数据");
+  assert.ok(!("resume" in entry.metadata));
+});
+
 test("denied 结果：元数据为空、actor 保留、resourceId 为 null", () => {
   const entry = planAudit({
     ...BASE,

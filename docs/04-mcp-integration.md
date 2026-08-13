@@ -35,7 +35,7 @@ npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
 | 业务能力 | 已确认工具 | 返回类型要点 | 状态 |
 |---|---|---|---|
 | 沉睡职位 | `wb.jobs.under_served` | `Data.list[]`：job_id/job_title/client_company/owner_id/owner_name/days_without_rec/category/city/salary_min/salary_max/portal_url/created_at | ✅ 已验证；公司/薪资/城市为空 |
-| 职位列表 | `wb.jobs.list` | `Data.list[]`：job_id/job_title/category/client_company/customer_name/department_path/job_description/salary_min/salary_max/city/created_by/status 等 | ✅ 已验证；MVP 非必需（under_served 已等价产品条件），字段未脱敏，仅限内部 |
+| 职位列表 | `wb.jobs.list` | `Data.list[]`：job_id/job_title/category/client_company/customer_name/department_path/job_description/salary_min/salary_max/city/created_by/status 等 | ✅ 已接入（内部 JD 补全：`job_details_jobs` 同步写入 `jobs.job_description`，管理端详情视图可见；落地页白名单仍禁 JD）；字段未脱敏，仅限内部 |
 | 候选人匹配 | `wb.jobs.match_candidates` | `Data.matches[]`：candidate_id/is_own/owner_id/owner_name/score_status/total_score/dimension_scores/match_highlights/gap_analysis/risk_flags + candidate_summary{name 已打码, current_title, current_company, resume_summary, portal_url} | ✅ 已验证；建议超时 180s |
 | 候选人搜索 | `wb.candidates.search` | `Data.list[]` | ✅ 发现已确认；当前账号返回空 |
 | 候选人列表 | `wb.candidates.list` | `Data.list[]` | ✅ 发现已确认；当前账号返回空 |
@@ -86,7 +86,7 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 
 ## 6. 待向对方确认（2026-08-12 更新）
 
-已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；不调用 `wb.candidates.get`（画像回写 + LLM）；`wb.jobs.under_served` 已确认等价产品沉睡条件（active + 有效推荐数 0 + 发布时间），`wb.jobs.list` 不纳入 MVP 数据源。
+已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；不调用 `wb.candidates.get`（画像回写 + LLM）；`wb.jobs.under_served` 已确认等价产品沉睡条件（active + 有效推荐数 0 + 发布时间）；`wb.jobs.list` **2026-08-13 已纳入内部 JD 详情补全**（独立 `job_details_jobs` 同步，仅写 `jobs.job_description`，不作为职位行来源、不进入落地页白名单）。
 
 仍待确认：
 

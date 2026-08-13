@@ -108,6 +108,21 @@ export function fetchDormantJobs(input?: {
   );
 }
 
+/** 职位详情 = 列表投影字段 + jobDescription（完整 JD，可空）。契约见 docs/09 §2.2。 */
+export type JobDetail = DormantJob & {
+  jobDescription: string | null;
+};
+
+export function fetchJobDetail(
+  id: string,
+  input?: { signal?: AbortSignal },
+): Promise<AuthResult<JobDetail>> {
+  return request<JobDetail>(`/api/jobs/${encodeURIComponent(id)}`, {
+    method: "GET",
+    signal: input?.signal,
+  });
+}
+
 export function fetchSources(input?: {
   page?: number;
   pageSize?: number;

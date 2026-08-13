@@ -17,7 +17,7 @@
 
 | 页面 | 组件 | 数据来源 | 状态 |
 |---|---|---|---|
-| 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/洞察/脱敏预览；匹配池为 M2 占位） |
+| 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md) + [`GET /api/jobs/:id`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/洞察/脱敏预览；洞察面板按选中职位拉取完整 JD 展示「职位详情」；匹配池为 M2 占位） |
 | 智能匹配 | `MatchingPage` | `candidates` 数组 | 静态原型 |
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |

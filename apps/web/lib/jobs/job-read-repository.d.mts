@@ -36,3 +36,12 @@ export function listUnderServedJobs(
   sql: SqlClient,
   input?: { category?: string; q?: string; page?: number; pageSize?: number },
 ): Promise<PageResult<UnderServedJobRow>>;
+
+export type JobDetailRow = UnderServedJobRow & {
+  jobDescription: string | null;
+};
+
+export function getJobById(
+  sql: SqlClient,
+  id: string,
+): Promise<JobDetailRow | undefined>;

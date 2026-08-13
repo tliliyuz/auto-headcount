@@ -43,6 +43,17 @@ test(
     assert.equal(anon.status, 401);
     assert.equal((await anon.json()).code, "unauthorized");
 
+    // 1b) 职位详情动态路由注册且同样被会话门禁拒绝（匿名 401，不触 DB）。
+    //     I12：带真实 DB 会话的 200/400/404 由仓储层与 id 解析单测覆盖。
+    for (const path of [
+      "/api/jobs/00000000-0000-0000-0000-000000000000",
+      "/api/jobs/not-a-uuid",
+    ]) {
+      const res = await worker.fetch(new Request(`${base}${path}`), env, ctx);
+      assert.equal(res.status, 401, `${path} 应 401`);
+      assert.equal((await res.json()).code, "unauthorized");
+    }
+
     // 2) 空/畸形会话 Cookie → 401（parseSessionToken 拒绝，同样不触 DB）
     for (const cookie of ["session_token=", "session_token", "foo=bar"]) {
       const res = await worker.fetch(

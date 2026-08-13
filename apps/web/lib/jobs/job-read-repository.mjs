@@ -68,3 +68,38 @@ export async function listUnderServedJobs(
     list,
   };
 }
+
+/**
+ * 职位详情（内部运营）：按 id 返回单条，含 `jobDescription`（完整 JD，可空）。
+ * 投影与列表一致（companyName/detailedLocation 内部可见），**不含 `portal_url`**
+ * （docs/04 §6：业务只读投影不返回 `portal_*`）与 `raw_records.payload_*`。
+ * 查无返回 `undefined`（路由映射 404）。
+ */
+export async function getJobById(sql, id) {
+  const [job] = await sql`
+    select
+      id,
+      external_id as "externalId",
+      mapping_version as "mappingVersion",
+      title,
+      company_name as "companyName",
+      category,
+      city,
+      detailed_location as "detailedLocation",
+      salary_min as "salaryMin",
+      salary_max as "salaryMax",
+      status,
+      days_without_recommendation as "ageDays",
+      coalesce(valid_recommendation_count, 0) as "recommendationCount",
+      source_connection_id as "sourceConnectionId",
+      raw_record_id as "rawRecordId",
+      published_at as "publishedAt",
+      source_updated_at as "sourceUpdatedAt",
+      created_at as "createdAt",
+      updated_at as "updatedAt",
+      job_description as "jobDescription"
+    from jobs
+    where id = ${id}
+  `;
+  return job ?? undefined;
+}

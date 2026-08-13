@@ -69,6 +69,89 @@ export function parseUnderServedJobsResult(result) {
   };
 }
 
+/**
+ * 解析 `wb.jobs.list` 响应：只取补全 JD 所需的 `{ externalId, jobDescription }`。
+ * 其余字段（salary/customer_name/department_path/created_by/status 等）不进入业务模型，
+ * 仅由夹具保存形状；job_description 为空串/缺失归一为 null（无 JD 占位）。
+ * 包络校验、业务错误码与权限边界码（403/1003/1004）语义与 `parseUnderServedJobsResult` 一致。
+ */
+export function parseJobsListResult(result) {
+  if (!isObject(result) || !Array.isArray(result.content)) {
+    throw invalid("content must be an array");
+  }
+  if (result.isError === true) {
+    throw new McpContractError(
+      "MCP tool reported an error",
+      "MCP_UPSTREAM_ERROR",
+    );
+  }
+
+  const textBlock = result.content.find(
+    (item) => isObject(item) && item.type === "text" && typeof item.text === "string",
+  );
+  if (!textBlock) throw invalid("content has no text result");
+
+  let payload;
+  try {
+    payload = JSON.parse(textBlock.text);
+  } catch {
+    throw invalid("text result is not valid JSON");
+  }
+
+  if (!isObject(payload)) throw invalid("payload must be an object");
+  requireNumber(payload.Code, "Code");
+  requireString(payload.Message, "Message");
+  if (payload.Code !== 0) {
+    throw new McpContractError(
+      "MCP provider returned a business error",
+      PERMISSION_BOUNDARY_CODES.has(payload.Code)
+        ? "MCP_PERMISSION_BOUNDARY"
+        : "MCP_UPSTREAM_ERROR",
+    );
+  }
+  if (!isObject(payload.Data)) throw invalid("Data must be an object");
+
+  const data = payload.Data;
+  const total = requireNonNegativeInteger(data.total, "Data.total");
+  const page = requirePositiveInteger(data.page, "Data.page");
+  const pageSize = requirePositiveInteger(data.page_size, "Data.page_size");
+  const totalPages = requireNonNegativeInteger(
+    data.total_pages,
+    "Data.total_pages",
+  );
+  if (!Array.isArray(data.list)) throw invalid("Data.list must be an array");
+
+  return {
+    total,
+    page,
+    pageSize,
+    totalPages,
+    jobs: data.list.map((item, index) => mapJobListItem(item, index)),
+  };
+}
+
+function mapJobListItem(item, index) {
+  const path = `Data.list[${index}]`;
+  if (!isObject(item)) throw invalid(`${path} must be an object`);
+
+  return {
+    externalId: requireString(item.job_id, `${path}.job_id`),
+    jobDescription: requireJobDescription(
+      item.job_description,
+      `${path}.job_description`,
+    ),
+  };
+}
+
+/** 职位描述：null/undefined/空串归一为 null（无 JD），非字符串拒绝（不吞类型漂移）。 */
+function requireJobDescription(value, path) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw invalid(`${path} must be a string or null`);
+  }
+  return value.trim() === "" ? null : value;
+}
+
 export function selectEligibleUnderServedJobs(page) {
   if (!isObject(page) || !Array.isArray(page.jobs)) {
     throw invalid("normalized page must contain jobs");

@@ -51,6 +51,25 @@ function fixtureSource(marker) {
   };
 }
 
+/**
+ * 调度 tick 现同时入队 under_served 与 job_details 两种任务：
+ * `wb.jobs.list` 走空页（job_details 平凡成功、不产生更新），其余工具交给被测 callTool。
+ */
+function dispatchCallTool(underServedCallTool) {
+  return async (toolName, args) => {
+    if (toolName === "wb.jobs.list") {
+      return fakePage({
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+        list: [],
+      });
+    }
+    return underServedCallTool(toolName, args);
+  };
+}
+
 function fixtureEnv(source, { withKey = true } = {}) {
   const env = {
     APP_ENV: "test",
@@ -69,7 +88,7 @@ async function cleanupFixture(sql, { source, taskIds }) {
   if (source) {
     await sql`
       delete from async_tasks
-      where kind = 'under_served_sync'
+      where kind in ('under_served_sync', 'job_details_sync')
         and payload->'source'->>'provider' = ${source.provider}
     `;
     const sourceRows = await sql`
@@ -102,14 +121,15 @@ test(
     const taskIds = [];
 
     try {
-      const callTool = async () =>
+      const callTool = dispatchCallTool(async () =>
         fakePage({
           total: 2,
           page: 1,
           pageSize: 20,
           totalPages: 1,
           list: [fakeJob("s-7", 7), fakeJob("s-30", 30)],
-        });
+        }),
+      );
 
       const result = await runScheduledTick({
         env,
@@ -118,9 +138,10 @@ test(
         intervalMs: SIX_HOURS_MS,
         mcp: { callTool },
       });
-      taskIds.push(result.taskId);
+      taskIds.push(result.taskId, result.detailsTaskId);
       assert.equal(result.enqueued, true);
-      assert.equal(result.succeeded, 1);
+      assert.equal(result.detailsEnqueued, true);
+      assert.equal(result.succeeded, 2);
       assert.equal(result.retried, 0);
       assert.equal(result.failed, 0);
       assert.equal(result.dead, 0);
@@ -175,7 +196,7 @@ test(
     let calls = 0;
 
     try {
-      const callTool = async () => {
+      const callTool = dispatchCallTool(async () => {
         calls += 1;
         if (calls === 1) {
           throw new McpDiscoveryError("rate limited", {
@@ -190,7 +211,7 @@ test(
           totalPages: 1,
           list: [fakeJob("retry-7", 7)],
         });
-      };
+      });
 
       const first = await runScheduledTick({
         env,
@@ -199,7 +220,7 @@ test(
         intervalMs: SIX_HOURS_MS,
         mcp: { callTool },
       });
-      taskIds.push(first.taskId);
+      taskIds.push(first.taskId, first.detailsTaskId);
       assert.equal(first.retried, 1);
 
       const [afterFirst] = await sql`
@@ -221,6 +242,7 @@ test(
         intervalMs: SIX_HOURS_MS,
         mcp: { callTool },
       });
+      // job_details 已在首轮成功，重试轮仅 under_served 到期处理
       assert.equal(second.succeeded, 1);
 
       const [afterSecond] = await sql`
@@ -247,11 +269,11 @@ test(
     const taskIds = [];
 
     try {
-      const callTool = async () => {
+      const callTool = dispatchCallTool(async () => {
         throw new McpDiscoveryError("contract drift", {
           code: "MCP_CONTRACT_ERROR",
         });
-      };
+      });
       const result = await runScheduledTick({
         env,
         sql,
@@ -259,7 +281,7 @@ test(
         intervalMs: SIX_HOURS_MS,
         mcp: { callTool },
       });
-      taskIds.push(result.taskId);
+      taskIds.push(result.taskId, result.detailsTaskId);
       assert.equal(result.failed, 1);
 
       const [task] = await sql`
@@ -288,12 +310,12 @@ test(
     const taskIds = [];
 
     try {
-      const callTool = async () => {
+      const callTool = dispatchCallTool(async () => {
         throw new McpDiscoveryError("timeout", {
           code: "MCP_TIMEOUT",
           retryable: true,
         });
-      };
+      });
       const maxAttempts = 2;
 
       const t1 = await runScheduledTick({
@@ -304,7 +326,7 @@ test(
         maxAttempts,
         mcp: { callTool },
       });
-      taskIds.push(t1.taskId);
+      taskIds.push(t1.taskId, t1.detailsTaskId);
       assert.equal(t1.retried, 1);
 
       const [after1] = await sql`
@@ -395,7 +417,7 @@ test(
         intervalMs: SIX_HOURS_MS,
         mcp: { callTool: async () => fakePage({ total: 1, page: 1, pageSize: 20, totalPages: 1, list: [] }) },
       });
-      taskIds.push(result.taskId);
+      taskIds.push(result.taskId, result.detailsTaskId);
       assert.equal(result.failed, 1);
 
       const [task] = await sql`
@@ -404,11 +426,13 @@ test(
       assert.equal(task.status, "failed");
       assert.equal(task.last_error_code, "ENCRYPTION_CONFIG_REQUIRED");
 
+      // under_served 缺加密配置失败不写 sync_run；job_details 不依赖加密，平凡成功属预期。
       const [runCount] = await sql`
         select count(*)::int as n from sync_runs
-        where source_connection_id in (
-          select id from source_connections where provider = ${source.provider}
-        )
+        where sync_type = 'under_served_jobs'
+          and source_connection_id in (
+            select id from source_connections where provider = ${source.provider}
+          )
       `;
       assert.equal(runCount.n, 0);
     } finally {

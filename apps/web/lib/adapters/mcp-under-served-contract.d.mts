@@ -50,3 +50,18 @@ export function selectEligibleUnderServedJobs(
 export function selectEligibleUnderServedPairs(
   page: UnderServedJobPage,
 ): UnderServedJobPair[];
+
+export type JobsListItem = {
+  externalId: string;
+  jobDescription: string | null;
+};
+
+export type JobsListPage = {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  jobs: JobsListItem[];
+};
+
+export function parseJobsListResult(result: unknown): JobsListPage;

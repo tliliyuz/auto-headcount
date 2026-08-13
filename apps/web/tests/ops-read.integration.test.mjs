@@ -11,7 +11,10 @@ import {
   persistUnderServedJob,
   startSyncRun,
 } from "../lib/jobs/job-sync-repository.mjs";
-import { listUnderServedJobs } from "../lib/jobs/job-read-repository.mjs";
+import {
+  getJobById,
+  listUnderServedJobs,
+} from "../lib/jobs/job-read-repository.mjs";
 import {
   listSources,
   listSyncRuns,
@@ -247,6 +250,61 @@ test(
       assert.equal(row.valid_recommendation_count, 0, "重同步不得用 NULL 覆盖推荐计数");
       const afterResync = await listUnderServedJobs(sql, { q: "N6", pageSize: 100 });
       assert.equal(afterResync.list.length, 1, "重同步后真值 0 仍应纳入沉睡");
+    } finally {
+      if (sourceId) {
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "getJobById：返回含 jobDescription 的内部详情投影，未知 id 返回 undefined",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    let sourceId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-${marker}-detail`,
+        environment: "test",
+        displayName: "Fixture Detail Source",
+      });
+      const runId = await startSyncRun(sql, sourceId, "under_served_jobs");
+      await persistUnderServedJob(sql, {
+        sourceId,
+        syncRunId: runId,
+        rawPayload: { job_id: "d-1" },
+        job: fixtureJob("d-1", { title: "Detail Engineer", category: "Engineering", city: "Shanghai", ageDays: 11 }),
+        encryption,
+      });
+      await sql`
+        update jobs set job_description = '完整 JD 文本' , detailed_location = '上海·张江'
+        where source_connection_id = ${sourceId} and external_id = 'd-1'
+      `;
+      await finishSyncRun(sql, runId, { processed: 1, persisted: 1 });
+
+      const [saved] = await sql`
+        select id from jobs
+        where source_connection_id = ${sourceId} and external_id = 'd-1'
+      `;
+
+      const detail = await getJobById(sql, saved.id);
+      assert.equal(detail.externalId, "d-1");
+      assert.equal(detail.title, "Detail Engineer");
+      assert.equal(detail.jobDescription, "完整 JD 文本");
+      assert.equal(detail.detailedLocation, "上海·张江");
+      assert.equal(typeof detail.companyName, "string");
+      assert.equal("portalUrl" in detail, false, "详情投影不得含 portal_url");
+      assert.equal(Object.keys(detail).some((k) => k.startsWith("payload_")), false);
+
+      const unknown = await getJobById(sql, randomUUID());
+      assert.equal(unknown, undefined, "未知 id 返回 undefined → 路由映射 404");
     } finally {
       if (sourceId) {
         await sql`delete from jobs where source_connection_id = ${sourceId}`;

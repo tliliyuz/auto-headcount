@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  parseJobsListResult,
   parseUnderServedJobsResult,
   selectEligibleUnderServedJobs,
   selectEligibleUnderServedPairs,
@@ -13,8 +14,17 @@ const fixtureUrl = new URL(
   import.meta.url,
 );
 
+const jobsListFixtureUrl = new URL(
+  "../fixtures/mcp/wb-jobs-list-response-2026-08-13.json",
+  import.meta.url,
+);
+
 async function loadFixture() {
   return JSON.parse(await readFile(fixtureUrl, "utf8"));
+}
+
+async function loadJobsListFixture() {
+  return JSON.parse(await readFile(jobsListFixtureUrl, "utf8"));
 }
 
 test("解析真实响应形状并保留供应商筛选证据", async () => {
@@ -184,6 +194,91 @@ test("瞬时上游业务码映射 MCP_UPSTREAM_ERROR，与权限边界区分", (
 
 test("under-served Fixture 虚构化守卫：无手机号/邮箱/真实域名残留", async () => {
   const fixture = await loadFixture();
+  const rawText = fixture.content[0].text;
+
+  assert.doesNotMatch(rawText, /1[3-9]\d{9}/, "不应残留手机号");
+  assert.doesNotMatch(
+    rawText,
+    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
+    "不应残留邮箱",
+  );
+  assert.doesNotMatch(rawText, /https:\/\/(?!portal\.invalid)/, "外链应统一用 portal.invalid");
+  assert.ok(rawText.includes("https://portal.invalid/"), "应保留 portal.invalid 链接占位");
+});
+
+test("parseJobsListResult：解析 wb.jobs.list 响应为 externalId + jobDescription", async () => {
+  const result = parseJobsListResult(await loadJobsListFixture());
+
+  assert.equal(result.total, 2);
+  assert.equal(result.jobs.length, 2);
+  assert.equal(result.jobs[0].externalId, "fixture-job-list-001");
+  assert.equal(typeof result.jobs[0].jobDescription, "string");
+  assert.match(result.jobs[0].jobDescription, /前后端开发/);
+  assert.equal(result.jobs[1].externalId, "fixture-job-list-002");
+});
+
+test("parseJobsListResult：job_description 可空，job_id 缺失明确失败", async () => {
+  const fixture = await loadJobsListFixture();
+  const payload = JSON.parse(fixture.content[0].text);
+  payload.Data.list[0].job_description = null;
+  fixture.content[0].text = JSON.stringify(payload);
+
+  const result = parseJobsListResult(fixture);
+  assert.equal(result.jobs[0].jobDescription, null, "job_description 可空归一为 null");
+
+  const fixture2 = await loadJobsListFixture();
+  const payload2 = JSON.parse(fixture2.content[0].text);
+  payload2.Data.list[1].job_id = "";
+  fixture2.content[0].text = JSON.stringify(payload2);
+  assert.throws(
+    () => parseJobsListResult(fixture2),
+    (error) => {
+      assert.equal(error.code, "MCP_CONTRACT_INVALID");
+      assert.match(error.message, /job_id/);
+      return true;
+    },
+  );
+});
+
+test("parseJobsListResult：权限边界业务码映射 MCP_PERMISSION_BOUNDARY", () => {
+  for (const code of [403, 1003, 1004]) {
+    const fixture = {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            Code: code,
+            Message: "business error",
+            Data: null,
+          }),
+        },
+      ],
+    };
+    assert.throws(
+      () => parseJobsListResult(fixture),
+      (error) => error.code === "MCP_PERMISSION_BOUNDARY",
+      `Code=${code} 应为权限边界`,
+    );
+  }
+});
+
+test("parseJobsListResult：瞬时上游业务码映射 MCP_UPSTREAM_ERROR", () => {
+  const fixture = {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({ Code: 500, Message: "upstream", Data: null }),
+      },
+    ],
+  };
+  assert.throws(
+    () => parseJobsListResult(fixture),
+    (error) => error.code === "MCP_UPSTREAM_ERROR",
+  );
+});
+
+test("wb-jobs-list Fixture 虚构化守卫：无手机号/邮箱/真实域名残留", async () => {
+  const fixture = await loadJobsListFixture();
   const rawText = fixture.content[0].text;
 
   assert.doesNotMatch(rawText, /1[3-9]\d{9}/, "不应残留手机号");

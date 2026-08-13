@@ -31,6 +31,14 @@ export function finishSyncRun(
   stats: Record<string, number>,
 ): Promise<void>;
 
+export function updateJobDescriptions(
+  sql: SqlClient,
+  input: {
+    sourceId: string;
+    rows: { externalId: string; jobDescription: string | null }[];
+  },
+): Promise<{ matched: number; present: number; total: number }>;
+
 export function failSyncRun(
   sql: SqlClient,
   syncRunId: string,

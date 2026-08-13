@@ -131,9 +131,11 @@ export async function runUnderServedSync({
 /**
  * 默认 MCP 调用工具：配置从 `env`（Worker 绑定）或缺省 process.env 解析。
  * 兼容旧调用 `createDefaultCallTool(actorId)`（字符串）；新调用 `createDefaultCallTool({ env })`。
+ * `allowedTools` 可覆盖白名单（缺省仅 under_served；job-details 同步用它收紧到 `[JOBS_LIST_TOOL]`，
+ * 见 job-details-sync.mjs）。
  */
 export function createDefaultCallTool(options = {}) {
-  const { actorId, env } =
+  const { actorId, env, allowedTools = [UNDER_SERVED_TOOL] } =
     typeof options === "string" ? { actorId: options } : options;
   const config = loadMcpDiscoveryConfig(env);
   return async (toolName, toolArguments) =>
@@ -142,7 +144,7 @@ export function createDefaultCallTool(options = {}) {
       actorId,
       toolName,
       arguments: toolArguments,
-      allowedTools: [UNDER_SERVED_TOOL],
+      allowedTools,
     });
 }
 

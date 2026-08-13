@@ -10,6 +10,29 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 职位详情（完整 JD）入库 + 管理端查看
+
+> 状态速览：`jobs` 新增 `job_description` 列（迁移 0005）· 新增独立 `job_details_jobs` 同步（`wb.jobs.list` 分页拉取 → 按 external_id 补全 JD，独立 `job_details_sync` 任务 kind，与 dormant 同步互不毒化）· `GET /api/jobs/:id` 详情端点（会话 + RBAC operations/admin，审计元数据白名单不含 JD 正文）· 前端洞察面板按选中职位拉取并展示「职位详情（完整 JD）」（loading/错误/空态，`›` 按钮接线）· docs/04 决策反转：`wb.jobs.list` 从「不纳入 MVP 数据源」改为「内部 JD 补全」。两层匹配不做（继续 `match_candidates`），`matching` 模块零改动。
+
+#### 已实现（implemented）
+
+- 数据模型：`schema.ts` `jobs` 加可空 `job_description` 列，`drizzle/0005_charming_magneto.sql`（`ALTER TABLE jobs ADD COLUMN job_description text`）。
+- 契约：`mcp-under-served-contract.mjs` 加 `parseJobsListResult`（job_id 必填、job_description 可空、403/1003/1004 权限边界码复用）；新虚构化 fixture `wb-jobs-list-response-2026-08-13.json`（忠实保留 salary/customer_name/department_path/created_by/status 形状，内容虚构化）。
+- 同步补全：新 `lib/jobs/job-details-sync.mjs` `runJobDetailsSync`（独立 `job_details_jobs` sync_run、`wb.jobs.list` 白名单收紧）；`job-sync-repository` 加 `updateJobDescriptions`（逐行 UPDATE，null 安全不抹既有 JD、`IS DISTINCT FROM` 幂等、不 bump `updated_at`）；`sync-scheduler` 加 `job_details_sync` 任务 kind + 幂等入队 + `runSyncForTask` 按 kind 分发 + 审计键 `detailsSeen/detailsMatched/detailsMissing`；`createDefaultCallTool` 支持 `allowedTools` 覆盖。
+- 读仓储/API：`job-read-repository` 加 `getJobById`（详情投影含 `jobDescription`，不含 `portal_url`）；新 `app/api/jobs/[id]/route.ts`（withAudit、URL 解析 UUID、400/404）。
+- 前端：`ops-client.ts` 加 `JobDetail` 类型 + `fetchJobDetail`；`operations-dashboard.tsx` 洞察面板加「职位详情（完整 JD）」区（loading/错误/空态），`›` 按钮接线，请求序号 ref 防竞态。
+- CLI：`scripts/run-job-details-sync.mjs` + `npm run sync:job-details`（手动首轮回填）。
+
+#### 已验证（verified）
+
+- `npm run lint` 0 问题；`npm run build` 通过（路由表含 `/api/jobs/:id`，静态 `under-served` 优先不被 `[id]` 遮蔽）。
+- `npm run test:unit` 109 通过（含 parseJobsListResult + fixture 虚构化守卫、job-id 解析、jobs.detail 审计元数据不含 JD）。
+- `npm run test:integration` 23 通过（含 job-details-sync 入库/幂等/NULL 安全/失败路径、getJobById 投影/未知 404、async-task-sync 双 kind 调度）。
+- `rendered-html` + `http-read` 4 通过（动态详情路由匿名 401、源 marker「职位详情（完整 JD）」/「暂无详情」）。
+- `make db-migrate` 幂等复验（0005 重复应用安全跳过）。
+
+> 已知边界：真实 `wb.jobs.list` 补全未在本轮做受控联调（fixture 驱动 + 上游已验证）；若 under_served 部分职位不在 `wb.jobs.list`，详情显示「暂无详情」——数据缺口不改变口径。raw_records 不对 `wb.jobs.list` 载荷做原始快照（属规范化字段补全，非新实体），已记录于 docs/04。
+
 ### 2026-08-13 — 客户端会话心跳（tab 开着不因静默掉线）
 
 > 状态速览：前端每 5 分钟静默调 `/api/auth/me` 续期服务端会话空闲窗口（空闲 30 分钟窗口多次续期），tab 开着即保持登录；会话真正失效（401 / 12h 上限）才回落登录。会话逻辑本身验证无误（空闲 30min / 最长 12h，触碰随每次 API 请求刷新），此前「静默被踢」是前端无轮询、空闲窗口到期所致。

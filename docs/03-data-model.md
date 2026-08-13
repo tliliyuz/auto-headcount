@@ -136,7 +136,7 @@ erDiagram
 | 字段组 | 主要字段 | 约束与语义 |
 |:---|:---|:---|
 | 归属 | `id`, `source_connection_id` | FK→`source_connections.id`，`RESTRICT` |
-| 类型与游标 | `sync_type`, `cursor` | 如 `under_served_jobs`；游标支持分页/增量续跑 |
+| 类型与游标 | `sync_type`, `cursor` | 如 `under_served_jobs`、`job_details_jobs`；游标支持分页/增量续跑 |
 | 状态 | `status` | `pending|running|succeeded|failed`，默认 `pending` |
 | 结果 | `stats`, `error_code` | `stats` 为计数 `jsonb`（pages/seen/eligible/persisted…）；失败只写机器可读 `error_code`（如 `RATE_LIMITED`），不写错误正文或凭证 |
 | 时间 | `started_at`, `finished_at`, `created_at` | 成功/失败均有 `finished_at` |
@@ -161,6 +161,7 @@ erDiagram
 |:---|:---|:---|
 | 归属与追溯 | `id`, `source_connection_id`, `raw_record_id`, `external_id`, `mapping_version` | `source_connection_id` FK `RESTRICT`；`raw_record_id` FK `SET NULL`（可追溯到原始快照）；`(source_connection_id, external_id)` 唯一 → 幂等 upsert |
 | 职位信息 | `title`, `company_name`, `category`, `city`, `detailed_location` | 公司名/详细地址**不进公开视图**；落地页只投影城市 |
+| 职位详情 | `job_description` | 完整 JD，可空；`wb.jobs.list` 补全（见 `04-mcp-integration`）；仅内部运营详情视图，落地页白名单禁止输出 |
 | 薪资 | `salary_min`, `salary_max` | 整数；落地页只展示范围，异常/缺失时不推断精确薪资 |
 | 沉睡判定 | `status`, `published_at`, `days_without_recommendation`, `valid_recommendation_count` | `days_without_recommendation` 非空；`jobs_under_served_idx(status, days_without_recommendation)` 支撑沉睡查询 |
 | 证据 | `eligibility_evidence`, `portal_url` | 供应商筛选证据 `jsonb`；`portal_url` 仅内部 |

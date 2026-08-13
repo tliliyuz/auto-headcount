@@ -82,6 +82,8 @@ test("静态原型覆盖登录页与运营后台导航页面", async () => {
     "转化趋势",
     "MCP 职位数据源",
     "操作审计记录",
+    "职位详情（完整 JD）",
+    "暂无详情",
   ]) {
     assert.match(source, new RegExp(pageMarker));
   }

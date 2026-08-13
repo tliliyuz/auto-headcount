@@ -38,10 +38,13 @@
 | 接口 | 方法 | 鉴权 | 请求 Query | 响应 |
 |---|---|---|---|---|
 | `/api/jobs/under-served` | GET | 会话 + `operations\|admin` | `category?`（精确）、`q?`（title/city 子串，大小写不敏感）、`page`、`page_size` | `200` 分页包络，`list[]` 为职位投影 |
+| `/api/jobs/:id` | GET | 会话 + `operations\|admin` | 路径参数 `id`（UUID） | `200` 职位详情投影（含 `jobDescription`，可空）；非 UUID `400 invalid_request`；查无 `404 not_found` |
 | `/api/sources` | GET | 会话 + `operations\|admin` | `page`、`page_size` | `200` 分页包络，`list[]` 含连接信息与最新同步摘要 |
 | `/api/sync-runs` | GET | 会话 + `operations\|admin` | `status?`（`pending`/`running`/`succeeded`/`failed`）、`page`、`page_size` | `200` 分页包络，`list[]` 含来源展示名 |
 
 **职位投影（`/api/jobs/under-served` `list[]`）**：`id`、`externalId`、`mappingVersion`、`title`、`companyName`、`category`、`city`、`detailedLocation`、`salaryMin`/`salaryMax`、`status`、`ageDays`（=`days_without_recommendation`）、`recommendationCount`（空视为 0）、`sourceConnectionId`、`rawRecordId`、`publishedAt`、`sourceUpdatedAt`、`createdAt`、`updatedAt`。
+
+**职位详情投影（`/api/jobs/:id`）**：职位投影全部字段 + `jobDescription`（完整 JD，可空）。含 `companyName`/`detailedLocation`（内部运营边界）；**不含** `portal_url`（docs/04 §6 不返回 `portal_*`）与 `raw_records.payload_*`。审计动作 `jobs.detail`，元数据白名单仅 `found`，**绝不包含 JD 正文**。
 
 **数据源投影（`/api/sources` `list[]`）**：`id`、`provider`、`environment`、`status`、`displayName`、`createdAt`/`updatedAt`、`lastRunId`、`lastRunSyncType`、`lastRunStatus`、`lastRunStartedAt`、`lastRunFinishedAt`、`lastRunErrorCode`、`lastRunStats`。
 
@@ -83,7 +86,7 @@
 
 | 模块（里程碑） | 规划端点（草案） | 状态 |
 |---|---|---|
-| 职位巡检（M1） | `GET /api/jobs/under-served`、`GET /api/jobs` | 已设计（under-served 见 §2.2；`/api/jobs` 待设计） |
+| 职位巡检（M1） | `GET /api/jobs/under-served`、`GET /api/jobs/:id` | 已设计（见 §2.2；`/api/jobs` 全列表另行设计） |
 | 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 已设计（见 §2.2） |
 | 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
 | 匹配（M2） | `POST /api/match-tasks`、`GET /api/matches` | 待设计 |

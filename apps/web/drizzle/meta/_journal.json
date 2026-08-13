@@ -36,6 +36,13 @@
       "when": 1786524318743,
       "tag": "0004_chilly_zaladane",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786593416075,
+      "tag": "0005_charming_magneto",
+      "breakpoints": true
     }
   ]
 }

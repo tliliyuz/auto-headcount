@@ -2,6 +2,10 @@ import { McpDiscoveryError } from "../adapters/mcp-discovery.mjs";
 import { createAuthRepository } from "../identity/auth-repository.mjs";
 import { createAsyncTaskRepository } from "./async-task-repository.mjs";
 import {
+  JOBS_LIST_TOOL,
+  runJobDetailsSync,
+} from "./job-details-sync.mjs";
+import {
   createDefaultCallTool,
   runUnderServedSync,
 } from "./under-served-sync.mjs";
@@ -12,6 +16,7 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
 const TASK_KIND_SYNC = "under_served_sync";
+const TASK_KIND_JOB_DETAILS = "job_details_sync";
 
 /** 周期槽位键：now 所在的 interval 序号（纯函数，可单测）。 */
 export function syncPeriodKey(now, intervalMs) {
@@ -81,9 +86,44 @@ export async function enqueueDueSyncTasks(
   return { enqueued: false, taskId: existing[0]?.id ?? null, idempotencyKey };
 }
 
+/**
+ * 入队当前周期的 JD 详情补全任务（幂等）：同周期重复入队为 no-op，返回既有任务 id。
+ * 与 under_served 同步使用不同幂等键，可独立调度/重试/处置。
+ */
+export async function enqueueJobDetailSyncTasks(
+  sql,
+  { source, now, intervalMs = DEFAULT_INTERVAL_MS },
+) {
+  const taskRepo = createAsyncTaskRepository(sql);
+  const periodKey = syncPeriodKey(now, intervalMs);
+  const idempotencyKey = `job-details-sync:${source.provider}:${periodKey}`;
+  const taskId = await taskRepo.enqueueTask({
+    kind: TASK_KIND_JOB_DETAILS,
+    idempotencyKey,
+    payload: { source },
+    scheduledAt: now,
+  });
+  if (taskId) return { enqueuedDetails: true, taskId, idempotencyKey };
+  const existing = await sql`
+    select id from async_tasks where idempotency_key = ${idempotencyKey}
+  `;
+  return {
+    enqueuedDetails: false,
+    taskId: existing[0]?.id ?? null,
+    idempotencyKey,
+  };
+}
+
 /** 执行同步任务：配置从 env 解析（加密/MCP 可注入 mcp 用假客户端测试）。 */
 async function runSyncForTask(sql, { env, task, mcp }) {
   try {
+    const source = task.payload?.source ?? resolveSyncSource(env);
+    // job_details 同步独立运行（白名单收紧到 [wb.jobs.list]）：其失败不毒化 dormant 同步。
+    if (task.kind === TASK_KIND_JOB_DETAILS) {
+      const callTool =
+        mcp?.callTool ?? createDefaultCallTool({ env, allowedTools: [JOBS_LIST_TOOL] });
+      return await runJobDetailsSync({ sql, source, mcp: { callTool } });
+    }
     const encryption = {
       key: env.APP_ENCRYPTION_KEY,
       keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
@@ -96,7 +136,6 @@ async function runSyncForTask(sql, { env, task, mcp }) {
         stats: null,
       };
     }
-    const source = task.payload?.source ?? resolveSyncSource(env);
     const callTool = mcp?.callTool ?? createDefaultCallTool({ env });
     return await runUnderServedSync({ sql, encryption, source, mcp: { callTool } });
   } catch (error) {
@@ -132,6 +171,9 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "skipped",
       "persisted",
       "maxPagesReached",
+      "detailsSeen",
+      "detailsMatched",
+      "detailsMissing",
     ]) {
       if (key in outcome.stats) metadata[key] = outcome.stats[key];
     }
@@ -235,6 +277,19 @@ export async function runScheduledTick({
 }) {
   const source = resolveSyncSource(env);
   const enqueued = await enqueueDueSyncTasks(sql, { source, now, intervalMs });
+  const enqueuedDetails = await enqueueJobDetailSyncTasks(sql, {
+    source,
+    now,
+    intervalMs,
+  });
   const summary = await processDueTasks(sql, { env, now, maxAttempts, mcp });
-  return { ...enqueued, ...summary };
+  // `taskId`/`idempotencyKey` 保持 under_served 主键（既有消费方兼容）；
+  // job_details 任务用独立前缀键，避免 spread 覆盖。
+  return {
+    ...enqueued,
+    detailsEnqueued: enqueuedDetails.enqueuedDetails,
+    detailsTaskId: enqueuedDetails.taskId,
+    detailsIdempotencyKey: enqueuedDetails.idempotencyKey,
+    ...summary,
+  };
 }

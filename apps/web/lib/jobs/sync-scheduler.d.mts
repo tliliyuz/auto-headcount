@@ -12,6 +12,9 @@ export interface SyncTickResult {
   enqueued: boolean;
   taskId: string | null;
   idempotencyKey: string;
+  detailsEnqueued: boolean;
+  detailsTaskId: string | null;
+  detailsIdempotencyKey: string;
   claimed: number;
   succeeded: number;
   retried: number;
@@ -44,6 +47,15 @@ export declare function enqueueDueSyncTasks(
     intervalMs?: number;
   },
 ): Promise<{ enqueued: boolean; taskId: string | null; idempotencyKey: string }>;
+
+export declare function enqueueJobDetailSyncTasks(
+  sql: postgres.Sql,
+  input: {
+    source: SyncSourceConfig;
+    now: Date;
+    intervalMs?: number;
+  },
+): Promise<{ enqueuedDetails: boolean; taskId: string | null; idempotencyKey: string }>;
 
 export declare function processDueTasks(
   sql: postgres.Sql,

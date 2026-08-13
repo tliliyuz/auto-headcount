@@ -282,6 +282,8 @@ export const jobs = pgTable(
     category: text("category").notNull(),
     city: text("city").notNull(),
     detailedLocation: text("detailed_location"),
+    /** 完整 JD（内部运营详情视图；落地页白名单投影禁止输出，docs/03 §10）。由 wb.jobs.list 补全。 */
+    jobDescription: text("job_description"),
     salaryMin: integer("salary_min"),
     salaryMax: integer("salary_max"),
     status: text("status").notNull(),

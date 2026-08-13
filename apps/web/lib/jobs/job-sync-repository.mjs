@@ -158,6 +158,45 @@ export async function closeStaleUnderServedJobs(
   return Number(result.count);
 }
 
+/**
+ * 按 `(source_connection_id, external_id)` 批量补全 `job_description`（JD 详情，来自 `wb.jobs.list`）。
+ * - 只更新已存在的职位行，不做 INSERT（`wb.jobs.list` 无沉睡口径，不作为职位行来源）。
+ * - `job_description IS DISTINCT FROM`：描述未变化的行跳过更新（幂等，第二次运行 matched=0）。
+ * - null 安全：源 `job_description` 为 null 时该行不更新（保留既有 JD，不抹除）；
+ *   仅非空值且与现状不同才写。
+ * - 不 bump `updated_at`：JD 属独立数据流，避免污染列表「更新于」时间戳。
+ * 返回 `{ matched, present, total }`：matched=实际变更行数；present=该源命中 external_id 的职位行数；
+ * total=该源职位总数（供 detailsMissing = total - present）。
+ */
+export async function updateJobDescriptions(sql, { sourceId, rows }) {
+  const ids = rows.map((row) => row.externalId);
+  const [{ total }] = await sql`
+    select count(*)::int as total
+    from jobs
+    where source_connection_id = ${sourceId}
+  `;
+  const [{ present }] = await sql`
+    select count(*)::int as present
+    from jobs
+    where source_connection_id = ${sourceId}
+      and external_id = any(${ids})
+  `;
+  let matched = 0;
+  for (const { externalId, jobDescription } of rows) {
+    // null 安全：源未提供描述（null/空）时跳过，保留既有 JD，不抹除。
+    if (jobDescription === null || jobDescription === undefined) continue;
+    const result = await sql`
+      update jobs
+      set job_description = ${jobDescription}
+      where source_connection_id = ${sourceId}
+        and external_id = ${externalId}
+        and job_description is distinct from ${jobDescription}
+    `;
+    matched += Number(result.count);
+  }
+  return { matched, present, total };
+}
+
 export async function finishSyncRun(sql, syncRunId, stats) {
   await sql`
     update sync_runs
