@@ -59,7 +59,7 @@ interface RecruitmentSource {
 
 MCP 只是该接口的一种实现。根据 `ADR-005`，CSDN-Agent 浏览器插件是授权 Web 数据源的执行端，CSV 导入或未来其他供应商也可以实现相同接口。
 
-### 4.1 CSDN-Agent 浏览器采集边界（specified）
+### 4.1 CSDN-Agent 浏览器采集边界（partially implemented）
 
 ```text
 auto-headcount async_tasks
@@ -76,7 +76,9 @@ auto-headcount async_tasks
 - Cookie、密码、验证码、原始 Authorization 和可复用浏览器会话不得离开浏览器，也不得写入 PostgreSQL、Agent 上下文或任务载荷。
 - 完整简历与联系方式不经过 Agent/MCP 返回值；浏览器使用短期单次 ticket 直传采集入口，Relay 只返回计数、哈希、游标和机器错误码。
 - 浏览器离线或登录失效属于可恢复等待状态，不静默切换到其他用户、设备或平台账号。
-- 本节是目标契约；受限提取工具、直传入口和浏览器数据源适配器尚未实现，不得描述为已接入。
+- 第一条受限契约已实现为 `csdn_run_extraction_contract` + `liebide-job-detail-v1`：业务端只提交 `userId`、`deviceId`、`browserSessionId` 和期望职位外部 ID，CSDN-Agent 在固定来源 `https://portal.liebide.com` 上执行内置解析器，返回版本化职位白名单、采集时间和内容哈希。请求和回执中的未知字段、敏感键、错误域名或职位 ID 不一致均失败关闭。
+- 2026-08-13 已用授权账号只读验证真实页面：列表项提供 UUID，详情路由为 `/#/Job/{jobId}`（会落到 `/Headhunting/MyCompany.html#/Job/{jobId}`），JD 位于“职位详情”区域的 `.job-description-show`，并非 JSON-LD。解析器按该结构失败关闭；页面不兼容时返回 `PAGE_CONTRACT_CHANGED`，不得回退到任意脚本或宽松抓取。
+- auto-headcount 已实现协议校验与 Relay 客户端；2026-08-13 已通过本机 CSDN-Agent Bridge、Chrome 扩展和真实登录态完成单职位固定合同回执验证（UUID、状态、城市、薪资、发布时间、推荐数、JD 长度与哈希均通过白名单解析）。尚未接入 `async_tasks`、职位入库与管理端触发；候选人直传、ingestion ticket 和脱敏流水线仍未实现。因此只能描述为“只读采集协议闭环已验证”，不能描述为数据入库闭环已接通。
 
 ## 5. 异步任务与可靠性
 

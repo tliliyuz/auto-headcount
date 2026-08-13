@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — CSDN-Agent 职位详情受限提取协议（第一条实现切片）
+
+> 状态：协议切片 `verified`，入库切片未实现。auto-headcount 固定参数、结构化回执和 Relay 客户端已通过本机 CSDN-Agent Bridge + Chrome 扩展 + 猎必得真实登录态单职位验证；`async_tasks`、职位入库与管理端触发尚未接线，不能描述为数据闭环完成。
+
+- 业务侧只发送 `userId + deviceId + browserSessionId + expectedExternalId`，适配器自动固定 contract ID；拒绝脚本、选择器、任意 URL 和额外字段。
+- CSDN-Agent 只在 `https://portal.liebide.com` 执行内置职位提取函数；按真实页面验证的 `/#/Job/{UUID}` 路由和 `.job-description-show` 详情区域解析，并强制页面职位 ID 与任务期望值一致。
+- 回执只允许职位白名单、来源/采集时间、契约版本与 SHA-256；Cookie、Authorization、token、联系方式等敏感键递归拒绝，HTTP 错误不回显上游正文。
+- 自动验证：auto-headcount `npm run test:unit` 124/124、`npm run lint`、Markdown 相对链接检查通过；CSDN-Agent `npm run check` 与插件全量测试 66/66 通过。
+- 真实 Relay：身份路由归属校验通过；列表只读提取 UUID → 详情导航 → `.job-description-show` 等待 → `liebide-job-detail-v1` → auto-headcount `relay-client` 白名单解析完整闭环通过。回执摘要为 UUID 匹配、`active`、城市存在、薪资 30000–60000、发布时间存在、推荐数为 number、JD 1190 字、SHA-256 合法；未打印或落盘真实 JD。
+- 真实联调修复：猎必得把 `30K-60K` 与后续文字直接拼接，原薪资正则错误要求尾部空白，首次回执薪资为 null。先将无空白 DOM 写入虚构测试并确认 RED，再放宽边界，插件 66/66 GREEN，重载扩展后的真实回执薪资恢复为 30000–60000。
+- 已知边界：真实页面仅用于单职位只读协议验证，未把真实 JD 写入 Fixture；验证职位不满足 7–30 天且零推荐，不能作为沉睡职位入库样本。下一步接 `browser_job_collect` 任务时必须重新校验 `active + 7–30 天 + 推荐数 0`，不合格只记跳过，不写 `jobs`。
+
 ### 2026-08-13 — 授权 Web 采集与本地匹配架构决策
 
 > 状态：`specified`。接受 `ADR-005`：供应方 Web 平台成为与 MCP 并列的正式数据源；复用现有 CSDN-Agent 浏览器插件作为登录态与设备路由执行端；本地版本化、可复算规则评分成为业务主路径，供应方 `match_candidates` 降为外部对照。仅完成规范，未实现浏览器采集适配器、受限提取工具、ingestion ticket、候选人直传/脱敏或本地评分。
