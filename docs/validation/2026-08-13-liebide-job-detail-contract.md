@@ -5,7 +5,7 @@
 - 范围：单职位、只读、`https://portal.liebide.com`
 - 契约：`liebide-job-detail-v1` / version `1`
 - auto-headcount 版本：`0c899c51`
-- CSDN-Agent 版本：未版本化的本地源码快照（已知偏差，不可作为可复现发布依据）
+- CSDN-Agent 版本：`e1bb9d940c6e4354c3a520fd9ee8498fa7eeced5`（新的本地 `main` root commit；尚未配置远端）
 - 权威边界：[`ADR-005`](../decisions/ADR-005-authorized-web-collection-and-local-matching.md)
 - 操作流程：[`browser-collection.md`](../runbooks/browser-collection.md)
 
@@ -52,4 +52,4 @@
 - `specified`：本 Runbook 和请求/回执 Schema 已固化开发、联调和证据边界。
 - 未实现：`async_tasks` 接线、`browser_job_collect`、规范化职位入库、管理端触发、ingestion ticket、候选人/简历采集与脱敏流水线。
 - 本次职位不满足 7～30 天且有效推荐数为 0 的完整沉睡条件，不能作为沉睡职位入库验收样本。
-- CSDN-Agent 当时不是 Git 仓库，无法记录 commit/tag；在完成独立版本化前，不能把本次结果描述为可复现发布或批量运行能力。
+- CSDN-Agent 已在项目负责人确认放弃不可访问的旧历史后，以脱敏源码快照建立新的本地 root commit `e1bb9d9`；插件静态检查与 66/66 测试在该 commit 前通过。新仓库尚未配置远端，因此可以本地精确追溯，但不能描述为已推送、已发布或可由其他环境拉取。

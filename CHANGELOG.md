@@ -10,13 +10,22 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — CSDN-Agent 依赖建立新 Git 基线
+
+> 状态：`verified`（本地版本化与插件测试）；未配置远端、未推送、未部署。
+
+- 原 handoff GitHub 远端不可访问；按项目负责人决定放弃旧历史，在独立 CSDN-Agent 目录以当前脱敏源码快照建立新的 `main` root commit `e1bb9d9`，auto-headcount 不复制或源码引用该仓库。
+- 新基线忽略 `.local-data/`、旧 `HANDOFF/`、环境文件、数据库、Token、构建产物和交付压缩包；Git index 高置信度凭证、敏感路径和大文件检查无命中。
+- CSDN 浏览器插件 `npm run check` 与 66/66 测试通过；跨仓库验证记录已关联 auto-headcount `0c899c51` 与 CSDN-Agent `e1bb9d9`。
+- 新仓库尚未配置远端，因此当前只完成本地可追溯版本化，不声明已推送、已发布或已部署。
+
 ### 2026-08-13 — 浏览器采集流程与 Liebide 契约标准化
 
 > 状态：`specified`。本切片只固化开发、连接、真实联调、故障恢复和证据留存流程，不新增采集入库能力；既有单职位只读协议验证证据单独归档为 `verified`。
 
 - 新增授权浏览器采集 Runbook，明确授权前置、插件连接顺序、“网页未连接”等恢复矩阵、真实 smoke test 输出边界、结束清理和跨仓库版本要求。
 - 新增 `liebide-job-detail-v1` 请求/回执 JSON Schema，以 `additionalProperties:false` 固定身份路由、来源域名、职位白名单字段和 SHA-256 回执。
-- 将 2026-08-13 的单职位真实验证整理为脱敏证据：只保存字段存在性、类型、长度和结果区间，不保存真实 JD、完整职位/会话标识或凭证；明确 CSDN-Agent 未版本化是不可复现发布偏差。
+- 将 2026-08-13 的单职位真实验证整理为脱敏证据：只保存字段存在性、类型、长度和结果区间，不保存真实 JD、完整职位/会话标识或凭证；后续已用 CSDN-Agent 新 root commit 补齐本地版本追溯。
 - 开发流程、验收标准和 API 规划文档增加 Runbook/Schema 投影；统一根命令、双端 Schema 哈希、连接诊断和 `browser_job_collect` 仍属后续切片。
 
 ### 2026-08-13 — 两阶段混合匹配规范与 v1 契约
