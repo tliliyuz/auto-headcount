@@ -1,4 +1,5 @@
 export const CSDN_EXTRACTION_TOOL: "csdn_run_extraction_contract";
+export const CSDN_CONNECTION_STATUS_TOOL: "csdn_get_browser_connection_status";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_ID: "liebide-job-detail-v1";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_VERSION: 1;
 export const LIEBIDE_PLATFORM_ORIGIN: "https://portal.liebide.com";
@@ -11,7 +12,7 @@ export class BrowserCollectionContractError extends Error {
 export interface JobDetailExtractionRoute {
   userId: string;
   deviceId: string;
-  browserSessionId: string;
+  browserSessionId?: string;
   expectedExternalId: string;
 }
 
@@ -39,6 +40,12 @@ export interface ParsedJobDetailExtraction {
 export function buildJobDetailExtractionArguments(
   input: JobDetailExtractionRoute,
 ): JobDetailExtractionArguments;
+export function buildBrowserConnectionStatusArguments(
+  input: JobDetailExtractionRoute,
+): JobDetailExtractionArguments;
+export function parseBrowserConnectionStatusResult(
+  input: unknown,
+): Record<string, unknown>;
 export function parseJobDetailExtractionResult(
   input: unknown,
 ): ParsedJobDetailExtraction;

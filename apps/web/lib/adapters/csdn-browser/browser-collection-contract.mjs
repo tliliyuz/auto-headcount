@@ -1,4 +1,5 @@
 export const CSDN_EXTRACTION_TOOL = "csdn_run_extraction_contract";
+export const CSDN_CONNECTION_STATUS_TOOL = "csdn_get_browser_connection_status";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_ID = "liebide-job-detail-v1";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_VERSION = 1;
 export const LIEBIDE_PLATFORM_ORIGIN = "https://portal.liebide.com";
@@ -8,6 +9,14 @@ const ROUTED_ARGUMENT_KEYS = new Set([
   "deviceId",
   "browserSessionId",
   "expectedExternalId",
+]);
+const CONNECTION_RESULT_KEYS = new Set([
+  "status", "ready", "action", "registeredPageCount", "sessionMatched",
+  "origin", "authState", "contractId", "entityMatched",
+]);
+const CONNECTION_STATUSES = new Set([
+  "READY", "PAGE_NOT_REGISTERED", "BROWSER_SESSION_MISSING", "AUTH_REQUIRED",
+  "WRONG_ORIGIN", "WRONG_ENTITY",
 ]);
 const RESULT_KEYS = new Set([
   "contractId",
@@ -44,16 +53,11 @@ export class BrowserCollectionContractError extends Error {
 export function buildJobDetailExtractionArguments(input) {
   requirePlainObject(input, "input", "BROWSER_COLLECTION_ARGUMENTS_INVALID");
   requireOnlyKeys(input, ROUTED_ARGUMENT_KEYS, "input", "BROWSER_COLLECTION_ARGUMENTS_INVALID");
-  return {
+  const output = {
     userId: requireIdentifier(input.userId, "userId", "BROWSER_COLLECTION_ARGUMENTS_INVALID"),
     deviceId: requireIdentifier(
       input.deviceId,
       "deviceId",
-      "BROWSER_COLLECTION_ARGUMENTS_INVALID",
-    ),
-    browserSessionId: requireIdentifier(
-      input.browserSessionId,
-      "browserSessionId",
       "BROWSER_COLLECTION_ARGUMENTS_INVALID",
     ),
     contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
@@ -63,6 +67,32 @@ export function buildJobDetailExtractionArguments(input) {
       "BROWSER_COLLECTION_ARGUMENTS_INVALID",
     ),
   };
+  if (input.browserSessionId !== undefined) {
+    output.browserSessionId = requireIdentifier(
+      input.browserSessionId, "browserSessionId", "BROWSER_COLLECTION_ARGUMENTS_INVALID",
+    );
+  }
+  return output;
+}
+
+export function buildBrowserConnectionStatusArguments(input) {
+  return buildJobDetailExtractionArguments(input);
+}
+
+export function parseBrowserConnectionStatusResult(input) {
+  requirePlainObject(input, "connectionStatus");
+  requireOnlyKeys(input, CONNECTION_RESULT_KEYS, "connectionStatus");
+  if (!CONNECTION_STATUSES.has(input.status)) throw invalid("connection status is unsupported");
+  if (typeof input.ready !== "boolean") throw invalid("connection ready must be boolean");
+  if ((input.status === "READY") !== input.ready) throw invalid("connection ready conflicts with status");
+  if (input.contractId !== LIEBIDE_JOB_DETAIL_CONTRACT_ID) throw invalid("connection contract is unsupported");
+  if (!Number.isInteger(input.registeredPageCount) || input.registeredPageCount < 0) throw invalid("connection page count is invalid");
+  for (const key of ["sessionMatched", "entityMatched"]) {
+    if (typeof input[key] !== "boolean") throw invalid(`connection ${key} must be boolean`);
+  }
+  if (input.origin !== null && typeof input.origin !== "string") throw invalid("connection origin is invalid");
+  for (const key of ["action", "authState"]) requireString(input[key], `connection.${key}`);
+  return { ...input };
 }
 
 /** 严格解析 CSDN-Agent 的职位详情白名单回执，未知/敏感/截断字段一律失败关闭。 */

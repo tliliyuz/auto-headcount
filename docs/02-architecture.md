@@ -69,7 +69,7 @@ interface DetailScoringPort {
 
 `RedactedDetailScoreRequest` 只由 [匹配契约](10-matching-contracts.md) 中的职位要求投影和候选人脱敏投影生成。适配器负责模型/Prompt/Schema 版本、超时、限流、有限重试、结构化输出校验和机器错误分类；业务模块负责硬过滤、固定权重汇总和人工审核。
 
-### 4.1 CSDN-Agent 浏览器采集边界（partially implemented）
+### 4.1 CSDN-Agent 浏览器采集边界（职位单实体闭环已实现）
 
 ```text
 auto-headcount async_tasks
@@ -86,9 +86,9 @@ auto-headcount async_tasks
 - Cookie、密码、验证码、原始 Authorization 和可复用浏览器会话不得离开浏览器，也不得写入 PostgreSQL、Agent 上下文或任务载荷。
 - 完整简历与联系方式不经过 Agent/MCP 返回值；浏览器使用短期单次 ticket 直传采集入口，Relay 只返回计数、哈希、游标和机器错误码。
 - 浏览器离线或登录失效属于可恢复等待状态，不静默切换到其他用户、设备或平台账号。
-- 第一条受限契约已实现为 `csdn_run_extraction_contract` + `liebide-job-detail-v1`：业务端只提交 `userId`、`deviceId`、`browserSessionId` 和期望职位外部 ID，CSDN-Agent 在固定来源 `https://portal.liebide.com` 上执行内置解析器，返回版本化职位白名单、采集时间和内容哈希。请求和回执中的未知字段、敏感键、错误域名或职位 ID 不一致均失败关闭。
+- 第一条受限契约已实现为 `csdn_run_extraction_contract` + `liebide-job-detail-v1`：交互式单页验证可显式提交 `browserSessionId`；持久化任务只保存 `userId`、`deviceId` 和期望职位外部 ID，由 Relay 在该双重作用域内选择当前活跃页面。两种路径都必须先校验 owner、固定来源和页面职位 ID，不能跨用户、跨设备或猜测其他页面。CSDN-Agent 在固定来源 `https://portal.liebide.com` 上执行内置解析器，返回版本化职位白名单、采集时间和内容哈希。请求和回执中的未知字段、敏感键、错误域名或职位 ID 不一致均失败关闭。
 - 2026-08-13 已用授权账号只读验证真实页面：列表项提供 UUID，详情路由为 `/#/Job/{jobId}`（会落到 `/Headhunting/MyCompany.html#/Job/{jobId}`），JD 位于“职位详情”区域的 `.job-description-show`，并非 JSON-LD。解析器按该结构失败关闭；页面不兼容时返回 `PAGE_CONTRACT_CHANGED`，不得回退到任意脚本或宽松抓取。
-- auto-headcount 已实现协议校验与 Relay 客户端；2026-08-13 已通过本机 CSDN-Agent Bridge、Chrome 扩展和真实登录态完成单职位固定合同回执验证（UUID、状态、城市、薪资、发布时间、推荐数、JD 长度与哈希均通过白名单解析）。尚未接入 `async_tasks`、职位入库与管理端触发；候选人直传、ingestion ticket 和脱敏流水线仍未实现。因此只能描述为“只读采集协议闭环已验证”，不能描述为数据入库闭环已接通。
+- auto-headcount 已实现协议校验、Relay 预检/提取客户端、`browser_job_collect` 调度分发、管理端任务创建与 PostgreSQL 事务入库；CSDN-Agent `6d43982` 支持不持久化 session 的设备作用域 active page 路由。Fixture + PostgreSQL 已验证单职位任务和幂等写库；真实登录态目前只验证过旧的交互式固定合同回执，尚未对新的后台任务入口做真实入库复验。候选人直传、ingestion ticket 和脱敏流水线仍未实现。
 
 ## 5. 异步任务与可靠性
 
@@ -99,7 +99,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 网络类错误（MCP 连接/限流/超时，`McpDiscoveryError.retryable`）指数退避重试（`next_attempt_at` 门控），业务校验错误不自动重试。
 - 失败超过阈值进入 `dead`，后续转人工处理队列。
 - `payload` 为白名单 jsonb，不存敏感字段；外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
-- Web 采集任务后续复用同表，规划 kind 包括 `browser_job_collect`、`browser_candidate_discovery`、`browser_candidate_collect`、`browser_ingestion_normalize` 和 `browser_candidate_sanitize`；载荷只含来源/外部 ID、用户/设备、契约版本、游标和批量，不含浏览器 Session、页面正文或联系方式。
+- Web 采集任务复用同表，第一条实现 kind 为 `browser_job_collect`；后续规划 `browser_candidate_discovery`、`browser_candidate_collect`、`browser_ingestion_normalize` 和 `browser_candidate_sanitize`。载荷只含来源/外部 ID、用户/设备、契约版本、游标和批量，不含浏览器 Session、页面正文或联系方式。`browser_job_collect` 按 [`browser-job-collect.task.v1`](contracts/browser-job-collect.task.v1.schema.json) 校验，执行顺序固定为连接预检 → 受限提取 → 白名单回执校验 → 本地沉睡规则 → 加密原始记录与职位幂等 upsert；任一步失败均不得写 `jobs`。
 - **手动触发去重（2026-08-13）**：同一 kind 至多一个活跃（`pending/running`）任务。手动触发经 `enqueueTaskIfIdle` 原子入队（`INSERT … WHERE NOT EXISTS (活跃)`），活跃被拦截时返回既有任务 id（前端跟踪其进度，`deduplicated:true`）。此前多次点击会堆积多个并发同步任务同时打 MCP 触发限流/假死。
 - **任务看门狗（2026-08-13）**：每个调度 tick 先回收 `running` 超过 30 分钟的任务（`failed + TASK_STALE_TIMEOUT`），与同步运行看门狗（`failStaleRunningSyncRuns`）对称。进程崩溃/假死导致任务永久卡 `running` 时，若无回收，手动同步去重会被卡死任务永久锁死。
 - **同步串行化（2026-08-13，fix3）**：`claimDueTasks` 按 kind 每类至多认领 1 条（`not exists running` + `not exists earlier` 行比较，取 `(scheduled_at,id)` 最早），同一 kind 同时只跑一个同步——避免多个同 kind 任务并发打 MCP（此前多次点击 + 周期/手动叠加 = 多任务并发）。EXISTS 子查询可被 `FOR UPDATE SKIP LOCKED` 加锁且跨进程原子（窗口函数/DISTINCT 不可加锁，PG 0A000）。

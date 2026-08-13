@@ -86,7 +86,7 @@ auto-headcount/
 5. 候选版本只运行单实体受控 smoke test，输出限制为字段存在性、类型、长度、哈希、耗时和机器错误码。
 6. 每次真实联调在 `docs/validation/` 保存脱敏证据并关联两端 commit/tag；任一执行端未版本化时必须登记偏差，不能声明可复现发布。
 
-当前职位详情协议使用 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json)。`make check-browser-contract` 校验 Consumer 实现与本仓 Schema；设置 `CSDN_AGENT_REPO` 后运行 `make check-browser-contract-cross-repo`，还会比较 Provider/Consumer 的完整规范化 Schema 哈希。CSDN-Agent 已提供只读连接预检，但 auto-headcount 任务编排尚未自动接线；在接线和入库切片完成前，不得把人工预检描述为无人值守采集能力。
+当前职位详情协议使用 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json)。`make check-browser-contract` 校验 Consumer 实现与本仓 Schema；设置 `CSDN_AGENT_REPO` 后运行 `make check-browser-contract-cross-repo`，还会比较 Provider/Consumer 的完整规范化 Schema 哈希。`browser_job_collect` 已接入连接预检、固定提取和事务入库；任何合同/任务 Schema 变更必须同时跑双仓检查、浏览器任务单测和 PostgreSQL 调度集成测试。真实后台入库未受控复验前不得声明无人值守能力可用。
 
 ### CI 实现（GitHub Actions）
 

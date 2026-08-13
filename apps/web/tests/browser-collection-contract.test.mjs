@@ -3,9 +3,12 @@ import test from "node:test";
 
 import {
   BrowserCollectionContractError,
+  CSDN_CONNECTION_STATUS_TOOL,
   CSDN_EXTRACTION_TOOL,
   LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+  buildBrowserConnectionStatusArguments,
   buildJobDetailExtractionArguments,
+  parseBrowserConnectionStatusResult,
   parseJobDetailExtractionResult,
 } from "../lib/adapters/csdn-browser/browser-collection-contract.mjs";
 import { createCsdnBrowserRelayClient } from "../lib/adapters/csdn-browser/relay-client.mjs";
@@ -54,6 +57,20 @@ test("职位详情提取参数固定契约与身份路由，不接受脚本/选�
     },
   );
 
+  assert.deepEqual(
+    buildJobDetailExtractionArguments({
+      userId: route.userId,
+      deviceId: route.deviceId,
+      expectedExternalId: "fixture-job-001",
+    }),
+    {
+      userId: route.userId,
+      deviceId: route.deviceId,
+      contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+      expectedExternalId: "fixture-job-001",
+    },
+  );
+
   assert.throws(
     () =>
       buildJobDetailExtractionArguments({
@@ -78,6 +95,32 @@ test("职位详情提取参数固定契约与身份路由，不接受脚本/选�
         error.code === "BROWSER_COLLECTION_ARGUMENTS_INVALID",
     );
   }
+});
+
+test("连接预检使用固定合同和目标职位，严格解析最小化状态", () => {
+  assert.deepEqual(
+    buildBrowserConnectionStatusArguments({
+      userId: route.userId,
+      deviceId: route.deviceId,
+      expectedExternalId: "fixture-job-001",
+    }),
+    {
+      userId: route.userId,
+      deviceId: route.deviceId,
+      contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+      expectedExternalId: "fixture-job-001",
+    },
+  );
+  assert.equal(parseBrowserConnectionStatusResult({
+    status: "READY", ready: true, action: "NONE", registeredPageCount: 1,
+    sessionMatched: true, origin: "https://portal.liebide.com",
+    authState: "authenticated", contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+    entityMatched: true,
+  }).status, "READY");
+  assert.throws(
+    () => parseBrowserConnectionStatusResult({ status: "DEVICE_OFFLINE", ready: false }),
+    BrowserCollectionContractError,
+  );
 });
 
 test("解析职位详情白名单结果并保留契约版本与内容哈希", () => {
@@ -144,6 +187,31 @@ test("Relay 客户端只调用固定提取工具并解析结构化结果", async
   });
   assert.equal(request.timeoutMs, 30000);
   assert.equal(calls[0].init.headers.authorization, "Bearer fixture-relay-token");
+});
+
+test("Relay 客户端调用只读连接预检且不要求持久化 browserSessionId", async () => {
+  const calls = [];
+  const client = createCsdnBrowserRelayClient({
+    requestUrl: "http://127.0.0.1:48887/mcp/request",
+    token: "fixture-relay-token",
+    fetchImpl: async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ ok: true, result: {
+        status: "READY", ready: true, action: "NONE", registeredPageCount: 1,
+        sessionMatched: true, origin: "https://portal.liebide.com",
+        authState: "authenticated", contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+        entityMatched: true,
+      } }));
+    },
+  });
+  const result = await client.getConnectionStatus({
+    userId: route.userId,
+    deviceId: route.deviceId,
+    expectedExternalId: "fixture-job-001",
+  });
+  assert.equal(result.status, "READY");
+  assert.equal(calls[0].tool, CSDN_CONNECTION_STATUS_TOOL);
+  assert.equal("browserSessionId" in calls[0].arguments, false);
 });
 
 test("Relay 网络/HTTP/包络错误映射为机器码且不回显正文", async () => {

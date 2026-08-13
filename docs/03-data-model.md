@@ -182,11 +182,13 @@ erDiagram
 |:---|:---|:---|
 | 身份 | `id`, `kind`, `idempotency_key` | `idempotency_key` 唯一（`async_tasks_idempotency_key_unique`）；同业务操作幂等，重复入队 `ON CONFLICT DO NOTHING` |
 | 状态 | `status` | `async_task_status`：`pending/running/succeeded/failed/dead` |
-| 调度 | `payload`, `scheduled_at`, `started_at`, `finished_at` | `payload` 白名单 `jsonb`（同步任务只含 source 身份）；`scheduled_at` 计划时间，认领后 `started_at` |
+| 调度 | `payload`, `scheduled_at`, `started_at`, `finished_at` | `payload` 白名单 `jsonb`；`browser_job_collect` 仅含 source UUID、用户/设备、固定契约和外部职位 ID，明确不含 browser session、页面正文或凭证；`scheduled_at` 计划时间，认领后 `started_at` |
 | 重试 | `attempts`, `last_error_code`, `next_attempt_at` | 认领时 `attempts+1`；网络错误指数退避由 `next_attempt_at` 门控；超阈值进 `dead`（后续转人工队列） |
 | 时间 | `created_at`, `updated_at` | 服务端写入 |
 
 **禁含**：MCP 凭证、原始载荷、简历正文、联系方式等敏感字段。`async_tasks_due_idx(status, scheduled_at)` 支撑调度认领（`FOR UPDATE SKIP LOCKED`）。
+
+`browser_job_collect` 只有在回执重新满足 `active + 发布满 7 天且不超过 30 天 + 有效推荐数 0` 时才写 `raw_records/jobs`。`published_at` 缺失、状态失效、推荐数未知/非零或超出天数均作为成功跳过，只在任务/运行统计中记录机器原因，不创建职位。Web 回执没有公司和类目时本地保存空字符串并在 `eligibility_evidence` 标记 `source_missing`；`portal_url` 由固定允许 origin 和已校验 external ID 确定性生成，不接受调用方 URL。
 
 ## 7.3 匹配域表（M3 数据集成与匹配）
 

@@ -5,7 +5,7 @@
 - 范围：单职位、只读、`https://portal.liebide.com`
 - 契约：`liebide-job-detail-v1` / version `1`
 - auto-headcount 版本：`13f974ca`
-- CSDN-Agent 版本：`f992bcb`（基于新的本地 `main` root commit；尚未配置远端）
+- CSDN-Agent 版本：`d9e75a2`（功能提交 `6d43982`；尚未配置远端）
 - 权威边界：[`ADR-005`](../decisions/ADR-005-authorized-web-collection-and-local-matching.md)
 - 操作流程：[`browser-collection.md`](../runbooks/browser-collection.md)
 
@@ -20,7 +20,7 @@
 | 验证项 | 结果 |
 |---|---|
 | auto-headcount Consumer 契约测试 | 5/5 通过 |
-| CSDN-Agent 插件与 Bridge 全量测试 | 69/69 通过 |
+| CSDN-Agent 插件与 Bridge 全量测试 | 70/70 通过 |
 | CSDN-Agent 静态检查 | 通过 |
 | CSDN-Agent Rust 连接诊断定向测试 | 1/1 通过 |
 | auto-headcount 单元测试 | 126/126 通过 |
@@ -28,7 +28,9 @@
 | Markdown 相对链接检查 | 通过 |
 | Provider 契约 Schema 定向测试 | 5/5 通过 |
 | Consumer 契约与 Schema 测试 | 7/7 通过 |
-| 双仓规范化 Schema 哈希 | 请求 `ea9331…e583`、回执 `8ba4b0…e04e`，一致 |
+| 双仓规范化 Schema 哈希 | 请求 `5fbe4d…e5c87`、回执 `8ba4b0…e04e`，一致 |
+| `browser_job_collect` 单元测试 | 4/4 通过；相关浏览器合同/任务 11/11 通过 |
+| PostgreSQL 调度集成 | 12/12 通过；含任务入库与重跑职位幂等 |
 
 真实页面首次验证发现薪资文本 `30K-60K` 与后续文字之间没有空白，原解析器因此返回空薪资。该 DOM 边界先转换为完全虚构测试并确认 RED，再修改解析边界；插件测试恢复 66/66 GREEN 后重载扩展并复验通过。
 
@@ -54,7 +56,8 @@
 - `verified`：固定参数、来源白名单、职位 ID 一致性和结构化回执的单职位协议闭环已通过真实登录态验证。
 - `implemented`：auto-headcount Consumer 适配器和 Relay 客户端已实现。
 - `specified`：本 Runbook 和请求/回执 Schema 已固化开发、联调和证据边界。
-- `verified`：CSDN-Agent 只读连接预检已在 Node Bridge 与 Rust Relay 上验证，状态与最小化输出一致；auto-headcount 自动调用尚未接线。
-- 未实现：`async_tasks` 接线、`browser_job_collect`、规范化职位入库、管理端触发、ingestion ticket、候选人/简历采集与脱敏流水线。
+- `verified`：CSDN-Agent 只读连接预检和设备作用域 active page 路由、auto-headcount `browser_job_collect` 调度/规则/事务入库均通过 Fixture 与 PostgreSQL 验证；请求 Schema 新哈希为 `5fbe4d…e5c87`，回执哈希不变。
+- 未完成真实复验：尚未用授权登录态从 `POST /api/browser-collections` 跑到真实职位入库；因此不声明真实无人值守闭环可用。
+- 未实现：批量职位发现、ingestion ticket、候选人/简历采集与脱敏流水线。
 - 本次职位不满足 7～30 天且有效推荐数为 0 的完整沉睡条件，不能作为沉睡职位入库验收样本。
-- CSDN-Agent 已在项目负责人确认放弃不可访问的旧历史后，以脱敏源码快照建立新的本地 root commit `e1bb9d9`；`b74e369` 增加 Provider Schema 和标准检查，`f992bcb` 增加只读连接预检。插件静态检查、69/69 Node 测试和 1/1 Rust 定向测试通过。新仓库尚未配置远端，因此可以本地精确追溯，但不能描述为已推送、已发布或可由其他环境拉取。
+- CSDN-Agent 已在项目负责人确认放弃不可访问的旧历史后，以脱敏源码快照建立新的本地 root commit `e1bb9d9`；`b74e369` 增加 Provider Schema，`f992bcb` 增加只读连接预检，`6d43982` 增加后台任务设备作用域路由。插件静态检查、70/70 Node 测试和 1/1 Rust 定向测试通过。新仓库尚未配置远端，因此可以本地精确追溯，但不能描述为已推送、已发布或已部署。

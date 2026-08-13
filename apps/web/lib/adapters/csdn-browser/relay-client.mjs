@@ -1,8 +1,11 @@
 import {
   BrowserCollectionContractError,
+  CSDN_CONNECTION_STATUS_TOOL,
   CSDN_EXTRACTION_TOOL,
+  buildBrowserConnectionStatusArguments,
   buildJobDetailExtractionArguments,
   parseJobDetailExtractionResult,
+  parseBrowserConnectionStatusResult,
 } from "./browser-collection-contract.mjs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -33,8 +36,15 @@ export function createCsdnBrowserRelayClient({
   }
 
   return {
+    async getConnectionStatus(input) {
+      return callRelayTool(CSDN_CONNECTION_STATUS_TOOL, buildBrowserConnectionStatusArguments(input), parseBrowserConnectionStatusResult);
+    },
     async extractJobDetail(input) {
-      const args = buildJobDetailExtractionArguments(input);
+      return callRelayTool(CSDN_EXTRACTION_TOOL, buildJobDetailExtractionArguments(input), parseJobDetailExtractionResult);
+    },
+  };
+
+  async function callRelayTool(tool, args, parseResult) {
       let response;
       try {
         response = await fetchImpl(endpoint, {
@@ -44,7 +54,7 @@ export function createCsdnBrowserRelayClient({
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            tool: CSDN_EXTRACTION_TOOL,
+            tool,
             arguments: args,
             timeoutMs,
           }),
@@ -67,13 +77,12 @@ export function createCsdnBrowserRelayClient({
         throw new BrowserRelayError("browser relay returned an invalid envelope");
       }
       try {
-        return parseJobDetailExtractionResult(envelope.result);
+        return parseResult(envelope.result);
       } catch (error) {
         if (error instanceof BrowserCollectionContractError) throw error;
         throw new BrowserRelayError("browser relay result validation failed");
       }
-    },
-  };
+  }
 }
 
 function parseRequestUrl(value) {

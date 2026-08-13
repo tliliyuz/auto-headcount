@@ -106,7 +106,7 @@
 | 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 已设计（见 §2.2） |
 | 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
 | 匹配（M3） | `POST /api/match-tasks`、`GET /api/matches`、`GET /api/matches/:id`、`POST /api/matches/:id/review` | 已设计（见 §2.5） |
-| 浏览器采集控制（M2） | `POST /api/browser-collections`、`GET /api/browser-collections/:id` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
+| 浏览器采集控制（M2） | `POST /api/browser-collections` | 单职位任务创建契约已定稿；任务状态查询复用后续统一任务读 API |
 | 浏览器受控直传（M2） | `POST /api/browser-ingestion/:ticket` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
 | 触达活动（M4） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |
 | 跟进任务（M5） | `GET/POST /api/followups` | 待设计 |
@@ -114,10 +114,11 @@
 
 > 候选人落地页端点属于独立身份域，只接受令牌哈希校验，契约在 M4 另行定义，不并入本管理端契约。
 
-### 3.1 浏览器采集规划边界（specified，未实现）
+### 3.1 浏览器职位采集任务（实现切片）
 
 - 职位详情 Relay 适配器协议已经由 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json) 固定，并按 [`浏览器采集 Runbook`](runbooks/browser-collection.md) 做单职位只读验证。该协议不是管理端 HTTP API，也不代表下述任务、ingestion 或入库端点已经实现。
-- `POST /api/browser-collections` 由管理端会话 + `operations|admin` 创建有界采集任务，只接受 `sourceConnectionId`、`userId`、`deviceId`、预审核 `contractId`、外部实体引用、游标和批量；不得接收任意脚本、选择器、Cookie、页面正文或联系方式。
+- `POST /api/browser-collections` 由管理端会话 + `operations|admin` 创建单职位 `browser_job_collect` 任务，请求体严格使用 [`browser-job-collect.task.v1`](contracts/browser-job-collect.task.v1.schema.json)。成功返回 `202 { accepted:true, taskId }`；同一来源、设备、契约和职位的活跃任务重复提交返回 `202 { accepted:false, taskId, deduplicated:true }`。写路由执行同源 CSRF 和 `browser.collection.trigger` 审计，审计只保存 task ID、是否去重、契约 ID，不保存用户/设备/职位完整值。
+- 任务载荷不保存 `browserSessionId`。执行时 Relay 只可在 `userId + deviceId` 所有权范围内选择当前活跃页面，并以目标 external ID 做 `READY` 预检；无唯一可用页面或实体不匹配时失败关闭，不切换其他设备。
 - 服务端为单个任务签发短期、高熵、单次消费 ingestion ticket；数据库只保存 token 哈希、任务/契约绑定、到期时间和大小上限，明文 ticket 不写日志或审计。
 - `POST /api/browser-ingestion/:ticket` 不接受管理端 Cookie，以 ticket 作为独立身份域；必须校验 HTTPS、到期/撤销/已消费、任务、契约版本、来源域/设备声明、内容类型、载荷大小、Schema 和内容哈希后，先加密再持久化。
 - 成功响应只返回 receipt ID、接受/拒绝计数、内容哈希和下一游标；错误只返回机器码。任何响应、审计或普通日志都不得回显 ticket、Cookie、完整简历或联系方式。

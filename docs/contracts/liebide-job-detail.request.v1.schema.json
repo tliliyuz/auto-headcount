@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://auto-headcount.local/contracts/liebide-job-detail.request.v1.schema.json",
   "title": "Liebide Job Detail Extraction Request v1",
-  "description": "auto-headcount 发送给 CSDN-Agent 受限提取工具的固定参数。生产任务不得增加脚本、选择器、URL、Cookie 或页面正文。",
+  "description": "auto-headcount 发送给 CSDN-Agent 受限提取工具的固定参数。browserSessionId 仅用于交互式显式路由，持久化任务省略并由 userId + deviceId 限定 active page。生产任务不得增加脚本、选择器、URL、Cookie 或页面正文。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["userId", "deviceId", "browserSessionId", "contractId", "expectedExternalId"],
+  "required": ["userId", "deviceId", "contractId", "expectedExternalId"],
   "properties": {
     "userId": {
       "type": "string",

@@ -27,6 +27,12 @@ const REQUEST_KEYS = [
   "contractId",
   "expectedExternalId",
 ];
+const REQUEST_REQUIRED_KEYS = [
+  "userId",
+  "deviceId",
+  "contractId",
+  "expectedExternalId",
+];
 const RECEIPT_KEYS = [
   "contractId",
   "contractVersion",
@@ -68,7 +74,7 @@ export function schemaSha256(schema) {
 }
 
 export function verifyContractSchemas({ requestSchema, receiptSchema }) {
-  verifyClosedObject(requestSchema, REQUEST_KEYS, "request");
+  verifyClosedObject(requestSchema, REQUEST_KEYS, "request", REQUEST_REQUIRED_KEYS);
   assert.equal(
     requestSchema.properties.contractId?.const,
     LIEBIDE_JOB_DETAIL_CONTRACT_ID,
@@ -154,7 +160,7 @@ async function main() {
   );
 }
 
-function verifyClosedObject(schema, expectedKeys, label) {
+function verifyClosedObject(schema, expectedKeys, label, requiredKeys = expectedKeys) {
   assert.equal(schema?.type, "object", `${label} Schema must be an object`);
   assert.equal(
     schema?.additionalProperties,
@@ -163,7 +169,7 @@ function verifyClosedObject(schema, expectedKeys, label) {
   );
   assert.deepEqual(
     [...(schema?.required || [])].sort(),
-    [...expectedKeys].sort(),
+    [...requiredKeys].sort(),
     `${label} required keys changed`,
   );
   assert.deepEqual(

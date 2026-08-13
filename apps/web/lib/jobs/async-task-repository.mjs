@@ -46,6 +46,42 @@ export function createAsyncTaskRepository(sql) {
       return rows[0] ?? null;
     },
 
+    /** 同一浏览器职位目标去重；不同职位可排队，调度器仍按 kind 串行执行。 */
+    async enqueueBrowserJobTaskIfTargetIdle({ idempotencyKey, payload, scheduledAt }) {
+      const rows = await sql`
+        insert into async_tasks (kind, idempotency_key, payload, scheduled_at)
+        select 'browser_job_collect', ${idempotencyKey}, ${sql.json(payload)}, ${scheduledAt}
+        where not exists (
+          select 1 from async_tasks
+          where kind = 'browser_job_collect'
+            and status in ('pending', 'running')
+            and payload->>'sourceConnectionId' = ${payload.sourceConnectionId}
+            and payload->>'userId' = ${payload.userId}
+            and payload->>'deviceId' = ${payload.deviceId}
+            and payload->>'contractId' = ${payload.contractId}
+            and payload->>'externalId' = ${payload.externalId}
+        )
+        returning id
+      `;
+      return rows[0]?.id ?? null;
+    },
+
+    async findActiveBrowserJobTask(payload) {
+      const rows = await sql`
+        select id, status from async_tasks
+        where kind = 'browser_job_collect'
+          and status in ('pending', 'running')
+          and payload->>'sourceConnectionId' = ${payload.sourceConnectionId}
+          and payload->>'userId' = ${payload.userId}
+          and payload->>'deviceId' = ${payload.deviceId}
+          and payload->>'contractId' = ${payload.contractId}
+          and payload->>'externalId' = ${payload.externalId}
+        order by created_at
+        limit 1
+      `;
+      return rows[0] ?? null;
+    },
+
     /**
      * 任务看门狗：回收崩溃/超时残留的 `running` 任务（started_at 早于 staleBefore 的
      * 一律标记 failed + TASK_STALE_TIMEOUT）。进程中断后任务会永久卡 running，

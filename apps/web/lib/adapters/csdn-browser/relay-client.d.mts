@@ -14,6 +14,9 @@ export function createCsdnBrowserRelayClient(options: {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): {
+  getConnectionStatus(
+    input: JobDetailExtractionRoute,
+  ): Promise<Record<string, unknown>>;
   extractJobDetail(
     input: JobDetailExtractionRoute,
   ): Promise<ParsedJobDetailExtraction>;

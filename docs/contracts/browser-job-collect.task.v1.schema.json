@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.internal/contracts/browser-job-collect.task.v1.schema.json",
+  "title": "browser_job_collect task payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sourceConnectionId",
+    "userId",
+    "deviceId",
+    "contractId",
+    "externalId"
+  ],
+  "properties": {
+    "sourceConnectionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "userId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "contractId": {
+      "const": "liebide-job-detail-v1"
+    },
+    "externalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    }
+  }
+}

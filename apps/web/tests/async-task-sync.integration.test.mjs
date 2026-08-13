@@ -15,6 +15,7 @@ import {
 import {
   buildSyncIdempotencyKey,
   enqueueDueSyncTasks,
+  processDueTasks,
   runScheduledTick,
   syncPeriodKey,
 } from "../lib/jobs/sync-scheduler.mjs";
@@ -173,7 +174,7 @@ async function reclaimRunningSyncTasks(sql) {
     update async_tasks
     set status = 'failed', last_error_code = 'TEST_SLATE_RESET',
         finished_at = now(), updated_at = now()
-    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync')
+    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync', 'browser_job_collect')
       and status = 'running'
   `;
 }
@@ -288,6 +289,99 @@ test(
       assert.equal(audit.metadata.persisted, 2);
       assert.equal(audit.metadata.pages, 1);
     } finally {
+      await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "browser_job_collect：预检、固定提取、规则校验与事务入库，重跑职位幂等",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(marker);
+    const now = new Date("2026-08-13T09:00:00.000Z");
+    const taskIds = [];
+    let sourceId;
+    await reclaimRunningSyncTasks(sql);
+    const relay = {
+      async getConnectionStatus() {
+        return { status: "READY", ready: true };
+      },
+      async extractJobDetail({ expectedExternalId }) {
+        return {
+          contractId: "liebide-job-detail-v1",
+          contractVersion: 1,
+          sourceOrigin: "https://portal.liebide.com",
+          capturedAt: now.toISOString(),
+          contentHash: "b".repeat(64),
+          externalId: expectedExternalId,
+          title: "Fixture Browser Job",
+          status: "active",
+          city: "上海",
+          salaryMin: 20000,
+          salaryMax: 30000,
+          jobDescription: "完全虚构的浏览器采集职位详情。",
+          publishedAt: "2026-08-04T09:00:00.000Z",
+          validRecommendationCount: 0,
+        };
+      },
+    };
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      const repo = createAsyncTaskRepository(sql);
+      const payload = {
+        sourceConnectionId: sourceId,
+        userId: "fixture-user",
+        deviceId: "fixture-device",
+        contractId: "liebide-job-detail-v1",
+        externalId: `browser-${marker}`,
+      };
+      for (let index = 0; index < 2; index += 1) {
+        const taskId = await repo.enqueueBrowserJobTaskIfTargetIdle({
+          idempotencyKey: `browser-job-collect:test:${marker}:${index}`,
+          payload,
+          scheduledAt: now,
+        });
+        taskIds.push(taskId);
+        if (index === 0) {
+          const duplicate = await repo.enqueueBrowserJobTaskIfTargetIdle({
+            idempotencyKey: `browser-job-collect:test:${marker}:duplicate`,
+            payload,
+            scheduledAt: now,
+          });
+          assert.equal(duplicate, null, "同目标活跃任务必须去重");
+          assert.equal((await repo.findActiveBrowserJobTask(payload)).id, taskId);
+        }
+        const summary = await processDueTasks(sql, {
+          env: { APP_ENCRYPTION_KEY: ENC_KEY, APP_ENCRYPTION_KEY_VERSION: "test-v1" },
+          now,
+          browserRelay: relay,
+        });
+        assert.equal(summary.succeeded, 1);
+      }
+      const [counts] = await sql`
+        select
+          (select count(*)::int from jobs where source_connection_id = ${sourceId}) as jobs,
+          (select count(*)::int from raw_records where source_connection_id = ${sourceId}) as raws
+      `;
+      assert.deepEqual({ jobs: counts.jobs, raws: counts.raws }, { jobs: 1, raws: 2 });
+      const [saved] = await sql`
+        select mapping_version, job_description, days_without_recommendation,
+               valid_recommendation_count, operability_status
+        from jobs where source_connection_id = ${sourceId}
+      `;
+      assert.deepEqual(saved, {
+        mapping_version: "browser-job-v1",
+        job_description: "完全虚构的浏览器采集职位详情。",
+        days_without_recommendation: 9,
+        valid_recommendation_count: 0,
+        operability_status: "actionable",
+      });
+    } finally {
+      await sql`delete from async_tasks where id = any(${taskIds.filter(Boolean)})`;
       await cleanupFixture(sql, { source, taskIds });
       await sql.end();
     }

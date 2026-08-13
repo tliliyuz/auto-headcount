@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — Web 单职位采集任务与事务入库闭环
+
+> 状态：Fixture/PostgreSQL `verified`；授权登录态后台任务真实入库尚未复验。
+
+- 新增关闭字段的 `browser_job_collect` v1 任务载荷和 `POST /api/browser-collections`：仅 `operations|admin` 可创建，执行 CSRF、同目标活跃任务去重和最小化审计，禁止 session、URL、脚本、选择器、页面正文与凭证进入任务表。
+- 调度器固定执行连接预检 → `liebide-job-detail-v1` 提取 → 白名单回执/实体校验 → `active + 7～30 天 + 零推荐` 本地复核；非 `READY` 失败关闭，不合格职位成功跳过且不写 `jobs`。
+- 新增 PostgreSQL 事务仓储：加密追加 `raw_records`，按 `(source_connection_id, external_id)` 幂等 upsert `jobs`，保存 JD、内容来源证据和确定性 Portal URL；Web 回执缺失的公司/类目标记 `source_missing`。
+- CSDN-Agent `6d43982` 允许固定提取合同省略 `browserSessionId`，`d9e75a2` 对齐 Schema 描述；只在 `userId + deviceId` 内使用 active page。双端请求 Schema 哈希更新为 `704781…1188f`，回执哈希不变。
+- 验证：auto-headcount 单元 132/132、浏览器合同/任务定向 11/11、PostgreSQL 调度集成 12/12、ESLint、生产构建、Markdown 链接及双仓 Schema 一致性通过；CSDN-Agent 静态检查与 70/70 测试通过。
+
 ### 2026-08-13 — 浏览器连接预检状态标准化
 
 > 状态：CSDN-Agent Provider `verified`；auto-headcount 自动任务接线未实现。

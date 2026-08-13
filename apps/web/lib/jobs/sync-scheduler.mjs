@@ -1,6 +1,9 @@
 import { McpDiscoveryError } from "../adapters/mcp-discovery.mjs";
+import { BrowserRelayError, createCsdnBrowserRelayClient } from "../adapters/csdn-browser/relay-client.mjs";
 import { createAuthRepository } from "../identity/auth-repository.mjs";
 import { createAsyncTaskRepository } from "./async-task-repository.mjs";
+import { runBrowserJobCollection } from "./browser-job-collection.mjs";
+import { createBrowserJobCollectionRepository } from "./browser-job-collection-repository.mjs";
 import {
   JOBS_GET_TOOL,
   runJobDetailsSync,
@@ -21,6 +24,7 @@ const DEFAULT_STALE_TASK_MS = 30 * 60 * 1000;
 const TASK_KIND_SYNC = "under_served_sync";
 const TASK_KIND_JOB_DETAILS = "job_details_sync";
 const TASK_KIND_MATCH = "match_candidates_sync";
+export const TASK_KIND_BROWSER_JOB_COLLECT = "browser_job_collect";
 
 /** 周期槽位键：now 所在的 interval 序号（纯函数，可单测）。 */
 export function syncPeriodKey(now, intervalMs) {
@@ -119,9 +123,28 @@ export async function enqueueJobDetailSyncTasks(
 }
 
 /** 执行同步任务：配置从 env 解析（加密/MCP 可注入 mcp 用假客户端测试）。 */
-async function runSyncForTask(sql, { env, task, mcp }) {
+async function runSyncForTask(sql, { env, task, mcp, browserRelay, now }) {
   try {
     const source = task.payload?.source ?? resolveSyncSource(env);
+    if (task.kind === TASK_KIND_BROWSER_JOB_COLLECT) {
+      const encryption = {
+        key: env.APP_ENCRYPTION_KEY,
+        keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
+      };
+      if (!encryption.key || !encryption.keyVersion) {
+        return { status: "failed", errorCode: "ENCRYPTION_CONFIG_REQUIRED", retryable: false, stats: null };
+      }
+      const relayClient = browserRelay ?? createCsdnBrowserRelayClient({
+        requestUrl: env.BROWSER_RELAY_URL,
+        token: env.BROWSER_RELAY_TOKEN,
+      });
+      return runBrowserJobCollection({
+        task: task.payload,
+        now,
+        relayClient,
+        repository: createBrowserJobCollectionRepository(sql, { encryption }),
+      });
+    }
     // job_details 同步独立运行（白名单收紧到 [wb.jobs.get]）：其失败不毒化 dormant 同步。
     if (task.kind === TASK_KIND_JOB_DETAILS) {
       const callTool =
@@ -172,6 +195,7 @@ function classifyTaskError(error) {
   ) {
     return error.code;
   }
+  if (error instanceof BrowserRelayError) return error.code;
   return "SYNC_INTERNAL_ERROR";
 }
 
@@ -197,6 +221,8 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "matchesStored",
       "hardFiltered",
       "failed",
+      "preflight",
+      "extracted",
     ]) {
       if (key in outcome.stats) metadata[key] = outcome.stats[key];
     }
@@ -230,6 +256,7 @@ export async function processDueTasks(
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     staleTaskMs = DEFAULT_STALE_TASK_MS,
     mcp,
+    browserRelay,
   },
 ) {
   const taskRepo = createAsyncTaskRepository(sql);
@@ -250,7 +277,7 @@ export async function processDueTasks(
   };
 
   for (const task of tasks) {
-    const outcome = await runSyncForTask(sql, { env, task, mcp });
+    const outcome = await runSyncForTask(sql, { env, task, mcp, browserRelay, now });
     const decision = decideTaskOutcome({
       status: outcome.status,
       retryable: outcome.retryable,
@@ -311,6 +338,7 @@ export async function runScheduledTick({
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   staleTaskMs = DEFAULT_STALE_TASK_MS,
   mcp,
+  browserRelay,
 }) {
   const source = resolveSyncSource(env);
   const enqueued = await enqueueDueSyncTasks(sql, { source, now, intervalMs });
@@ -325,6 +353,7 @@ export async function runScheduledTick({
     maxAttempts,
     staleTaskMs,
     mcp,
+    browserRelay,
   });
   // `taskId`/`idempotencyKey` 保持 under_served 主键（既有消费方兼容）；
   // job_details 任务用独立前缀键，避免 spread 覆盖。
