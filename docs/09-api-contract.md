@@ -83,7 +83,7 @@
 
 ### 2.5 业务写/读：匹配（M3 · 数据集成与匹配）
 
-现有端点已支持 Fixture 下的本地确定性评分和审核 API；修订后 `ADR-005` 的两阶段权威路径尚未实现。目标路径为硬过滤通过后调用 LLM 脱敏详情评分，再由本地固定权重汇总；供应方 `match_candidates` 仅存 `matches.external_*` 外部对照。统一要求：会话 + RBAC `operations|admin`；写路由 CSRF 同源；每次访问写审计（`match-tasks.trigger` / `matches.list` / `matches.detail` / `matches.review`，元数据白名单仅计数/决策/状态）。
+现有端点已支持 Fixture 下的本地确定性评分和审核 API。修订后 `ADR-005` 两阶段权威路径的阶段一（不可变版本化投影 + 第一轮确定性硬过滤）已实现并落库 `job_match_projections`/`candidate_match_projections`/`match_filter_results`（迁移 0008，虚构 Fixture 已验证，见 [CHANGELOG](../CHANGELOG.md)）；但**投影与硬过滤结果尚未暴露为 HTTP API**（管线函数 `runProjectionFilterSync` 直接可测，调度/端点接线随阶段二 LLM 汇总一并落地）。目标路径为硬过滤通过后调用 LLM 脱敏详情评分，再由本地固定权重汇总；供应方 `match_candidates` 仅存 `matches.external_*` 外部对照。统一要求：会话 + RBAC `operations|admin`；写路由 CSRF 同源；每次访问写审计（`match-tasks.trigger` / `matches.list` / `matches.detail` / `matches.review`，元数据白名单仅计数/决策/状态）。
 
 | 接口 | 方法 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|

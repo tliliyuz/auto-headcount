@@ -1,6 +1,7 @@
 import {
   boolean,
   customType,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -491,6 +492,24 @@ export const matches = pgTable(
     missing: jsonb("missing").$type<string[]>().notNull().default([]),
     /** 风险提示。 */
     risk: jsonb("risk").$type<string[]>().notNull().default([]),
+    /** 两阶段匹配追溯（M3，迁移 0008；本切片不消费，LLM/汇总切片使用）：投影/过滤/运行引用。 */
+    jobProjectionId: uuid("job_projection_id").references(
+      () => jobMatchProjections.id,
+      { onDelete: "set null" },
+    ),
+    candidateProjectionId: uuid("candidate_projection_id").references(
+      () => candidateMatchProjections.id,
+      { onDelete: "set null" },
+    ),
+    filterResultId: uuid("filter_result_id").references(
+      () => matchFilterResults.id,
+      { onDelete: "set null" },
+    ),
+    llmScoreRunId: uuid("llm_score_run_id").references(
+      () => llmScoreRuns.id,
+      { onDelete: "set null" },
+    ),
+    aggregationRuleVersion: text("aggregation_rule_version"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -521,9 +540,181 @@ export const matchDimensions = pgTable(
     score: integer("score"),
     evidence: text("evidence"),
     risk: text("risk"),
+    /** 两阶段扩展（迁移 0008，本切片不消费）：LLM 维度可评估性/置信度/运行追溯。 */
+    assessable: boolean("assessable"),
+    confidence: doublePrecision("confidence"),
+    llmScoreRunId: uuid("llm_score_run_id").references(
+      () => llmScoreRuns.id,
+      { onDelete: "set null" },
+    ),
+    outputHash: text("output_hash"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
   (table) => [index("match_dimensions_match_idx").on(table.matchId)],
+);
+
+/** M3 两阶段匹配：职位要求投影（不可变、版本化，docs/03 §7.4、docs/10 §3）。 */
+export const jobMatchProjections = pgTable(
+  "job_match_projections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "restrict" }),
+    schemaVersion: text("schema_version").notNull(),
+    generatorType: text("generator_type").notNull(),
+    generatorVersion: text("generator_version").notNull(),
+    /** 规范化源输入 SHA-256（64 位 hex，同版本同输入可复算；源内容变化 → 新投影不覆盖）。 */
+    inputHash: text("input_hash").notNull(),
+    sourceSnapshotRefs: jsonb("source_snapshot_refs")
+      .$type<Record<string, unknown>[]>()
+      .notNull()
+      .default([]),
+    /** ≤150 中文字符，不含公司名/联系方式（docs/10 §3.1）。 */
+    displaySummary: text("display_summary").notNull(),
+    /** hard_requirements + scoring_context + extraction_warnings（docs/10 §3）。 */
+    requirements: jsonb("requirements").$type<Record<string, unknown>>().notNull(),
+    /** consumable（Schema 通过）/ rejected（不消费）。 */
+    status: text("status").notNull().default("consumable"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("job_match_projections_immutable_unique").on(
+      table.jobId,
+      table.schemaVersion,
+      table.generatorVersion,
+      table.inputHash,
+    ),
+    index("job_match_projections_job_idx").on(table.jobId),
+  ],
+);
+
+/** M3 两阶段匹配：候选人脱敏匹配投影（不可变、版本化，docs/03 §7.4、docs/10 §4）。 */
+export const candidateMatchProjections = pgTable(
+  "candidate_match_projections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "restrict" }),
+    schemaVersion: text("schema_version").notNull(),
+    generatorVersion: text("generator_version").notNull(),
+    redactionVersion: text("redaction_version").notNull(),
+    /** 规范化源输入 SHA-256（64 位 hex）。 */
+    inputHash: text("input_hash").notNull(),
+    sourceSnapshotRefs: jsonb("source_snapshot_refs")
+      .$type<Record<string, unknown>[]>()
+      .notNull()
+      .default([]),
+    /** ≤150 中文字符，不含联系方式/直接身份标识（docs/10 §4）。 */
+    displaySummary: text("display_summary").notNull(),
+    /** 脱敏结构化画像（skills/experience_years/city/education/…）。 */
+    profile: jsonb("profile").$type<Record<string, unknown>>().notNull(),
+    /** 脱敏简历详情（应用层 AES-256-GCM 加密，docs/03 §7.4、docs/10 §4）。 */
+    redactedDetailCiphertext: bytea("redacted_detail_ciphertext").notNull(),
+    redactedDetailNonce: bytea("redacted_detail_nonce").notNull(),
+    keyVersion: text("key_version").notNull(),
+    redactedDetailHash: text("redacted_detail_hash").notNull(),
+    /** removed/generalized categories + residual_pii_scan（must be "passed"）。 */
+    redactionReport: jsonb("redaction_report")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    /** consumable（PII 扫描通过）/ rejected（残留 PII，LLM 拒绝）。 */
+    status: text("status").notNull().default("consumable"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("candidate_match_projections_immutable_unique").on(
+      table.candidateId,
+      table.schemaVersion,
+      table.generatorVersion,
+      table.redactionVersion,
+      table.inputHash,
+    ),
+    index("candidate_match_projections_candidate_idx").on(table.candidateId),
+  ],
+);
+
+/** M3 两阶段匹配：第一阶段确定性硬过滤结果（不可变，docs/03 §7.4、docs/10 §5）。 */
+export const matchFilterResults = pgTable(
+  "match_filter_results",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobProjectionId: uuid("job_projection_id")
+      .notNull()
+      .references(() => jobMatchProjections.id, { onDelete: "restrict" }),
+    candidateProjectionId: uuid("candidate_projection_id")
+      .notNull()
+      .references(() => candidateMatchProjections.id, { onDelete: "restrict" }),
+    filterRuleVersion: text("filter_rule_version").notNull(),
+    /** 职位投影 hash + 候选人投影 hash + 规则版本 组合 SHA-256。 */
+    combinedInputHash: text("combined_input_hash").notNull(),
+    passed: boolean("passed").notNull(),
+    /** [{code, jobValue, candidateValue, explanation}]（docs/10 §5）。 */
+    reasonCodes: jsonb("reason_codes")
+      .$type<Record<string, unknown>[]>()
+      .notNull()
+      .default([]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("match_filter_results_immutable_unique").on(
+      table.jobProjectionId,
+      table.candidateProjectionId,
+      table.filterRuleVersion,
+    ),
+    index("match_filter_results_job_proj_idx").on(table.jobProjectionId),
+    index("match_filter_results_cand_proj_idx").on(table.candidateProjectionId),
+  ],
+);
+
+/** M3 两阶段匹配：LLM 脱敏详情维度评分运行（docs/03 §7.4、docs/10 §6；本切片建表不消费）。 */
+export const llmScoreRuns = pgTable(
+  "llm_score_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    filterResultId: uuid("filter_result_id")
+      .notNull()
+      .references(() => matchFilterResults.id, { onDelete: "restrict" }),
+    attempt: integer("attempt").notNull().default(1),
+    /** pending/running/succeeded/failed（docs/10 §6.3）。 */
+    status: text("status").notNull().default("pending"),
+    adapterId: text("adapter_id"),
+    adapterVersion: text("adapter_version"),
+    modelId: text("model_id"),
+    modelRevision: text("model_revision"),
+    promptVersion: text("prompt_version"),
+    schemaVersion: text("schema_version"),
+    /** 实际发给适配器的规范化脱敏请求 SHA-256。 */
+    requestHash: text("request_hash"),
+    /** 加密结构化输出（docs/10 §6.1）。 */
+    responseCiphertext: bytea("response_ciphertext"),
+    responseNonce: bytea("response_nonce"),
+    keyVersion: text("key_version"),
+    outputHash: text("output_hash"),
+    /** 白名单参数 jsonb。 */
+    parameters: jsonb("parameters")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    /** 失败只存机器码（LLM_TIMEOUT/LLM_RATE_LIMITED/…），不存供应商错误正文。 */
+    errorCode: text("error_code"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("llm_score_runs_filter_result_idx").on(table.filterResultId),
+    index("llm_score_runs_status_idx").on(table.status),
+  ],
 );

@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — M3 阶段一：投影生成 + 第一轮确定性硬过滤（垂直切片）
+
+> 状态：虚构 Fixture + PostgreSQL `verified`（迁移 0008）；LLM 适配器、本地汇总、人工审核页与调度/API 接线仍为 `specified`/后续切片。
+
+- 新增四张两阶段匹配表（迁移 0008）：`job_match_projections`/`candidate_match_projections`（不可变，唯一约束含 `input_hash`，源内容变化新建投影不覆盖）、`match_filter_results`（同投影对 + 规则版本幂等）、`llm_score_runs`（建表，LLM 切片消费）；`matches`/`match_dimensions` 增加投影/过滤/LLM 运行追溯列（可空，FK `SET NULL`）。对应回写 `docs/03` §2.1/§2.2/§7.3/§7.4。
+- 三份 v1 Schema 运行时校验：`lib/matching/projection-schemas.mjs`（Ajv2020，加载 `docs/contracts/`），职位/候选人投影与 LLM 输出在持久化前校验（`additionalProperties:false`、`residual_pii_scan=passed`、7 维枚举 + assessable/score 条件约束）。
+- 投影生成器：`lib/matching/job-projection.mjs`（hard_requirements/scoring_context/display_summary≤150/input_hash 完整 64-hex）、`candidate-projection.mjs`（画像 + 加密脱敏简历详情 + redaction_report；确定性残留 PII 扫描，命中返回 `MATCH_PROJECTION_PII_DETECTED`，不产出消费态投影）。
+- 第一轮确定性硬过滤：`lib/matching/filter.mjs` 纯函数，六种原因码（地点/技能/年限/学历/证书/薪资硬约束）+ `REQUIRED_FIELD_MISSING`，每条携带职位值/候选人值/人类可读解释，`combined_input_hash` 确定性复算；`passed=false` 不创建 LLM 运行。
+- 垂直切片管线：`lib/jobs/projection-filter-sync.mjs` `runProjectionFilterSync`（source + sync_run 审计 + stats，PII 拒绝跳过，过滤结果落库幂等）；仓储 `projection-repository.mjs`/`filter-repository.mjs`（`ON CONFLICT DO NOTHING` 版本不覆盖，候选人 `redacted_detail` 加密落库）。
+- 验证：单元 161/161、PostgreSQL 集成 37/37（含新增 projection-filter 2 例与迁移契约扩展）、ESLint、生产构建通过；虚构 Fixture 验证投影版本不覆盖（源薪资变化 → 新投影行 + 旧行保留）、PII 拒绝、硬过滤原因码与幂等重跑。
+- 技术债（已标记未实现）：硬过滤只挡"明确不符者"，不设通过者的数量上界，全部送 LLM 成本不可控；候选池成本上界机制（本地预排序 + Top-K + 全局预算）方案待定，待 M3 阶段二跑通后回填（记录见 [docs/10 §5](docs/10-matching-contracts.md)）。
+
 ### 2026-08-13 — Web 单职位采集任务与事务入库闭环
 
 > 状态：Fixture/PostgreSQL `verified`；授权登录态后台任务真实入库尚未复验。

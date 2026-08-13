@@ -15,10 +15,12 @@
 ## 2. 公共约定
 
 - `projection_id` 引用不可变投影记录；同一实体的源内容、映射规则或脱敏规则变更时新建投影，不覆盖旧记录。
-- `input_hash` 为生成投影所用的规范化输入 SHA-256；JSON 键排序、空值和时间格式必须由生成器版本固定。
+- `input_hash` 为生成投影所用的规范化输入 SHA-256（完整 64 位 hex，`^[a-f0-9]{64}$`）；JSON 键排序、空值和时间格式必须由生成器版本固定。
 - `source_snapshot_refs` 用于内部追溯，不传给 LLM。LLM 请求不包含数据库 UUID、供应商外部 ID、原始 URL 或可反推身份的稳定标识。
 - 展示摘要仅用于列表和人工审核概览，最多 150 字符；硬过滤必须读取结构化画像，不得只依赖摘要文本。
 - 实现必须在持久化与外部调用前执行 JSON Schema 校验；未知字段因 `additionalProperties:false` 被拒绝。
+
+**实现状态（2026-08-13）**：三份 v1 Schema 的运行时校验已实现于 `apps/web/lib/matching/projection-schemas.mjs`（Ajv2020，`validateJobRequirementProjection`/`validateCandidateMatchProjection`/`validateLlmDetailScore`），职位要求投影与候选人脱敏投影生成器（`lib/matching/job-projection.mjs`、`candidate-projection.mjs`）在落库前执行校验；候选人生成器对残留 PII 返回 `MATCH_PROJECTION_PII_DETECTED`，不产出消费态投影。第一阶段确定性硬过滤已实现于 `lib/matching/filter.mjs`（纯函数，六种原因码 + `REQUIRED_FIELD_MISSING` + `combined_input_hash`），结果落库 `match_filter_results`（不可变幂等）。以上均经虚构 Fixture 验证（见 [CHANGELOG](../CHANGELOG.md)）；LLM 适配器与本地汇总仍为 `specified`。
 
 ## 3. 职位要求结构化提取契约
 
@@ -63,6 +65,10 @@
 - 规则版本、组合输入哈希和生成时间。
 
 `passed=false` 时不创建 LLM 评分运行。`REQUIRED_FIELD_MISSING` 默认不猜测通过；进入异常/人工补全队列。
+
+> **技术债（2026-08-13，未实现）**：硬过滤只保证"未通过者不调 LLM"，不保证通过者的数量上界——一个要招 10 人的岗位，硬过滤后通过 100+ 个候选人属正常，全部送 LLM 成本不可控。阶段一之后、LLM 之前的**候选池成本上界机制**（候选方案：本地确定性预排序 + 每职位 Top-K + 每轮全局 LLM 调用预算，K/M 可配置且可审计）尚未定案，属产品/成本决策。待 M3 阶段二（LLM 评分 + 本地汇总）跑通、拿到真实通过量后回填并实现。
+
+> **实现状态**：`hardFilter`（`lib/matching/filter.mjs`）输出每条原因携带 `jobValue`/`candidateValue`/`explanation`（人类可读），`combined_input_hash` = 职位投影 hash + 候选人投影 hash + 规则版本组合 SHA-256；同输入同规则版本确定性复算（虚构 Fixture 已验证）。未通过硬过滤的组合不创建 LLM 运行。
 
 ## 6. 第二阶段：LLM 详情维度评分
 

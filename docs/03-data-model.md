@@ -2,7 +2,7 @@
 
 本文件是数据库表结构、表关系、约束、保留与迁移的唯一权威来源。可执行真源为 [`apps/web/db/schema.ts`](../apps/web/db/schema.ts) 与 [`apps/web/drizzle/`](../apps/web/drizzle/) 迁移；发现冲突先修正本文件，再改 schema 与测试。
 
-> 直观速览：当前迁移 0000–0007 已落库 **16 张表** + 7 个枚举；M2–M5 仍有规划表和现有表扩展尚未落库，见 [§2 表清单](#2-表清单与实现状态) 与 [§8 规划表](#8-规划表m2m5未落库)。
+> 直观速览：当前迁移 0000–0008 已落库 **20 张表** + 7 个枚举；M2–M5 仍有规划表和现有表扩展尚未落库，见 [§2 表清单](#2-表清单与实现状态) 与 [§8 规划表](#8-规划表m2m5未落库)。
 
 ## 1. 目标与非目标
 
@@ -11,7 +11,7 @@
 
 ## 2. 表清单与实现状态
 
-### 2.1 已落库（迁移 0000–0007，共 16 张）
+### 2.1 已落库（迁移 0000–0008，共 20 张）
 
 | 域 | 表 | 一句话职责 |
 |:---|:---|:---|
@@ -29,14 +29,18 @@
 | 匹配 | `match_rules` | 现有本地规则权重与阈值版本 |
 | 匹配 | `candidates` | 打码候选人与迁移期展示摘要 |
 | 匹配 | `candidate_profiles` | 现有本地评分的候选人结构化快照 |
-| 匹配 | `matches` | 职位—候选人匹配、分档、审核状态和外部对照 |
-| 匹配 | `match_dimensions` | 现有匹配的维度分、证据和风险 |
+| 匹配 | `matches` | 职位—候选人匹配、分档、审核状态和外部对照；含投影/过滤/LLM 运行引用（迁移 0008 扩展） |
+| 匹配 | `match_dimensions` | 现有匹配的维度分、证据和风险；含可评估性/置信度/运行追溯（迁移 0008 扩展） |
+| 匹配 | [`job_match_projections`](#74-两阶段匹配表) | 职位要求版本化投影（不可变，源内容变化新建不覆盖） |
+| 匹配 | [`candidate_match_projections`](#74-两阶段匹配表) | 候选人脱敏匹配版本化投影（脱敏简历详情加密，残留 PII 拒绝） |
+| 匹配 | [`match_filter_results`](#74-两阶段匹配表) | 第一阶段确定性硬过滤结果（通过/剔除原因） |
+| 匹配 | [`llm_score_runs`](#74-两阶段匹配表) | 第二阶段 LLM 脱敏详情评分运行（模型/Prompt/Schema/哈希/失败码） |
 
 ### 2.2 规划表/扩展（M2–M5，未落库）
 
-`candidate_contacts`、`browser_source_bindings`、`ingestion_tickets`、`source_field_observations`、`job_match_projections`、`candidate_match_projections`、`match_filter_results`、`llm_score_runs`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m2m5未落库)，落地前必须先回写本文件再写迁移。
+`candidate_contacts`、`browser_source_bindings`、`ingestion_tickets`、`source_field_observations`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m2m5未落库)，落地前必须先回写本文件再写迁移。
 
-**M3 现有匹配表（迁移 0007 已落库）**：`job_requirements`、`match_rules`、`candidates`、`candidate_profiles`、`matches`、`match_dimensions`。这些表已支持 Fixture 下的本地确定性评分，但尚未支持修订后 `ADR-005` 的版本化投影、独立硬过滤结果和 LLM 运行追溯。
+**M3 匹配表（迁移 0007/0008 已落库）**：`job_requirements`、`match_rules`、`candidates`、`candidate_profiles`、`matches`、`match_dimensions` + 迁移 0008 新增 `job_match_projections`、`candidate_match_projections`、`match_filter_results`、`llm_score_runs`。旧本地评分表已支持 Fixture 下的确定性评分；两阶段投影/过滤表已落库（迁移 0008），LLM 评分与汇总流程仍待 LLM 适配器切片消费（见 [§7.3](#73-匹配域表m3-数据集成与匹配)、[§7.4](#74-两阶段匹配表)）。
 
 ## 3. 通用存储约定
 
@@ -192,27 +196,27 @@ erDiagram
 
 ## 7.3 匹配域表（M3 数据集成与匹配）
 
-迁移 0007 已落库的表支持旧的本地确定性 Fixture 闭环。修订后 [ADR-005](decisions/ADR-005-authorized-web-collection-and-local-matching.md) 要求新增不可变匹配投影、硬过滤结果和 LLM 评分运行，再由本地固定权重汇总权威总分；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。
+迁移 0007 已落库的表支持旧的本地确定性 Fixture 闭环；迁移 0008 已落库两阶段匹配表（不可变职位/候选人投影、硬过滤结果、LLM 评分运行）并扩展 `matches`/`match_dimensions` 追溯列。修订后 [ADR-005](decisions/ADR-005-authorized-web-collection-and-local-matching.md) 主路径：版本化投影 → 硬过滤 → LLM 脱敏详情评分 → 本地固定权重汇总权威总分；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。投影生成 + 第一轮硬过滤已实现（迁移 0008 切片），LLM 评分与汇总仍待 LLM 适配器切片消费。
 
 | 表 | 关键字段与约束 |
 |:---|:---|
-| `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入 |
+| `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入；两阶段流程降为迁移期查询快照 |
 | `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
 | `candidates` | `external_id`(unique), `display_name`, `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
 | `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存 |
-| `matches` | 现有：`job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk`。目标扩展：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`, `aggregation_rule_version`；新权威分只能由已验证 LLM 结果经本地汇总产生 |
-| `match_dimensions` | 现有：`match_id`, `dimension`, `score`, `evidence`, `risk`。目标扩展：`assessable`, `confidence`, `llm_score_run_id`, `output_hash`，用于追溯已接受的 LLM 结构化输出 |
+| `matches` | `job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk` + 迁移 0008：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`(FK SET NULL), `aggregation_rule_version`。新权威分只能由已验证 LLM 结果经本地汇总产生 |
+| `match_dimensions` | `match_id`, `dimension`, `score`, `evidence`, `risk` + 迁移 0008：`assessable`, `confidence`, `llm_score_run_id`(FK SET NULL), `output_hash`，用于追溯已接受的 LLM 结构化输出 |
 
-### 7.4 两阶段匹配规划表（尚未落库）
+### 7.4 两阶段匹配表（迁移 0008 已落库）
 
 | 表 | 关键字段与约束 |
 |:---|:---|
-| `job_match_projections` | `job_id`(FK jobs RESTRICT), `schema_version`, `generator_type/version`, `input_hash`, `source_snapshot_refs`(jsonb), `display_summary`(≤150), `requirements`(jsonb), `status`, `created_at`；不可变，唯一 `(job_id,schema_version,generator_version,input_hash)` |
-| `candidate_match_projections` | `candidate_id`(FK candidates RESTRICT), `schema_version`, `generator_version`, `redaction_version`, `input_hash`, `source_snapshot_refs`(jsonb), `display_summary`(≤150), `profile`(jsonb), `redacted_detail_ciphertext/iv/tag/key_version`, `redaction_report`(jsonb), `status`, `created_at`；不可变，唯一 `(candidate_id,schema_version,generator_version,redaction_version,input_hash)` |
-| `match_filter_results` | `job_projection_id`, `candidate_projection_id`, `filter_rule_version`, `combined_input_hash`, `passed`, `reason_codes/details`(jsonb), `created_at`；不可变，唯一 `(job_projection_id,candidate_projection_id,filter_rule_version)` |
-| `llm_score_runs` | `filter_result_id`, `attempt`, `status`(pending/running/succeeded/failed), `adapter_id/version`, `model_id/revision`, `prompt_version`, `schema_version`, `request_hash`, `response_ciphertext/iv/tag/key_version`, `output_hash`, `parameters`(jsonb 白名单), `error_code`, `started_at/finished_at/created_at`；失败记录只存机器码，不存供应商错误正文 |
+| `job_match_projections` | `job_id`(FK jobs RESTRICT), `schema_version`, `generator_type/version`, `input_hash`, `source_snapshot_refs`(jsonb), `display_summary`(≤150), `requirements`(jsonb), `status`(consumable/rejected), `created_at`；不可变，唯一 `(job_id,schema_version,generator_version,input_hash)` |
+| `candidate_match_projections` | `candidate_id`(FK candidates RESTRICT), `schema_version`, `generator_version`, `redaction_version`, `input_hash`, `source_snapshot_refs`(jsonb), `display_summary`(≤150), `profile`(jsonb), `redacted_detail_ciphertext/nonce/key_version/redacted_detail_hash`, `redaction_report`(jsonb), `status`(consumable/rejected), `created_at`；不可变，唯一 `(candidate_id,schema_version,generator_version,redaction_version,input_hash)` |
+| `match_filter_results` | `job_projection_id`, `candidate_projection_id`, `filter_rule_version`, `combined_input_hash`, `passed`, `reason_codes`(jsonb：code/jobValue/candidateValue/explanation), `created_at`；不可变，唯一 `(job_projection_id,candidate_projection_id,filter_rule_version)` |
+| `llm_score_runs` | `filter_result_id`, `attempt`, `status`(pending/running/succeeded/failed), `adapter_id/version`, `model_id/revision`, `prompt_version`, `schema_version`, `request_hash`, `response_ciphertext/nonce/key_version`, `output_hash`, `parameters`(jsonb 白名单), `error_code`, `started_at/finished_at/created_at`；失败记录只存机器码，不存供应商错误正文 |
 
-`job_match_projections` 和 `candidate_match_projections` 通过 [匹配契约](10-matching-contracts.md) 的 JSON Schema 后才可置为可消费状态。`candidate_match_projections.redacted_detail_*` 虽已脱敏，仍包含详细职业经历，必须应用层加密；LLM 适配器只获得单次调用所需的解密投影，无权读取 `candidate_contacts` 或未脱敏原始简历。
+`job_match_projections` 和 `candidate_match_projections` 通过 [匹配契约](10-matching-contracts.md) 的 JSON Schema 后才可置为可消费状态（`status=consumable`）；候选人残留 PII 时生成器拒绝（`MATCH_PROJECTION_PII_DETECTED`），不产出消费态投影。`candidate_match_projections.redacted_detail_*` 虽已脱敏，仍包含详细职业经历，必须应用层加密；LLM 适配器只获得单次调用所需的解密投影，无权读取 `candidate_contacts` 或未脱敏原始简历。
 
 ## 8. 规划表（M2–M5，未落库）
 
@@ -224,10 +228,6 @@ erDiagram
 | 采集 | `browser_source_bindings` | `source_connection_id, user_id, device_id, contract_set_version, status`；只保存路由元数据，不保存 Cookie/平台口令/browser session |
 | 采集 | `ingestion_tickets` | `task_id, token_hash, contract_id, expires_at, consumed_at, max_bytes`；高熵单次票据只存哈希 |
 | 采集 | `source_field_observations` | `entity_type, entity_id, field_name, source_connection_id, contract_version, captured_at, value_hash`；字段级来源追溯，不存敏感正文 |
-| 匹配 | `job_match_projections` | 职位的版本化展示摘要、硬要求、详情上下文和来源/输入哈希 |
-| 匹配 | `candidate_match_projections` | 候选人的版本化展示摘要、画像、加密脱敏详情和脱敏报告 |
-| 匹配 | `match_filter_results` | 第一阶段确定性通过/剔除结果与原因 |
-| 匹配 | `llm_score_runs` | 第二阶段模型/Prompt/Schema/输入输出哈希、加密响应和失败码 |
 | 触达 | `campaigns` | `job_id, channel, status, approved_by` |
 | 触达 | `campaign_recipients` | `campaign_id, candidate_id, status, idempotency_key` |
 | 触达 | `landing_links` | `recipient_id, token_hash, expires_at, revoked_at`（不存明文令牌） |
