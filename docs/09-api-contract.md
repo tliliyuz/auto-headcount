@@ -72,13 +72,14 @@
 
 ### 2.4 业务写：同步触发（M1 · `async_tasks`）
 
-统一要求：会话 + RBAC `operations|admin`；写路由执行 CSRF 同源校验（跨源 `403 { code:"forbidden" }`）；每次触发写审计（`sync.trigger`，成功元数据仅 `taskId`）。**不执行长请求内同步**——入队 `async_tasks` 任务后立即返回，由调度 tick（dev `scheduler` / 生产 `scheduler` 服务）异步认领执行。
+统一要求：会话 + RBAC `operations|admin`；写路由执行 CSRF 同源校验（跨源 `403 { code:"forbidden" }`）；每次触发写审计（`sync.trigger`，成功元数据仅 `taskId`/`deduplicated`）。**不执行长请求内同步**——入队 `async_tasks` 任务后立即返回，由调度 tick（dev `scheduler` / 生产 `scheduler` 服务）异步认领执行。
 
 | 接口 | 方法 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|
-| `/api/sync/under-served` | POST | 会话 + `operations\|admin` | 空 body | `202 { accepted: true, taskId }`；未登录 `401`；角色无权 `403`；跨源 `403` |
+| `/api/sync/under-served` | POST | 会话 + `operations\|admin` | 空 body | `202 { accepted: true, taskId }`；`202 { accepted: false, taskId, deduplicated: true }`（已有活跃任务被拦截）；未登录 `401`；角色无权 `403`；跨源 `403` |
 
 - 每次点击入队一个幂等键唯一（`under-served-sync:manual:<uuid>`）的 `under_served_sync` 任务，`scheduled_at=now`，调度 tick 下轮认领执行；任务结果落 `sync_runs` 与 `async_tasks` 状态，可在数据源页 / 审计日志页观察。
+- **手动触发去重**：`enqueueTaskIfIdle` 原子保证同 kind 至多一个活跃（`pending/running`）任务，重复点击/并发触发不重复入队，返回既有活跃任务 id（`deduplicated:true`）供前端跟踪进度；活跃任务由调度 tick 的任务看门狗（见 02-architecture §5）在超时后回收，避免卡死任务永久锁死同步。
 
 ## 3. 规划端点（随里程碑补充）
 

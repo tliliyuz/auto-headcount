@@ -15,6 +15,8 @@ const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
+/** 任务看门狗阈值：running 任务超过该时长视为崩溃残留，回收为 failed（防去重守卫被永久锁死）。 */
+const DEFAULT_STALE_TASK_MS = 30 * 60 * 1000;
 const TASK_KIND_SYNC = "under_served_sync";
 const TASK_KIND_JOB_DETAILS = "job_details_sync";
 
@@ -196,16 +198,29 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
 }
 
 /**
- * 处理到期任务：认领 → 跑同步 → 写 sync.run 审计 → succeeded/retry/failed/dead。
+ * 处理到期任务：先回收崩溃残留的 running 任务（任务看门狗，防止去重守卫被永久锁死），
+ * 再认领 → 跑同步 → 写 sync.run 审计 → succeeded/retry/failed/dead。
  */
 export async function processDueTasks(
   sql,
-  { env, now, maxAttempts = DEFAULT_MAX_ATTEMPTS, mcp },
+  {
+    env,
+    now,
+    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+    staleTaskMs = DEFAULT_STALE_TASK_MS,
+    mcp,
+  },
 ) {
   const taskRepo = createAsyncTaskRepository(sql);
   const authRepo = createAuthRepository(sql);
+  // 任务看门狗：running 超时（进程崩溃残留）→ failed + TASK_STALE_TIMEOUT，
+  // 释放手动同步去重守卫（否则卡死任务会永久拦截新入队）。
+  const staleReclaimed = await taskRepo.failStaleRunningTasks({
+    staleBefore: new Date(now.getTime() - staleTaskMs),
+  });
   const tasks = await taskRepo.claimDueTasks({ limit: 10, now });
   const counts = {
+    staleReclaimed,
     claimed: tasks.length,
     succeeded: 0,
     retried: 0,
@@ -273,6 +288,7 @@ export async function runScheduledTick({
   now = new Date(),
   intervalMs = DEFAULT_INTERVAL_MS,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
+  staleTaskMs = DEFAULT_STALE_TASK_MS,
   mcp,
 }) {
   const source = resolveSyncSource(env);
@@ -282,7 +298,13 @@ export async function runScheduledTick({
     now,
     intervalMs,
   });
-  const summary = await processDueTasks(sql, { env, now, maxAttempts, mcp });
+  const summary = await processDueTasks(sql, {
+    env,
+    now,
+    maxAttempts,
+    staleTaskMs,
+    mcp,
+  });
   // `taskId`/`idempotencyKey` 保持 under_served 主键（既有消费方兼容）；
   // job_details 任务用独立前缀键，避免 spread 覆盖。
   return {

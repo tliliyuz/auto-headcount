@@ -5,6 +5,7 @@ import test from "node:test";
 import postgres from "postgres";
 
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
+import { createAsyncTaskRepository } from "../lib/jobs/async-task-repository.mjs";
 import {
   buildSyncIdempotencyKey,
   enqueueDueSyncTasks,
@@ -435,6 +436,210 @@ test(
           )
       `;
       assert.equal(runCount.n, 0);
+    } finally {
+      await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "手动同步去重：仅当无活跃任务时入队，活跃任务（pending/running）拦截新入队并返回既有任务",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const now = new Date();
+    // 共享开发库可能已有真实 under_served_sync 活跃任务（不影响本测试语义：
+    // 去重按 kind 作用域生效），故用 marker 隔离的 fixture kind。
+    const kind = `fixture-manual-sync:${marker}`;
+    const prefix = `under-served-sync:manual:${marker}`;
+    const keys = {
+      a: `${prefix}-a`,
+      b: `${prefix}-b`,
+      c: `${prefix}-c`,
+      d: `${prefix}-d`,
+    };
+    try {
+      const taskRepo = createAsyncTaskRepository(sql);
+
+      // 1) 空闲时首次入队成功
+      const firstId = await taskRepo.enqueueTaskIfIdle({
+        kind,
+        idempotencyKey: keys.a,
+        payload: {},
+        scheduledAt: now,
+      });
+      assert.ok(firstId, "空闲时应入队成功");
+
+      // 2) 已有 pending 活跃任务时，新入队被拦截（不同 key 不重复入队）
+      const blocked = await taskRepo.enqueueTaskIfIdle({
+        kind,
+        idempotencyKey: keys.b,
+        payload: {},
+        scheduledAt: now,
+      });
+      assert.equal(blocked, null, "存在活跃任务时应拦截新入队");
+
+      // 3) findActiveTask 返回当前活跃任务（最早入队者）
+      const active = await taskRepo.findActiveTask({ kind });
+      assert.ok(active, "应能查到活跃任务");
+      assert.equal(active.id, firstId);
+      assert.ok(["pending", "running"].includes(active.status));
+
+      // 4) 活跃任务进入终态后，可再次入队
+      await taskRepo.finishTask({
+        id: firstId,
+        status: "succeeded",
+        finishedAt: now,
+      });
+      const afterId = await taskRepo.enqueueTaskIfIdle({
+        kind,
+        idempotencyKey: keys.b,
+        payload: {},
+        scheduledAt: now,
+      });
+      assert.ok(afterId, "活跃任务结束后应可再次入队");
+      assert.notEqual(afterId, firstId);
+
+      // 5) running 状态同样拦截（认领后仍在执行）
+      await sql`
+        update async_tasks set status = 'running', started_at = ${now}
+        where id = ${afterId}
+      `;
+      const blockedByRunning = await taskRepo.enqueueTaskIfIdle({
+        kind,
+        idempotencyKey: keys.c,
+        payload: {},
+        scheduledAt: now,
+      });
+      assert.equal(blockedByRunning, null, "running 任务同样拦截新入队");
+      const activeWhileRunning = await taskRepo.findActiveTask({ kind });
+      assert.equal(activeWhileRunning.id, afterId);
+    } finally {
+      await sql`
+        delete from async_tasks where idempotency_key like ${`${prefix}%`}
+      `;
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "任务看门狗：崩溃残留 running 任务回收为 failed + TASK_STALE_TIMEOUT，去重守卫随之释放",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const kind = `fixture-stale-sync:${marker}`;
+    const now = new Date();
+    const prefix = `under-served-sync:manual:${marker}`;
+    let taskId;
+    try {
+      const taskRepo = createAsyncTaskRepository(sql);
+
+      // 1) 入队并模拟进程崩溃：认领为 running 且 started_at 远早于 now
+      taskId = await taskRepo.enqueueTaskIfIdle({
+        kind,
+        idempotencyKey: `${prefix}-stale`,
+        payload: {},
+        scheduledAt: now,
+      });
+      await sql`
+        update async_tasks
+        set status = 'running', started_at = ${new Date(now.getTime() - 60 * 60 * 1000)}
+        where id = ${taskId}
+      `;
+
+      // 2) 看门狗：过期 running → failed + TASK_STALE_TIMEOUT + finished_at
+      const reclaimed = await taskRepo.failStaleRunningTasks({
+        staleBefore: new Date(now.getTime() - 30 * 60 * 1000),
+      });
+      assert.equal(reclaimed, 1);
+      const [after] = await sql`
+        select status, last_error_code, finished_at
+        from async_tasks where id = ${taskId}
+      `;
+      assert.equal(after.status, "failed");
+      assert.equal(after.last_error_code, "TASK_STALE_TIMEOUT");
+      assert.ok(after.finished_at !== null);
+
+      // 3) 去重守卫释放：卡死任务被回收后，新入队不再被拦截
+      const freshId = await taskRepo.enqueueTaskIfIdle({
+        kind,
+        idempotencyKey: `${prefix}-fresh`,
+        payload: {},
+        scheduledAt: now,
+      });
+      assert.ok(freshId, "看门狗回收后应可再次入队");
+    } finally {
+      await sql`
+        delete from async_tasks where idempotency_key like ${`${prefix}%`}
+      `;
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "调度 tick 看门狗：回收崩溃残留 running 任务并正常处理本周期新任务（staleReclaimed）",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(marker);
+    const env = fixtureEnv(source);
+    const now = new Date();
+    const taskIds = [];
+    // 共享开发库可能已有真实 under_served_sync 卡死任务（看门狗全局回收，会一并计数），
+    // 故本 fixture 用 marker 隔离的 kind，且对回收数断言用 >= 而不断言精确值。
+    const staleKind = `fixture-stale-tick:${marker}`;
+    const staleKey = `under-served-sync:manual:${marker}-stale`;
+
+    try {
+      // 造一个卡死 running 的任务（started_at 早于 30 分钟阈值）
+      const taskRepo = createAsyncTaskRepository(sql);
+      const staleTaskId = await taskRepo.enqueueTaskIfIdle({
+        kind: staleKind,
+        idempotencyKey: staleKey,
+        payload: {},
+        scheduledAt: now,
+      });
+      await sql`
+        update async_tasks set status = 'running',
+          started_at = ${new Date(now.getTime() - 60 * 60 * 1000)}
+        where id = ${staleTaskId}
+      `;
+
+      const callTool = dispatchCallTool(async () =>
+        fakePage({
+          total: 1,
+          page: 1,
+          pageSize: 20,
+          totalPages: 1,
+          list: [fakeJob("w-7", 7)],
+        }),
+      );
+      const result = await runScheduledTick({
+        env,
+        sql,
+        now,
+        intervalMs: SIX_HOURS_MS,
+        mcp: { callTool },
+      });
+
+      // 看门狗至少回收本 fixture 卡死任务；本周期新入队任务正常成功
+      assert.ok(result.staleReclaimed >= 1, "应回收卡死 running 任务");
+      assert.equal(result.enqueued, true);
+      assert.ok(result.succeeded >= 1, "本周期新任务应成功");
+      const [stale] = await sql`
+        select status, last_error_code from async_tasks where id = ${staleTaskId}
+      `;
+      assert.equal(stale.status, "failed");
+      assert.equal(stale.last_error_code, "TASK_STALE_TIMEOUT");
+
+      taskIds.push(result.taskId, result.detailsTaskId);
+      await sql`delete from async_tasks where idempotency_key = ${staleKey}`;
     } finally {
       await cleanupFixture(sql, { source, taskIds });
       await sql.end();

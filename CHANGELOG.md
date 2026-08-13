@@ -10,6 +10,26 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 手动同步去重 + 同步状态反馈与自动刷新
+
+> 状态速览：`/api/sync/under-served` 手动触发去重（`enqueueTaskIfIdle` 原子保证同 kind 至多一个活跃任务，重复点击/并发触发返回 `deduplicated:true` + 既有任务 id）· 调度 tick 加任务看门狗（回收 running 超 30 分钟的任务为 `TASK_STALE_TIMEOUT`，防止卡死任务永久锁死去重守卫）· 前端「同步职位」按钮不再只显示「已触发」，改为完整状态机：已入队（等待调度 tick）→ 同步中 → 同步完成：{persisted} 个职位 / 同步失败：{errorCode}，终态后自动刷新列表与「最近同步」时间戳。根因：此前 5 次点击 = 5 个并发同步任务同时打 MCP 触发限流/假死（「点完无事发生」）；同步拉不全（maxPages 截断）+ 从不清洗陈旧职位导致 DB 沉睡数堆积 771 vs 真实约 366（后者属 maxPages 修复范畴，见 docs/05 后续）。
+
+#### 已实现（implemented）
+
+- `async-task-repository.mjs` 加 `enqueueTaskIfIdle`（原子活跃守卫）、`findActiveTask`、`failStaleRunningTasks`（任务看门狗）+ `.d.mts`。
+- `app/api/sync/under-served/route.ts` 改用 `enqueueTaskIfIdle`，活跃拦截返回 `{ accepted:false, taskId, deduplicated:true }`（202）；审计元数据加 `deduplicated`。
+- `sync-scheduler.mjs` `processDueTasks`/`runScheduledTick` 加任务看门狗（默认 30 分钟阈值）+ `staleReclaimed` 计数 + `.d.mts`。
+- 前端 `operations-dashboard.tsx`：同步状态机（`SyncTriggerState`）+ 轮询 `/api/sync-runs`（活跃窗口每 10s，终态即停，基线 = 触发瞬间最新批次 id）+ 终态 `reloadSeq` 自动刷新列表 + 状态 chip（已入队/同步中/完成/失败）；`ops-client.ts` `triggerSync` 返回类型加 `deduplicated`；`globals.css` 加 `.sync-live`（ok/warn/fail）。
+
+#### 已验证（verified）
+
+- `npm run lint` 0 问题；`npm run build` 通过。
+- `npm run test:unit` 109 通过；`npm run test:integration` 26 通过（新增手动同步去重 5 场景 + 任务看门狗回收/去重守卫释放 + tick 级 staleReclaimed；HTTP 触发匿名 401）。
+- 真实 E2E（host `vinext start` + 真实 MCP）：点击同步 → 「已入队，等待调度执行」→（调度认领）「同步中…」→「✓ 同步完成：366 个职位」+ 列表/最近同步自动刷新；重复点击只入队 1 个任务。
+- 遗留清理：回收了此前 7 个卡死 running 任务（多次点击 + 假死）——去重 + 看门狗上线后不再复现。
+
+> 已知取舍：轮询走已审计端点 `/api/sync-runs`，活跃窗口内每次轮询落一条审计（约 100+ 条/次同步），属既有审计量级内，若需收敛可加非审计轻量状态端点（后续讨论）。
+
 ### 2026-08-13 — 职位详情（完整 JD）入库 + 管理端查看
 
 > 状态速览：`jobs` 新增 `job_description` 列（迁移 0005）· 新增独立 `job_details_jobs` 同步（`wb.jobs.list` 分页拉取 → 按 external_id 补全 JD，独立 `job_details_sync` 任务 kind，与 dormant 同步互不毒化）· `GET /api/jobs/:id` 详情端点（会话 + RBAC operations/admin，审计元数据白名单不含 JD 正文）· 前端洞察面板按选中职位拉取并展示「职位详情（完整 JD）」（loading/错误/空态，`›` 按钮接线）· docs/04 决策反转：`wb.jobs.list` 从「不纳入 MVP 数据源」改为「内部 JD 补全」。两层匹配不做（继续 `match_candidates`），`matching` 模块零改动。

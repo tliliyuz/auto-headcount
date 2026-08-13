@@ -67,6 +67,8 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 网络类错误（MCP 连接/限流/超时，`McpDiscoveryError.retryable`）指数退避重试（`next_attempt_at` 门控），业务校验错误不自动重试。
 - 失败超过阈值进入 `dead`，后续转人工处理队列。
 - `payload` 为白名单 jsonb，不存敏感字段；外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
+- **手动触发去重（2026-08-13）**：同一 kind 至多一个活跃（`pending/running`）任务。手动触发经 `enqueueTaskIfIdle` 原子入队（`INSERT … WHERE NOT EXISTS (活跃)`），活跃被拦截时返回既有任务 id（前端跟踪其进度，`deduplicated:true`）。此前多次点击会堆积多个并发同步任务同时打 MCP 触发限流/假死。
+- **任务看门狗（2026-08-13）**：每个调度 tick 先回收 `running` 超过 30 分钟的任务（`failed + TASK_STALE_TIMEOUT`），与同步运行看门狗（`failStaleRunningSyncRuns`）对称。进程崩溃/假死导致任务永久卡 `running` 时，若无回收，手动同步去重会被卡死任务永久锁死。
 
 触发方式：由运行环境按 cron（默认每 15 分钟）触发 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。自托管 Node 容器由 docker compose `scheduler` 服务跑 `node scripts/run-scheduled-tick.mjs --loop`（每 15 分钟，见 §6）触发；服务器级定时器（systemd timer / PM2 cron）为可选替代。Cloudflare Worker 部署则用 `scheduled` 处理器（可选路径，见 §6）。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证）。
 

@@ -20,6 +20,52 @@ export function createAsyncTaskRepository(sql) {
       return rows.length ? rows[0].id : null;
     },
 
+    /** 手动触发守卫：仅当同 kind 无活跃（pending/running）任务时原子入队；被拦截返回 null。 */
+    async enqueueTaskIfIdle({ kind, idempotencyKey, payload, scheduledAt }) {
+      const rows = await sql`
+        insert into async_tasks (kind, idempotency_key, payload, scheduled_at)
+        select ${kind}, ${idempotencyKey}, ${sql.json(payload ?? {})}, ${scheduledAt}
+        where not exists (
+          select 1 from async_tasks
+          where kind = ${kind} and status in ('pending', 'running')
+        )
+        on conflict (idempotency_key) do nothing
+        returning id
+      `;
+      return rows.length ? rows[0].id : null;
+    },
+
+    /** 返回同 kind 当前活跃任务（pending/running），按入队序取最早；无则 null。 */
+    async findActiveTask({ kind }) {
+      const rows = await sql`
+        select id, status from async_tasks
+        where kind = ${kind} and status in ('pending', 'running')
+        order by created_at
+        limit 1
+      `;
+      return rows[0] ?? null;
+    },
+
+    /**
+     * 任务看门狗：回收崩溃/超时残留的 `running` 任务（started_at 早于 staleBefore 的
+     * 一律标记 failed + TASK_STALE_TIMEOUT）。进程中断后任务会永久卡 running，
+     * 而手动同步去重把 running 视为活跃——没有本回收，去重守卫会被卡死任务永久锁死。
+     * 返回回收数；与 sync_runs 看门狗（failStaleRunningSyncRuns）对称，仅调度 tick 调用。
+     */
+    async failStaleRunningTasks({ staleBefore, errorCode = "TASK_STALE_TIMEOUT" }) {
+      const rows = await sql`
+        update async_tasks
+        set status = 'failed',
+            last_error_code = ${errorCode},
+            finished_at = now(),
+            updated_at = now()
+        where status = 'running'
+          and started_at < ${staleBefore}
+        returning id
+      `;
+      return rows.length;
+    },
+
     /** 认领到期 pending 任务（scheduled_at 到期且 next_attempt_at 放行），返回含 post-increment attempts。 */
     async claimDueTasks({ limit = 10, now }) {
       return sql`

@@ -21,6 +21,20 @@ export interface AsyncTaskRepository {
     payload: Record<string, unknown>;
     scheduledAt: Date;
   }): Promise<string | null>;
+  /** 手动触发守卫：仅当同 kind 无活跃（pending/running）任务时原子入队；被拦截返回 null。 */
+  enqueueTaskIfIdle(input: {
+    kind: string;
+    idempotencyKey: string;
+    payload: Record<string, unknown>;
+    scheduledAt: Date;
+  }): Promise<string | null>;
+  /** 返回同 kind 当前活跃任务（pending/running），按入队序取最早；无则 null。 */
+  findActiveTask(input: { kind: string }): Promise<{ id: string; status: string } | null>;
+  /** 任务看门狗：回收 started_at 早于 staleBefore 的 running 任务为 failed + errorCode，返回回收数。 */
+  failStaleRunningTasks(input: {
+    staleBefore: Date;
+    errorCode?: string;
+  }): Promise<number>;
   claimDueTasks(input: {
     limit?: number;
     now: Date;

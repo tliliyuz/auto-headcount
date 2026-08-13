@@ -15,6 +15,8 @@ export interface SyncTickResult {
   detailsEnqueued: boolean;
   detailsTaskId: string | null;
   detailsIdempotencyKey: string;
+  /** 看门狗回收的崩溃残留 running 任务数。 */
+  staleReclaimed: number;
   claimed: number;
   succeeded: number;
   retried: number;
@@ -63,9 +65,11 @@ export declare function processDueTasks(
     env: Record<string, unknown>;
     now: Date;
     maxAttempts?: number;
+    staleTaskMs?: number;
     mcp?: { callTool: (tool: string, args: object) => Promise<unknown> };
   },
 ): Promise<{
+  staleReclaimed: number;
   claimed: number;
   succeeded: number;
   retried: number;
@@ -79,5 +83,6 @@ export declare function runScheduledTick(input: {
   now?: Date;
   intervalMs?: number;
   maxAttempts?: number;
+  staleTaskMs?: number;
   mcp?: { callTool: (tool: string, args: object) => Promise<unknown> };
 }): Promise<SyncTickResult>;

@@ -65,6 +65,21 @@ const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
   dead: { label: "失败（超限）", className: "status-失败" },
 };
 
+/**
+ * 同步触发状态机：idle 空闲 → triggering 请求中 → queued 已入队（等待调度 tick 认领）
+ * → syncing 执行中 → succeeded/failed 终态。终态显示结果文本（含计数/错误码），可再次触发。
+ */
+type SyncTriggerState =
+  | "idle"
+  | "triggering"
+  | "queued"
+  | "syncing"
+  | "succeeded"
+  | "failed";
+
+/** 同步状态轮询间隔：调度 tick 最长约 15 分钟，仅活跃窗口（queued/syncing）内轮询，终态即停。 */
+const SYNC_POLL_MS = 10 * 1000;
+
 
 const categories = ["全部", ...JOB_CATEGORY_BUCKETS];
 
@@ -349,7 +364,7 @@ function SourcesPage({
 }: {
   onAuthExpired: () => void;
   onSync: () => void;
-  syncState: "idle" | "triggering" | "done" | "error";
+  syncState: SyncTriggerState;
 }) {
   const [sources, setSources] = useState<SourceView[]>([]);
   const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
@@ -416,10 +431,16 @@ function SourcesPage({
               <button
                 className="secondary-button"
                 onClick={() => onSync()}
-                disabled={syncState === "triggering"}
-                title="触发沉睡职位同步（入队调度任务）"
+                disabled={syncState === "triggering" || syncState === "queued" || syncState === "syncing"}
+                title="触发沉睡职位同步（入队调度任务，同一时刻至多一个活跃任务）"
               >
-                {syncState === "triggering" ? "同步中…" : syncState === "done" ? "已触发" : "立即同步"}
+                {syncState === "triggering" || syncState === "syncing"
+                  ? "同步中…"
+                  : syncState === "queued"
+                    ? "已入队"
+                    : syncState === "succeeded"
+                      ? "已触发"
+                      : "立即同步"}
               </button>
               <button>查看字段映射</button>
               <button>连接设置</button>
@@ -594,7 +615,7 @@ function PrototypePage({
   page: Exclude<PageId, "jobs">;
   onAuthExpired: () => void;
   onSync: () => void;
-  syncState: "idle" | "triggering" | "done" | "error";
+  syncState: SyncTriggerState;
 }) {
   if (page === "matching") return <MatchingPage />;
   if (page === "campaigns") return <CampaignsPage />;
@@ -660,21 +681,85 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     setView("login");
   }, []);
 
-  // 手动同步触发状态：入队 async_tasks 任务即返回，调度 tick 异步执行。
-  const [syncState, setSyncState] = useState<"idle" | "triggering" | "done" | "error">("idle");
+  // 手动同步触发状态：入队 async_tasks 任务即返回（202 + taskId），调度 tick 异步执行。
+  // 去重：服务端保证同 kind 至多一个活跃任务，重复点击返回 deduplicated:true + 既有任务 id。
+  const [syncState, setSyncState] = useState<SyncTriggerState>("idle");
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  // 触发基线：触发瞬间的最新 under_served 批次 id；调度器认领执行后出现的新批次即本次触发的进度。
+  // "__skip__" 表示跳过基线抑制（去重场景直接展示活跃任务当前批次状态）。
+  const syncPollRef = useRef<{ baselineRunId: string }>({ baselineRunId: "none" });
+  // 同步结果刷新信号：触发 reloadSeq 重跑业务数据加载 effect，同步完成后自动刷新列表。
+  const [reloadSeq, setReloadSeq] = useState(0);
+
   const handleSync = useCallback(async () => {
-    if (syncState === "triggering") return;
+    if (syncState === "triggering" || syncState === "queued" || syncState === "syncing") return;
     setSyncState("triggering");
+    setSyncResult(null);
     const result = await triggerSync();
     if (result.ok) {
-      setSyncState("done");
+      const deduplicated = result.data?.deduplicated === true;
+      setSyncResult(deduplicated ? "已有同步任务在执行中，正在跟踪进度" : null);
+      // 触发后立即取一次基线：记录当前最新 under_served 批次 id，之后的新批次即本次进度。
+      const baseline = await fetchSyncRuns({ pageSize: 20 });
+      const newest = baseline.ok
+        ? baseline.data.list.find((run) => run.syncType === "under_served_jobs") ?? null
+        : null;
+      syncPollRef.current.baselineRunId = deduplicated ? "__skip__" : newest?.id ?? "none";
+      setSyncState(deduplicated ? "syncing" : "queued");
     } else if (result.status === 401 || result.code === "password_change_required") {
       setSyncState("idle");
       handleAuthExpired();
     } else {
-      setSyncState("error");
+      setSyncState("failed");
+      setSyncResult("同步触发失败，请重试");
     }
   }, [syncState, handleAuthExpired]);
+
+  // 同步状态轮询：仅活跃窗口（queued/syncing）内每 10s 读一次 /api/sync-runs，
+  // 跟踪 under_served 批次状态（sync_runs 原地更新：running → succeeded/failed）。
+  // 终态（succeeded/failed）→ 停止轮询、显示结果文本、触发 reloadSeq 自动刷新列表。
+  useEffect(() => {
+    if (view !== "app") return;
+    const active = syncState === "queued" || syncState === "syncing";
+    if (!active) return;
+    const poll = async () => {
+      const result = await fetchSyncRuns({ pageSize: 20 });
+      if (!result.ok) {
+        if (result.status === 401 || result.code === "password_change_required") {
+          handleAuthExpired();
+        }
+        return;
+      }
+      const newest =
+        result.data.list.find((run) => run.syncType === "under_served_jobs") ?? null;
+      const baseline = syncPollRef.current.baselineRunId;
+      // 尚未出现新批次（等待调度 tick 认领）；去重场景跳过基线抑制，直接看最新批次。
+      if (baseline !== "__skip__" && (!newest || newest.id === baseline)) {
+        setSyncState("queued");
+        return;
+      }
+      if (newest && (newest.status === "running" || newest.status === "pending")) {
+        setSyncState("syncing");
+        return;
+      }
+      if (!newest) {
+        setSyncState("queued");
+        return;
+      }
+      // 终态：显示结果并触发列表刷新（reloadSeq 重跑业务数据加载 effect）。
+      if (newest.status === "succeeded") {
+        setSyncResult(`同步完成：${newest.stats?.persisted ?? 0} 个职位`);
+        setSyncState("succeeded");
+      } else {
+        setSyncResult(`同步失败：${newest.errorCode ?? newest.status}`);
+        setSyncState("failed");
+      }
+      setReloadSeq((seq) => seq + 1);
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), SYNC_POLL_MS);
+    return () => clearInterval(timer);
+  }, [view, syncState, handleAuthExpired]);
 
   // 客户端会话心跳：服务端空闲窗口仅在 API 请求时刷新，前端无轮询则静默 30 分钟掉线。
   // tab 开着（view=app）时每 5 分钟静默调 /api/auth/me 续期；会话真正失效（401）时回落登录。
@@ -742,7 +827,8 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
       cancelled = true;
       controller.abort();
     };
-  }, [view, handleAuthExpired]);
+    // reloadSeq：同步完成后自动刷新列表（触发同步的 effect 在终态时 bump 一次）。
+  }, [view, handleAuthExpired, reloadSeq]);
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -921,26 +1007,38 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
             </div>
             <div className="heading-actions">
               <span className="last-sync">最近同步：{formatDateTime(latestSyncAt)}</span>
+              {syncState === "queued" && (
+                <span className={`sync-live ${syncResult ? "warn" : ""}`}>
+                  ● {syncResult ?? "已入队，等待调度执行（最长约 15 分钟）"}
+                </span>
+              )}
+              {syncState === "syncing" && (
+                <span className={`sync-live ${syncResult ? "warn" : ""}`}>
+                  ● {syncResult ?? "同步中…"}
+                </span>
+              )}
+              {syncState === "succeeded" && (
+                <span className="sync-live ok">✓ {syncResult ?? "同步完成"}</span>
+              )}
+              {syncState === "failed" && (
+                <span className="sync-live fail">✕ {syncResult ?? "同步失败"}</span>
+              )}
               <button
                 className="secondary-button"
                 onClick={() => void handleSync()}
-                disabled={syncState === "triggering"}
-                title={
-                  syncState === "done"
-                    ? "已触发，调度稍后执行"
-                    : syncState === "error"
-                      ? "触发失败，请重试"
-                      : "触发沉睡职位同步（入队调度任务）"
-                }
+                disabled={syncState === "triggering" || syncState === "queued" || syncState === "syncing"}
+                title="触发沉睡职位同步（入队调度任务，同一时刻至多一个活跃任务）"
               >
                 <span>↻</span>
-                {syncState === "triggering"
+                {syncState === "triggering" || syncState === "syncing"
                   ? "同步中…"
-                  : syncState === "done"
-                    ? "已触发"
-                    : syncState === "error"
-                      ? "重试"
-                      : "同步职位"}
+                  : syncState === "queued"
+                    ? "已入队"
+                    : syncState === "succeeded"
+                      ? "再次同步"
+                      : syncState === "failed"
+                        ? "重试"
+                        : "同步职位"}
               </button>
               <button className="primary-button" disabled={selectedRows.length === 0}>
                 创建匹配任务 {selectedRows.length > 0 && `(${selectedRows.length})`}

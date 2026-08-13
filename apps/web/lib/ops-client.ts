@@ -174,9 +174,16 @@ export function fetchAuditLogs(input?: {
 
 /** 手动触发沉睡职位同步（写路由）：入队 async_tasks 任务，调度 tick 认领执行，返回 202 + taskId。 */
 export function triggerSync(): Promise<
-  AuthResult<{ accepted: boolean; taskId: string }>
+  AuthResult<{
+    accepted: boolean;
+    taskId: string | null;
+    /** 服务端去重拦截：同 kind 已有活跃任务时 true，taskId 为既有活跃任务 id。 */
+    deduplicated?: boolean;
+  }>
 > {
-  return request<{ accepted: boolean; taskId: string }>("/api/sync/under-served", {
-    method: "POST",
-  });
+  return request<{
+    accepted: boolean;
+    taskId: string | null;
+    deduplicated?: boolean;
+  }>("/api/sync/under-served", { method: "POST" });
 }

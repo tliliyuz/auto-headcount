@@ -22,7 +22,7 @@
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
-| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) | 已接真实数据（连接卡片 / 同步批次 / 健康面板；「立即同步」disabled，同步由 CLI 或定时任务触发） |
+| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) | 已接真实数据（连接卡片 / 同步批次 / 健康面板；「立即同步」经 [`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 手动触发） |
 | 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（最新 50 条 + 上一页/下一页；筛选控件为占位禁用态） |
 
 导航为 7 个页面（无独立工作台页，沉睡职位巡检为默认落地页）。
@@ -49,6 +49,15 @@
 | 审计记录（内联） | ~~`AuditPage`~~ | `audit_logs` 表（M1，已接真实数据） |
 
 > 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则）；数据源页不再使用内联同步批次/健康数组，数据来自 `/api/sources` + `/api/sync-runs`（`source_connections` / `sync_runs` 表）；审计日志页不再使用内联 mock 记录，数据来自 `/api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛，`ip_address` 尽力捕获可为空）。原始载荷密文与游标令牌永不进入响应。
+
+### 同步触发状态机（2026-08-13）
+
+「同步职位」按钮不再只显示「已触发」，而是跟踪真实同步状态（[`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 入队后轮询 [`GET /api/sync-runs`](../../../docs/09-api-contract.md)）：
+
+- 状态：`idle → triggering → queued（已入队，等待调度 tick，最长约 15 分钟）→ syncing（执行中）→ succeeded / failed`；终态显示结果文本（`同步完成：{persisted} 个职位` / `同步失败：{errorCode}`），按钮可再次触发。
+- **去重**：活跃窗口（queued/syncing）内按钮禁用；服务端 `enqueueTaskIfIdle` 保证同 kind 至多一个活跃任务，重复触发返回 `deduplicated:true`（前端显示「已有同步任务在执行中，正在跟踪进度」）。
+- **自动刷新**：终态检测后 bump `reloadSeq` 重跑业务数据加载 effect，列表与「最近同步」时间戳自动更新。
+- 轮询仅活跃窗口内进行（`SYNC_POLL_MS`，终态即停）；基线为触发瞬间的最新 `under_served_jobs` 批次 id，新批次即本次进度（`sync_runs` 原地更新状态，running → succeeded/failed）。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
 
