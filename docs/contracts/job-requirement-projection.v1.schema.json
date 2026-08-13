@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/job-requirement-projection.v1.schema.json",
+  "title": "Job Requirement Projection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "projection_id", "job_id", "input_hash", "generator_type", "generator_version", "generated_at", "source_snapshot_refs", "display_summary", "hard_requirements", "scoring_context", "extraction_warnings"],
+  "properties": {
+    "schema_version": { "const": "job-requirement-projection/v1" },
+    "projection_id": { "type": "string", "format": "uuid" },
+    "job_id": { "type": "string", "format": "uuid" },
+    "input_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "generator_type": { "type": "string", "enum": ["rules", "llm_extraction", "human_reviewed"] },
+    "generator_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "source_snapshot_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_connection_id", "mapping_version", "captured_at"],
+        "properties": {
+          "source_connection_id": { "type": "string", "format": "uuid" },
+          "raw_record_id": { "type": ["string", "null"], "format": "uuid" },
+          "contract_version": { "type": ["string", "null"], "maxLength": 100 },
+          "mapping_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "captured_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "display_summary": { "type": "string", "maxLength": 150 },
+    "hard_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locations", "required_skills", "min_experience_years", "education_min", "required_certificates", "salary"],
+      "properties": {
+        "locations": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "required_skills": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "min_experience_years": { "type": ["integer", "null"], "minimum": 0, "maximum": 80 },
+        "education_min": { "type": ["string", "null"], "enum": [null, "none", "high_school", "associate", "bachelor", "master", "doctorate"] },
+        "required_certificates": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 150 } },
+        "salary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum", "maximum", "period", "currency", "hard_constraint"],
+          "properties": {
+            "minimum": { "type": ["integer", "null"], "minimum": 0 },
+            "maximum": { "type": ["integer", "null"], "minimum": 0 },
+            "period": { "type": ["string", "null"], "enum": [null, "month", "year", "day", "hour"] },
+            "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" },
+            "hard_constraint": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "scoring_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["responsibilities", "preferred_skills", "industry", "seniority", "business_context"],
+      "properties": {
+        "responsibilities": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+        "preferred_skills": { "type": "array", "uniqueItems": true, "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "industry": { "type": ["string", "null"], "maxLength": 100 },
+        "seniority": { "type": ["string", "null"], "maxLength": 100 },
+        "business_context": { "type": ["string", "null"], "maxLength": 4000 }
+      }
+    },
+    "extraction_warnings": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 300 } }
+  }
+}

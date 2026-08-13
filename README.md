@@ -12,7 +12,7 @@
 
 当前切片是单页交互演示，不是完整产品原型。侧边栏多数模块、创建匹配任务、分页、触达和候选人意向提交仍是未接线占位。
 
-当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-13 的真实验证确认：`wb.jobs.get` 可为沉睡职位补 JD，MCP 可操作∩沉睡当前约 2 个。`ADR-005` 已进一步确认授权 Web 采集作为并列数据源，复用 CSDN-Agent 浏览器执行端；本地版本化规则评分成为业务主路径，供应方 `match_candidates` 只作外部对照。该 Web 采集适配器、受限提取契约和简历直传入口目前仅为 `specified`，尚未实现。M1 数据底座、登录/RBAC、加密快照、审计、保留、同步任务表和自托管容器基线已完成；匹配池（M2）为当前进行中的里程碑，详细验证记录见 `CHANGELOG.md`。
+当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-13 的真实验证确认：`wb.jobs.get` 可为沉睡职位补 JD，MCP 可操作∩沉睡当前约 2 个。`ADR-005` 已确认授权 Web 采集作为并列数据源，并将匹配主路径修订为「确定性硬过滤 + LLM 脱敏详情维度评分 + 本地固定权重汇总」；供应方 `match_candidates` 只作外部对照。M1 数据底座已完成；当前 M2「数据获取与适配」与 M3「数据集成与匹配」并行推进。Web 职位受限提取协议已完成单职位真实验证，但采集入库、候选人/简历受限采集仍未完成；旧的确定性 Fixture 闭环已验证，两阶段匹配及其版本化投影目前为 `specified`、尚未实现。详细状态见 `docs/05-roadmap.md` 与 `CHANGELOG.md`。
 
 各里程碑状态、门禁清单与卡点见 [实施路线图](docs/05-roadmap.md)。
 
@@ -48,6 +48,7 @@ PostgreSQL 与容器基线已由 `ADR-002` 固化。自有账号口令登录由 
 - [验收标准](docs/07-acceptance-criteria.md)
 - [开发与交付流程](docs/08-development-workflow.md)
 - [内部 API 契约](docs/09-api-contract.md)
+- [匹配输入与 LLM 评分契约](docs/10-matching-contracts.md)
 - [架构决策记录](docs/decisions/README.md)
 - [ADR-005：授权网页采集与本地可复算匹配](docs/decisions/ADR-005-authorized-web-collection-and-local-matching.md)
 

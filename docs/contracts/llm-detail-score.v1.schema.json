@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/llm-detail-score.v1.schema.json",
+  "title": "LLM Detail Score v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_item_id", "dimensions", "missing_items", "risks", "overall_confidence"],
+  "properties": {
+    "schema_version": { "const": "llm-detail-score/v1" },
+    "request_item_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,100}$" },
+    "dimensions": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "assessable", "score", "evidence", "confidence"],
+        "properties": {
+          "dimension": { "type": "string", "enum": ["skills", "industry", "seniority", "experience", "location", "salary", "activity"] },
+          "assessable": { "type": "boolean" },
+          "score": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+          "evidence": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["candidate_fact", "job_requirement", "assessment"],
+              "properties": {
+                "candidate_fact": { "type": "string", "minLength": 1, "maxLength": 500 },
+                "job_requirement": { "type": "string", "minLength": 1, "maxLength": 500 },
+                "assessment": { "type": "string", "minLength": 1, "maxLength": 500 }
+              }
+            }
+          },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "allOf": [
+          { "if": { "properties": { "assessable": { "const": true } } }, "then": { "properties": { "score": { "type": "integer" } } } },
+          { "if": { "properties": { "assessable": { "const": false } } }, "then": { "properties": { "score": { "type": "null" }, "evidence": { "type": "array", "maxItems": 0 } } } }
+        ]
+      }
+    },
+    "missing_items": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "risks": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "overall_confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

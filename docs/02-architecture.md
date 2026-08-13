@@ -35,8 +35,8 @@
 | `sources` | MCP/文件/浏览器采集适配与同步游标 |
 | `jobs` | 职位标准化、分类、沉睡规则和状态 |
 | `candidates` | 候选人标准化、去重、敏感字段保护 |
-| `summaries` | 150 字摘要生成、版本和审核 |
-| `matching` | 过滤、评分、解释、规则版本和审核 |
+| `summaries` | 展示摘要与职位/候选人版本化匹配投影的生成、脱敏和追溯 |
+| `matching` | 确定性硬过滤、LLM 详情维度评分、本地固定权重汇总、解释、版本和审核 |
 | `campaigns` | 受众、文案、审批、频控和发送任务 |
 | `landing` | 脱敏页面、访问令牌和意向提交 |
 | `tracking` | 行为事件、聚合指标和漏斗看板 |
@@ -58,6 +58,16 @@ interface RecruitmentSource {
 ```
 
 MCP 只是该接口的一种实现。根据 `ADR-005`，CSDN-Agent 浏览器插件是授权 Web 数据源的执行端，CSV 导入或未来其他供应商也可以实现相同接口。
+
+LLM 同样必须经供应商隔离适配器；匹配模块不直接依赖模型 SDK 字段：
+
+```ts
+interface DetailScoringPort {
+  score(input: RedactedDetailScoreRequest): Promise<DetailScoreResult>;
+}
+```
+
+`RedactedDetailScoreRequest` 只由 [匹配契约](10-matching-contracts.md) 中的职位要求投影和候选人脱敏投影生成。适配器负责模型/Prompt/Schema 版本、超时、限流、有限重试、结构化输出校验和机器错误分类；业务模块负责硬过滤、固定权重汇总和人工审核。
 
 ### 4.1 CSDN-Agent 浏览器采集边界（partially implemented）
 
@@ -93,7 +103,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - **手动触发去重（2026-08-13）**：同一 kind 至多一个活跃（`pending/running`）任务。手动触发经 `enqueueTaskIfIdle` 原子入队（`INSERT … WHERE NOT EXISTS (活跃)`），活跃被拦截时返回既有任务 id（前端跟踪其进度，`deduplicated:true`）。此前多次点击会堆积多个并发同步任务同时打 MCP 触发限流/假死。
 - **任务看门狗（2026-08-13）**：每个调度 tick 先回收 `running` 超过 30 分钟的任务（`failed + TASK_STALE_TIMEOUT`），与同步运行看门狗（`failStaleRunningSyncRuns`）对称。进程崩溃/假死导致任务永久卡 `running` 时，若无回收，手动同步去重会被卡死任务永久锁死。
 - **同步串行化（2026-08-13，fix3）**：`claimDueTasks` 按 kind 每类至多认领 1 条（`not exists running` + `not exists earlier` 行比较，取 `(scheduled_at,id)` 最早），同一 kind 同时只跑一个同步——避免多个同 kind 任务并发打 MCP（此前多次点击 + 周期/手动叠加 = 多任务并发）。EXISTS 子查询可被 `FOR UPDATE SKIP LOCKED` 加锁且跨进程原子（窗口函数/DISTINCT 不可加锁，PG 0A000）。
-- **匹配任务 kind（2026-08-13，M2）**：`match_candidates_sync` 按需触发（`POST /api/match-tasks` 入队），`runMatchSync` 用本地评分引擎（`lib/matching/score.mjs`，ADR-005 权威分）对选定可操作职位评分落库；提供 `mcp` 时把供应方 `match_candidates` 结果写 `matches.external_*` 外部对照（非权威分）。
+- **匹配任务 kind（2026-08-13，M3）**：现有 `match_candidates_sync`/`runMatchSync` 已验证 Fixture 下的本地确定性评分，但还不是修订后 `ADR-005` 的两阶段主路径。目标任务必须串联版本化投影 → 硬过滤 → LLM 维度评分 → 本地汇总；供应方 `match_candidates` 只写 `matches.external_*` 外部对照。该目标流程仍为 `specified`，未实现。
 
 触发方式：由运行环境按 cron（默认每 15 分钟）触发 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。自托管 Node 容器由 docker compose `scheduler` 服务跑 `node scripts/run-scheduled-tick.mjs --loop`（每 15 分钟，见 §6）触发；服务器级定时器（systemd timer / PM2 cron）为可选替代。Cloudflare Worker 部署则用 `scheduled` 处理器（可选路径，见 §6）。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证）。
 

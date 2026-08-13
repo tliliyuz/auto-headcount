@@ -47,7 +47,7 @@ npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
 | 短信 | `sms_send_marketing_lbd` | 写工具 | 🚫 禁用 |
 | 邮件 | `mail_send_common_lbd` | 写工具 | 🚫 禁用 |
 
-真实发现记录见 [validation/2026-08-11-mcp-discovery.md](validation/2026-08-11-mcp-discovery.md)，2026-08-12 的最小调用验证见 [validation/2026-08-12-mcp-candidate-sync.md](validation/2026-08-12-mcp-candidate-sync.md)。`candidates.list/search/stats` 对当前账号返回空属 MCP 权限边界，不作为换身份或绕过权限的理由。根据 `ADR-005`，业务主匹配改为本地版本化、可复算规则；`wb.jobs.match_candidates` 保留为供应方评分对照和受控联调能力。
+真实发现记录见 [validation/2026-08-11-mcp-discovery.md](validation/2026-08-11-mcp-discovery.md)，2026-08-12 的最小调用验证见 [validation/2026-08-12-mcp-candidate-sync.md](validation/2026-08-12-mcp-candidate-sync.md)。`candidates.list/search/stats` 对当前账号返回空属 MCP 权限边界，不作为换身份或绕过权限的理由。根据修订后 `ADR-005`，业务主匹配为「本地确定性硬过滤 + LLM 脱敏详情维度评分 + 本地固定权重汇总」；`wb.jobs.match_candidates` 保留为供应方评分对照和受控联调能力。
 
 ## 4. 内部适配要求
 
@@ -95,7 +95,7 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 
 ## 6. 待向对方确认（2026-08-12 更新）
 
-已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.get`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；`wb.jobs.under_served` 提供沉睡召回证据，`wb.jobs.get` 为 MCP 职位补 JD；`ADR-005` 已接受授权 Web 采集与本地匹配方向，但尚未实现。
+已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.get`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；`wb.jobs.under_served` 提供沉睡召回证据，`wb.jobs.get` 为 MCP 职位补 JD；`ADR-005` 已接受授权 Web 采集与两阶段混合匹配方向，但 Web 采集入库和新匹配主路径尚未实现。
 
 **2026-08-13 供应方能力受控验证与可操作收敛（fix4 决策）**：
 - `wb.jobs.get` 受控调用（3 个沉睡职位含 1 个非可操作）：**均返回 Code=0 + job_description**（此前文档「get 对 775 个返回 1003」是从 `match_candidates` 推断，实测 get 不受限）。**JD 补全路径 = `under_served + jobs.get`**（`job_details_jobs` 同步已改为 DB 驱动 + `jobs.get`，只对可操作∩沉睡缺 JD 职位调用，不给 771 个逐个补）。
@@ -110,7 +110,7 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 - `candidates.list/search/stats` 对当前账号返回空：是权限范围（self 无自建候选人）还是测试环境无数据；如需候选人列表而非仅匹配摘要，是否授予 team 范围。
 - `portal_url` 使用边界：内部 Portal 链接的有效期、可打开性，是否属于「可使用的落地页令牌」需单独对待。
   - 现状决策（2026-08-12 固化）：`portal_url` 仅随原始载荷加密存于 `raw_records.payload_ciphertext` 与规范化 `jobs.portal_url` 列；**业务只读 API 投影不返回任何 `portal_*`/`raw_records` 字段**（`job-read-repository.mjs` 白名单投影），客户端与候选人落地页均不可见。将其作为可触达令牌使用前，须完成链接有效期、打开权限与审计的单独确认。
-- 写工具授权：短信/邮件/简历批量创建/推荐写工具在 M3/M4 的模板、签名、退订、频控、人工审批与幂等要求。
+- 写工具授权：短信/邮件/简历批量创建/推荐写工具在 M4/M5 的模板、签名、退订、频控、人工审批与幂等要求。
 - `days_without_rec` 起算点与自然日口径、`created_at` 为 null 的语义（见验证记录风险清单）。
 - 正式推荐写工具：未发现，MVP 需确认采用受审计 Portal 记录或新增工具。
 

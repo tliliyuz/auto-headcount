@@ -2,16 +2,16 @@
 
 本文件是数据库表结构、表关系、约束、保留与迁移的唯一权威来源。可执行真源为 [`apps/web/db/schema.ts`](../apps/web/db/schema.ts) 与 [`apps/web/drizzle/`](../apps/web/drizzle/) 迁移；发现冲突先修正本文件，再改 schema 与测试。
 
-> 直观速览：当前已落库 **9 张表**（身份域 5 + 数据域 4）+ 6 个枚举；另有 **14 张规划表（M2–M4，尚未落库）**，见 [§2 表清单](#2-表清单与实现状态) 与 [§8 规划表](#8-规划表m2m4未落库)。
+> 直观速览：当前迁移 0000–0007 已落库 **16 张表** + 7 个枚举；M2–M5 仍有规划表和现有表扩展尚未落库，见 [§2 表清单](#2-表清单与实现状态) 与 [§8 规划表](#8-规划表m2m5未落库)。
 
 ## 1. 目标与非目标
 
 - **目标**：数据底座可重复同步并查询沉睡职位与候选人；身份/会话/角色可审计；原始载荷加密、规范化可追溯、保留可配置。
-- **非目标**：M2 前的摘要/匹配/触达/落地页表不落库；不做消息队列（MVP 用数据库任务表语义）；不做向量库。
+- **非目标**：不在 M2 数据获取层混入匹配规则；M4 前不落库触达/落地页表；不做消息队列（MVP 用数据库任务表语义）；不做向量库。
 
 ## 2. 表清单与实现状态
 
-### 2.1 已落库（迁移 0000–0004，共 10 张）
+### 2.1 已落库（迁移 0000–0007，共 16 张）
 
 | 域 | 表 | 一句话职责 |
 |:---|:---|:---|
@@ -25,18 +25,24 @@
 | 数据 | [`raw_records`](#63-raw_records) | AES-256-GCM 信封加密的原始载荷快照（追加写） |
 | 数据 | [`jobs`](#71-jobs) | 规范化职位；公司名/详细地址不进公开视图 |
 | 任务 | [`async_tasks`](#72-async_tasks任务调度) | 数据库任务表调度（状态/幂等键/退避重试/dead） |
+| 匹配 | `job_requirements` | 现有本地确定性评分的职位要求快照 |
+| 匹配 | `match_rules` | 现有本地规则权重与阈值版本 |
+| 匹配 | `candidates` | 打码候选人与迁移期展示摘要 |
+| 匹配 | `candidate_profiles` | 现有本地评分的候选人结构化快照 |
+| 匹配 | `matches` | 职位—候选人匹配、分档、审核状态和外部对照 |
+| 匹配 | `match_dimensions` | 现有匹配的维度分、证据和风险 |
 
-### 2.2 规划表（M3–M4，未落库）
+### 2.2 规划表/扩展（M2–M5，未落库）
 
-`candidate_contacts`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m3m4未落库)，落地前必须先回写本文件再写迁移。
+`candidate_contacts`、`browser_source_bindings`、`ingestion_tickets`、`source_field_observations`、`job_match_projections`、`candidate_match_projections`、`match_filter_results`、`llm_score_runs`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m2m5未落库)，落地前必须先回写本文件再写迁移。
 
-**M2 匹配表（迁移 0007 已落库）**：`job_requirements`（§7.2）、`match_rules`（§7.3）、`candidates`（§7.4）、`candidate_profiles`（§7.5）、`matches`（§7.6）、`match_dimensions`（§7.7）。本地版本化评分是权威分（ADR-005）；`matches.external_*` 保存供应方 match_candidates 外部对照（非权威分）。
+**M3 现有匹配表（迁移 0007 已落库）**：`job_requirements`、`match_rules`、`candidates`、`candidate_profiles`、`matches`、`match_dimensions`。这些表已支持 Fixture 下的本地确定性评分，但尚未支持修订后 `ADR-005` 的版本化投影、独立硬过滤结果和 LLM 运行追溯。
 
 ## 3. 通用存储约定
 
 - **标识与时间**：主键统一 UUID（`gen_random_uuid()`）；时间统一 `timestamptz`，服务端 `now()` 写入。
 - **枚举**：`connection_environment`（`development|test|production`）、`connection_status`（`disabled|active|error`）、`sync_run_status`（`pending|running|succeeded|failed`）、`raw_record_status`（`captured|normalized|invalid`）、`user_role`（`operations|recruiter|admin`）、`user_status`（`active|disabled`）、`async_task_status`（`pending|running|succeeded|failed|dead`）。
-- **JSON 使用限制**：`jsonb` 仅用于结构白名单——`sync_runs.stats`（计数）、`jobs.eligibility_evidence`（供应商筛选证据）、`audit_logs.metadata`（白名单元数据）、`async_tasks.payload`（任务白名单参数，如 source 身份）。禁止把外部完整响应或敏感正文塞进 JSON。
+- **JSON 使用限制**：`jsonb` 仅用于经 Schema 校验的结构白名单——同步计数、沉睡证据、审计/任务白名单元数据、版本化职位/候选人画像、硬过滤原因与 LLM 结构化结果。禁止把供应商完整响应、未脱敏简历或联系方式塞进 JSON；这些敏感正文只能进入指定加密列。
 - **删除与审计**：`audit_logs` 只追加、不允许应用角色更新；保留任务按策略删除并记录自身审计事件。
 
 ## 4. 领域关系
@@ -182,35 +188,44 @@ erDiagram
 
 **禁含**：MCP 凭证、原始载荷、简历正文、联系方式等敏感字段。`async_tasks_due_idx(status, scheduled_at)` 支撑调度认领（`FOR UPDATE SKIP LOCKED`）。
 
-## 7.3 匹配域表（M2 本地评分，迁移 0007 已落库）
+## 7.3 匹配域表（M3 数据集成与匹配）
 
-本地版本化、可复算评分是权威分（ADR-005）；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。
+迁移 0007 已落库的表支持旧的本地确定性 Fixture 闭环。修订后 [ADR-005](decisions/ADR-005-authorized-web-collection-and-local-matching.md) 要求新增不可变匹配投影、硬过滤结果和 LLM 评分运行，再由本地固定权重汇总权威总分；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。
 
 | 表 | 关键字段与约束 |
 |:---|:---|
 | `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入 |
 | `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
-| `candidates` | `external_id`(unique), `display_name`, `summary`, `consent_status`(unknown→permitted→opted_out)。打码、无联系方式 |
-| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `expected_salary_min/max`, `activity_updated_at` |
-| `matches` | `job_id`(FK jobs), `candidate_id`(FK candidates), `score`(本地总分), `band`, `status`(generated→approved/rejected), `rule_version`, `input_hash`(可复算), `score_status`(local_computed), `external_score/tier/score_status`(外部对照), `evidence/missing/risk`(jsonb)。唯一 `(job_id,candidate_id,rule_version)` |
-| `match_dimensions` | `match_id`(FK matches CASCADE), `dimension`, `score`, `evidence`, `risk` |
+| `candidates` | `external_id`(unique), `display_name`, `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
+| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存 |
+| `matches` | 现有：`job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk`。目标扩展：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`, `aggregation_rule_version`；新权威分只能由已验证 LLM 结果经本地汇总产生 |
+| `match_dimensions` | 现有：`match_id`, `dimension`, `score`, `evidence`, `risk`。目标扩展：`assessable`, `confidence`, `llm_score_run_id`, `output_hash`，用于追溯已接受的 LLM 结构化输出 |
 
-## 8. 规划表（M3–M4，未落库）
+### 7.4 两阶段匹配规划表（尚未落库）
+
+| 表 | 关键字段与约束 |
+|:---|:---|
+| `job_match_projections` | `job_id`(FK jobs RESTRICT), `schema_version`, `generator_type/version`, `input_hash`, `source_snapshot_refs`(jsonb), `display_summary`(≤150), `requirements`(jsonb), `status`, `created_at`；不可变，唯一 `(job_id,schema_version,generator_version,input_hash)` |
+| `candidate_match_projections` | `candidate_id`(FK candidates RESTRICT), `schema_version`, `generator_version`, `redaction_version`, `input_hash`, `source_snapshot_refs`(jsonb), `display_summary`(≤150), `profile`(jsonb), `redacted_detail_ciphertext/iv/tag/key_version`, `redaction_report`(jsonb), `status`, `created_at`；不可变，唯一 `(candidate_id,schema_version,generator_version,redaction_version,input_hash)` |
+| `match_filter_results` | `job_projection_id`, `candidate_projection_id`, `filter_rule_version`, `combined_input_hash`, `passed`, `reason_codes/details`(jsonb), `created_at`；不可变，唯一 `(job_projection_id,candidate_projection_id,filter_rule_version)` |
+| `llm_score_runs` | `filter_result_id`, `attempt`, `status`(pending/running/succeeded/failed), `adapter_id/version`, `model_id/revision`, `prompt_version`, `schema_version`, `request_hash`, `response_ciphertext/iv/tag/key_version`, `output_hash`, `parameters`(jsonb 白名单), `error_code`, `started_at/finished_at/created_at`；失败记录只存机器码，不存供应商错误正文 |
+
+`job_match_projections` 和 `candidate_match_projections` 通过 [匹配契约](10-matching-contracts.md) 的 JSON Schema 后才可置为可消费状态。`candidate_match_projections.redacted_detail_*` 虽已脱敏，仍包含详细职业经历，必须应用层加密；LLM 适配器只获得单次调用所需的解密投影，无权读取 `candidate_contacts` 或未脱敏原始简历。
+
+## 8. 规划表（M2–M5，未落库）
 
 字段草案见下表；**落地前必须先修订本文件、再写迁移与测试**。这些表在当前数据库**不存在**。
 
 | 域 | 表 | 关键字段（草案） |
 |:---|:---|:---|
-| 匹配 | `job_requirements` | `job_id, skills, seniority, education, salary_min/max, salary_period, constraints` |
-| 匹配 | `candidates` | `external_id, display_name, summary, consent_status` |
-| 匹配 | `candidate_profiles` | `candidate_id, skills, experience, location, education` |
 | 匹配 | `candidate_contacts` | `candidate_id, phone_ciphertext, email_ciphertext, phone_hmac, email_hmac, key_version`（单独加密，HMAC 仅用于去重/抑制） |
-| 匹配 | `match_rules` | `version, weights, thresholds, active_at`（可复算） |
-| 匹配 | `matches` | `job_id, candidate_id, score, band, status, rule_version`；`(job_id, candidate_id, rule_version)` 唯一 |
-| 匹配 | `match_dimensions` | `match_id, dimension, score, evidence, risk` |
 | 采集 | `browser_source_bindings` | `source_connection_id, user_id, device_id, contract_set_version, status`；只保存路由元数据，不保存 Cookie/平台口令/browser session |
 | 采集 | `ingestion_tickets` | `task_id, token_hash, contract_id, expires_at, consumed_at, max_bytes`；高熵单次票据只存哈希 |
 | 采集 | `source_field_observations` | `entity_type, entity_id, field_name, source_connection_id, contract_version, captured_at, value_hash`；字段级来源追溯，不存敏感正文 |
+| 匹配 | `job_match_projections` | 职位的版本化展示摘要、硬要求、详情上下文和来源/输入哈希 |
+| 匹配 | `candidate_match_projections` | 候选人的版本化展示摘要、画像、加密脱敏详情和脱敏报告 |
+| 匹配 | `match_filter_results` | 第一阶段确定性通过/剔除结果与原因 |
+| 匹配 | `llm_score_runs` | 第二阶段模型/Prompt/Schema/输入输出哈希、加密响应和失败码 |
 | 触达 | `campaigns` | `job_id, channel, status, approved_by` |
 | 触达 | `campaign_recipients` | `campaign_id, candidate_id, status, idempotency_key` |
 | 触达 | `landing_links` | `recipient_id, token_hash, expires_at, revoked_at`（不存明文令牌） |
@@ -219,14 +234,18 @@ erDiagram
 | 漏斗 | `follow_up_tasks` | `candidate_id, job_id, owner_id, status, outcome` |
 | 推荐 | `recommendations` | `job_id, candidate_id, external_id, status`（外部幂等键） |
 
-## 9. 状态约定（规划，M2–M4 生效）
+## 9. 状态约定（规划，M2–M5 生效）
 
 ### 匹配状态
 
 ```text
-generated → pending_review → approved/rejected
+projection_pending → filter_rejected | scoring_pending
+scoring_pending → scoring_running → scored | scoring_failed
+scored → pending_review → approved/rejected
 approved → queued_for_campaign → contacted → responded
 ```
+
+`filter_rejected` 不创建 LLM 运行；`scoring_failed` 不伪造分数且不能进入触达。现有 `generated` 状态在两阶段迁移期继续可读，新流程不再写入该含糊状态。
 
 ### Web 采集任务状态
 
@@ -262,7 +281,7 @@ unknown → permitted → opted_out
 - 同一数据源优先使用稳定 `external_id`（职位已实现：`(source_connection_id, external_id)` 唯一）。
 - 外部 ID 缺失时，可使用标准化手机号/邮箱的不可逆哈希辅助识别（规划）。
 - 跨来源合并不得仅凭姓名；必须有人工确认或足够强的联合证据。
-- 职位匹配记录使用 `(job_id, candidate_id, rule_version)` 唯一约束（规划）。
+- 现有职位匹配记录使用 `(job_id, candidate_id, rule_version)` 唯一约束；两阶段迁移后应以投影对、汇总规则版本和组合输入哈希区分新运行，不覆盖历史匹配。
 - 推荐记录应对外部系统要求构建幂等键，避免重复提交。
 
 ## 12. 数据保留
@@ -272,6 +291,7 @@ unknown → permitted → opted_out
 | 原始成功响应（`raw_records`） | 可配置 TTL，默认 30 天 |
 | 异常响应（`processing_status=invalid`） | 问题关闭后 30 天，最长 90 天（口径见 `ADR-003` §4） |
 | 关闭职位与候选人业务数据 | 180 天 |
+| 匹配投影、硬过滤与 LLM 运行 | 跟随所属职位/候选人的可用保留期；候选人删除时加密详情与 LLM 响应一并删除，仅保留不可逆计数/审计事实 |
 | 审计日志（`audit_logs`） | 365 天 |
 | 备份 | 35 天 |
 

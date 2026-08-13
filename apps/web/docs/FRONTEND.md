@@ -17,7 +17,7 @@
 
 | 页面 | 组件 | 数据来源 | 状态 |
 |---|---|---|---|
-| 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md) + [`GET /api/jobs/:id`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/洞察/脱敏预览；洞察面板按选中职位拉取完整 JD 展示「职位详情」；匹配池为 M2 占位） |
+| 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md) + [`GET /api/jobs/:id`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/洞察/脱敏预览；洞察面板按选中职位拉取完整 JD 展示「职位详情」；匹配池为 M3 占位） |
 | 智能匹配 | `MatchingPage` | `candidates` 数组 | 静态原型 |
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
@@ -42,10 +42,10 @@
 
 | 数据 | 位置 | 对应真实来源（路线图阶段） |
 |---|---|---|
-| `candidates`（4 个候选人） | 文件顶部 | 授权 Web/MCP 适配器 → 规范化候选人表 → 脱敏评分投影（M2，`ADR-005`） |
-| `campaignRows`（4 个活动） | 文件顶部 | `campaigns` / `campaign_recipients` 表（M3） |
-| `followupColumns`（看板列） | 文件顶部 | `follow_up_tasks` 表（M4） |
-| 漏斗/转化数据（内联） | `FunnelPage` | `funnel_events` 聚合（M4） |
+| `candidates`（4 个候选人） | 文件顶部 | 授权 Web/MCP 适配器（M2）→ 规范化候选人与脱敏匹配投影（M3） |
+| `campaignRows`（4 个活动） | 文件顶部 | `campaigns` / `campaign_recipients` 表（M4） |
+| `followupColumns`（看板列） | 文件顶部 | `follow_up_tasks` 表（M5） |
+| 漏斗/转化数据（内联） | `FunnelPage` | `funnel_events` 聚合（M5） |
 | 审计记录（内联） | ~~`AuditPage`~~ | `audit_logs` 表（M1，已接真实数据） |
 
 > 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则；当前 MCP 投影只返回 `operability_status='actionable'` 的可操作沉睡职位）。`ADR-005` 已指定授权 Web 数据源承接宽口径，但浏览器采集适配器尚未实现，页面当前不能宣称已展示 Web 采集职位。数据源页和审计日志页分别读取真实 `/api/sources` + `/api/sync-runs` 与 `/api/audit-logs`；原始载荷密文、简历正文、联系方式和游标令牌永不进入这些响应。
@@ -74,7 +74,7 @@
 
 `--ink` `--muted` `--line` `--blue` `--blue-dark` `--blue-soft` `--surface` `--canvas` `--green` `--amber` `--violet`。新增颜色必须先登记到 `:root`，禁止在组件内硬编码色值。
 
-## 6. 接数据重构路径（对应路线图 M1–M4）
+## 6. 接数据重构路径（对应路线图 M1–M5）
 
 1. 拆文件：每页组件从 `operations-dashboard.tsx` 拆到独立文件，按 `02-architecture.md` 的模块名组织。
 2. 建 API 层：用 Vinext Route Handler 或独立模块提供数据，前端经适配器取数，不直连数据库。
