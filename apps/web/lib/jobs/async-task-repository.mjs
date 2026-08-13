@@ -66,19 +66,37 @@ export function createAsyncTaskRepository(sql) {
       return rows.length;
     },
 
-    /** 认领到期 pending 任务（scheduled_at 到期且 next_attempt_at 放行），返回含 post-increment attempts。 */
+    /**
+     * 认领到期 pending 任务（scheduled_at 到期且 next_attempt_at 放行），返回含 post-increment attempts。
+     * 串行化（fix3）：同一 kind 同时只跑一个——
+     *  - 排除该 kind 已有 running 任务（`not exists running`）；
+     *  - 每个 kind 只认领最早的 pending（`not exists earlier` 行比较，取 (scheduled_at,id) 最小）。
+     * 用 EXISTS 而非窗口函数/DISTINCT，因 `FOR UPDATE SKIP LOCKED` 无法锁定含窗口函数的子查询
+     * （PG 0A000）；EXISTS 子查询可加锁且跨进程原子（SKIP LOCKED 保证同 kind 不双认领）。
+     * 不同 kind 可各认领一个。
+     */
     async claimDueTasks({ limit = 10, now }) {
       return sql`
         update async_tasks
         set status = 'running', attempts = attempts + 1,
             started_at = ${now}, updated_at = now()
         where id in (
-          select id
-          from async_tasks
-          where status = 'pending'
-            and scheduled_at <= ${now}
-            and (next_attempt_at is null or next_attempt_at <= ${now})
-          order by scheduled_at
+          select a.id
+          from async_tasks a
+          where a.status = 'pending'
+            and a.scheduled_at <= ${now}
+            and (a.next_attempt_at is null or a.next_attempt_at <= ${now})
+            and not exists (
+              select 1 from async_tasks r
+              where r.kind = a.kind and r.status = 'running'
+            )
+            and not exists (
+              select 1 from async_tasks earlier
+              where earlier.kind = a.kind
+                and earlier.status = 'pending'
+                and (earlier.scheduled_at, earlier.id) < (a.scheduled_at, a.id)
+            )
+          order by a.scheduled_at
           limit ${limit}
           for update skip locked
         )

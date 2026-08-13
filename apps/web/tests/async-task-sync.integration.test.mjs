@@ -53,19 +53,45 @@ function fixtureSource(marker) {
 }
 
 /**
- * 调度 tick 现同时入队 under_served 与 job_details 两种任务：
- * `wb.jobs.list` 走空页（job_details 平凡成功、不产生更新），其余工具交给被测 callTool。
+ * 调度 tick 现同时入队 under_served 与 job_details 两种任务（fix4）：
+ * - `wb.jobs.list` → 可操作集（operableIds，供 under_served 同步只入库可操作∩沉睡）；
+ * - `wb.jobs.get` → 返回单职位 JD（供 job-details 同步补全，DB 驱动）；
+ * 其余工具交给被测 callTool。
  */
-function dispatchCallTool(underServedCallTool) {
+function dispatchCallTool(underServedCallTool, { operableIds = [] } = {}) {
   return async (toolName, args) => {
     if (toolName === "wb.jobs.list") {
       return fakePage({
-        total: 0,
+        total: operableIds.length,
         page: 1,
-        pageSize: 20,
-        totalPages: 0,
-        list: [],
+        pageSize: 100,
+        totalPages: operableIds.length ? 1 : 0,
+        list: operableIds.map((id) => ({
+          job_id: id,
+          job_title: `Job ${id}`,
+          status: "active",
+          job_description: `JD ${id}`,
+        })),
       });
+    }
+    if (toolName === "wb.jobs.get") {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              Code: 0,
+              Message: "success",
+              Data: {
+                job_id: args.job_id,
+                job_title: `Job ${args.job_id}`,
+                status: "active",
+                job_description: `JD ${args.job_id}`,
+              },
+            }),
+          },
+        ],
+      };
     }
     return underServedCallTool(toolName, args);
   };
@@ -82,6 +108,21 @@ function fixtureEnv(source, { withKey = true } = {}) {
     env.APP_ENCRYPTION_KEY_VERSION = "test-v1";
   }
   return env;
+}
+
+/**
+ * 测试槽位重置：串行化后（fix3）同 kind 同时只跑一个，共享开发库里 docker scheduler
+ * 正在跑的 under_served_sync/job_details_sync 会挡住测试新入队的同 kind 任务。
+ * tick 类测试开始时先回收这些真实在途任务（标 failed + TEST_SLATE_RESET），使测试可确定执行。
+ */
+async function reclaimRunningSyncTasks(sql) {
+  await sql`
+    update async_tasks
+    set status = 'failed', last_error_code = 'TEST_SLATE_RESET',
+        finished_at = now(), updated_at = now()
+    where kind in ('under_served_sync', 'job_details_sync')
+      and status = 'running'
+  `;
 }
 
 /** 按 fixture source 清理 async_tasks / jobs / raw_records / sync_runs / source_connections / sync.run 审计。 */
@@ -120,16 +161,20 @@ test(
     const env = fixtureEnv(source);
     const now = new Date();
     const taskIds = [];
+    // 清空共享库里真实 scheduler 在途的 under_served/job_details 任务，确保测试可确定认领
+    await reclaimRunningSyncTasks(sql);
 
     try {
-      const callTool = dispatchCallTool(async () =>
-        fakePage({
-          total: 2,
-          page: 1,
-          pageSize: 20,
-          totalPages: 1,
-          list: [fakeJob("s-7", 7), fakeJob("s-30", 30)],
-        }),
+      const callTool = dispatchCallTool(
+        async () =>
+          fakePage({
+            total: 2,
+            page: 1,
+            pageSize: 20,
+            totalPages: 1,
+            list: [fakeJob("s-7", 7), fakeJob("s-30", 30)],
+          }),
+        { operableIds: ["s-7", "s-30"] },
       );
 
       const result = await runScheduledTick({
@@ -194,25 +239,30 @@ test(
     const env = fixtureEnv(source);
     const now = new Date();
     const taskIds = [];
+    // 清空共享库里真实 scheduler 在途的 under_served/job_details 任务，确保测试可确定认领
+    await reclaimRunningSyncTasks(sql);
     let calls = 0;
 
     try {
-      const callTool = dispatchCallTool(async () => {
-        calls += 1;
-        if (calls === 1) {
-          throw new McpDiscoveryError("rate limited", {
-            code: "RATE_LIMITED",
-            retryable: true,
+      const callTool = dispatchCallTool(
+        async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new McpDiscoveryError("rate limited", {
+              code: "RATE_LIMITED",
+              retryable: true,
+            });
+          }
+          return fakePage({
+            total: 1,
+            page: 1,
+            pageSize: 20,
+            totalPages: 1,
+            list: [fakeJob("retry-7", 7)],
           });
-        }
-        return fakePage({
-          total: 1,
-          page: 1,
-          pageSize: 20,
-          totalPages: 1,
-          list: [fakeJob("retry-7", 7)],
-        });
-      });
+        },
+        { operableIds: ["retry-7"] },
+      );
 
       const first = await runScheduledTick({
         env,
@@ -268,6 +318,8 @@ test(
     const env = fixtureEnv(source);
     const now = new Date();
     const taskIds = [];
+    // 清空共享库里真实 scheduler 在途的 under_served/job_details 任务，确保测试可确定认领
+    await reclaimRunningSyncTasks(sql);
 
     try {
       const callTool = dispatchCallTool(async () => {
@@ -309,6 +361,8 @@ test(
     const env = fixtureEnv(source);
     const now = new Date();
     const taskIds = [];
+    // 清空共享库里真实 scheduler 在途的 under_served/job_details 任务，确保测试可确定认领
+    await reclaimRunningSyncTasks(sql);
 
     try {
       const callTool = dispatchCallTool(async () => {
@@ -409,6 +463,8 @@ test(
     const env = fixtureEnv(source, { withKey: false });
     const now = new Date();
     const taskIds = [];
+    // 清空共享库里真实 scheduler 在途的 under_served/job_details 任务，确保测试可确定认领
+    await reclaimRunningSyncTasks(sql);
 
     try {
       const result = await runScheduledTick({
@@ -591,6 +647,8 @@ test(
     const env = fixtureEnv(source);
     const now = new Date();
     const taskIds = [];
+    // 清空共享库里真实 scheduler 在途的 under_served/job_details 任务，确保测试可确定认领
+    await reclaimRunningSyncTasks(sql);
     // 共享开发库可能已有真实 under_served_sync 卡死任务（看门狗全局回收，会一并计数），
     // 故本 fixture 用 marker 隔离的 kind，且对回收数断言用 >= 而不断言精确值。
     const staleKind = `fixture-stale-tick:${marker}`;
@@ -611,14 +669,16 @@ test(
         where id = ${staleTaskId}
       `;
 
-      const callTool = dispatchCallTool(async () =>
-        fakePage({
-          total: 1,
-          page: 1,
-          pageSize: 20,
-          totalPages: 1,
-          list: [fakeJob("w-7", 7)],
-        }),
+      const callTool = dispatchCallTool(
+        async () =>
+          fakePage({
+            total: 1,
+            page: 1,
+            pageSize: 20,
+            totalPages: 1,
+            list: [fakeJob("w-7", 7)],
+          }),
+        { operableIds: ["w-7"] },
       );
       const result = await runScheduledTick({
         env,
@@ -642,6 +702,60 @@ test(
       await sql`delete from async_tasks where idempotency_key = ${staleKey}`;
     } finally {
       await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "串行化认领：同 kind 至多认领一个、running 时不再认领同 kind、不同 kind 各认领一个",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const kindA = `fixture-serial-a:${marker}`;
+    const kindB = `fixture-serial-b:${marker}`;
+    // 认领用 now；fixture 调度到 epoch 起递增（最早且确定顺序），确保在共享库真实任务之前排序
+    const now = new Date();
+    const ids = [];
+
+    try {
+      const taskRepo = createAsyncTaskRepository(sql);
+      // 2 个同 kind A + 1 个 kind B，全部到期 pending；a1 严格早于 a2（同 scheduled_at 会退化为 id 决胜）
+      const schedule = { a1: new Date(0), a2: new Date(1), b1: new Date(0) };
+      for (const [kind, suffix] of [[kindA, "a1"], [kindA, "a2"], [kindB, "b1"]]) {
+        const id = await taskRepo.enqueueTask({
+          kind,
+          idempotencyKey: `serial:${marker}:${suffix}`,
+          payload: {},
+          scheduledAt: schedule[suffix],
+        });
+        ids.push({ id, kind });
+      }
+
+      // 1) 首次认领：每 kind 至多认领最早一个 → A=a1 + B=b1，a2 不认领
+      const first = await taskRepo.claimDueTasks({ limit: 10, now });
+      assert.ok(first.some((t) => t.id === ids[0].id), "a1 被认领");
+      assert.ok(first.some((t) => t.id === ids[2].id), "b1 被认领");
+      assert.ok(!first.some((t) => t.id === ids[1].id), "同 kind 至多认领一个（a2 不被认领）");
+      assert.equal(
+        first.filter((t) => t.kind === kindA).length,
+        1,
+        "kind A 只认领一条",
+      );
+
+      // 2) A/B 均 running → a2 不再被认领
+      const second = await taskRepo.claimDueTasks({ limit: 10, now });
+      assert.ok(!second.some((t) => t.id === ids[1].id), "kind 已有 running 时不认领 a2");
+
+      // 3) A 结束 running → a2 被认领（B 仍 running 不影响 A）
+      await taskRepo.finishTask({ id: ids[0].id, status: "succeeded", finishedAt: now });
+      const third = await taskRepo.claimDueTasks({ limit: 10, now });
+      assert.ok(third.some((t) => t.id === ids[1].id), "A 释放后 a2 被认领");
+    } finally {
+      await sql`
+        delete from async_tasks where idempotency_key like ${`serial:${marker}%`}
+      `;
       await sql.end();
     }
   },

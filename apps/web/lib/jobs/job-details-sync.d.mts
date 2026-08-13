@@ -2,7 +2,7 @@ import type postgres from "postgres";
 
 type SqlClient = postgres.Sql;
 
-export const JOBS_LIST_TOOL: "wb.jobs.list";
+export const JOBS_GET_TOOL: "wb.jobs.get";
 export const JOB_DETAILS_SYNC_TYPE: "job_details_jobs";
 
 export type JobDetailsSyncMcp = {
@@ -38,7 +38,6 @@ export type JobDetailsSyncOutcome =
 export function runJobDetailsSync(input: {
   sql: SqlClient;
   source: JobDetailsSyncSource;
-  pageSize?: number;
-  maxPages?: number;
+  staleSyncRunMs?: number;
   mcp?: JobDetailsSyncMcp;
 }): Promise<JobDetailsSyncOutcome>;

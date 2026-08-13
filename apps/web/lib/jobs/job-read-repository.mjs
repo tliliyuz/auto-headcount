@@ -23,6 +23,8 @@ export async function listUnderServedJobs(
     status = 'active'
     and days_without_recommendation between 7 and 30
     and (valid_recommendation_count is null or valid_recommendation_count = 0)
+    -- fix4：只展示可操作（账号自身作用域 wb.jobs.list 的交集）；null 视为可操作兼容迁移过渡
+    and (operability_status is null or operability_status = 'actionable')
     ${categoryFilter ? sql` and category = ${category}` : sql``}
     ${query ? sql` and (title ilike ${needle} or city ilike ${needle})` : sql``}
   `;

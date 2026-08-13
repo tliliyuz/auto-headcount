@@ -42,7 +42,7 @@ export async function failStaleRunningSyncRuns(sql, { staleBefore }) {
 
 export async function persistUnderServedJob(
   sql,
-  { sourceId, syncRunId, rawPayload, job, encryption },
+  { sourceId, syncRunId, rawPayload, job, encryption, operabilityStatus = null },
 ) {
   const encrypted = await encryptJsonPayload(rawPayload, encryption);
   const [rawRecord] = await sql`
@@ -90,6 +90,7 @@ export async function persistUnderServedJob(
       published_at,
       days_without_recommendation,
       valid_recommendation_count,
+      operability_status,
       eligibility_evidence,
       portal_url,
       source_updated_at
@@ -108,6 +109,7 @@ export async function persistUnderServedJob(
       ${job.sourceCreatedAt},
       ${job.ageDays},
       ${null},
+      ${operabilityStatus},
       ${job.eligibilityEvidence},
       ${job.portalUrl},
       ${job.sourceCreatedAt}
@@ -126,6 +128,7 @@ export async function persistUnderServedJob(
       published_at = excluded.published_at,
       days_without_recommendation = excluded.days_without_recommendation,
       /* valid_recommendation_count 由推荐工作流维护，重同步不得用 NULL 覆盖既有计数 */
+      operability_status = excluded.operability_status,
       eligibility_evidence = excluded.eligibility_evidence,
       portal_url = excluded.portal_url,
       source_updated_at = excluded.source_updated_at,
@@ -137,16 +140,18 @@ export async function persistUnderServedJob(
 }
 
 /**
- * 同步后关闭陈旧沉睡职位：本次全量同步未见（供应方已关闭/已有推荐/退出沉睡）的
+ * 同步后关闭陈旧沉睡职位：本次**完整**拉取未见的（供应方已关闭/已有推荐/退出沉睡）的
  * active 且 7–30 天职位标记 `closed`，退出沉睡列表；retention 再按 TTL 清理 closed 行。
- * `activeExternalIds` 为本次同步实际写入的合格职位 externalId 集合；空数组表示
- * 供应方当前无任何沉睡职位（`<> all('{}')` 恒真，全部关闭）。
+ * `seenExternalIds` 为本次 under_served 完整拉取中见到的**全部**合格职位 externalId
+ * （含不可操作但仍在沉睡的，见 fix4：不可操作≠已关闭）。只关闭真正未见的（上游消失/退出沉睡），
+ * 不误标 `not_in_access_scope` 的职位为 closed。空数组表示供应方当前无任何沉睡职位
+ * （`<> all('{}')` 恒真，全部关闭）。
  */
 export async function closeStaleUnderServedJobs(
   sql,
-  { sourceId, activeExternalIds },
+  { sourceId, seenExternalIds },
 ) {
-  const ids = Array.isArray(activeExternalIds) ? activeExternalIds : [];
+  const ids = Array.isArray(seenExternalIds) ? seenExternalIds : [];
   const result = await sql`
     update jobs
     set status = 'closed', updated_at = now()
@@ -154,6 +159,22 @@ export async function closeStaleUnderServedJobs(
       and status = 'active'
       and days_without_recommendation between 7 and 30
       and external_id <> all(${ids})
+  `;
+  return Number(result.count);
+}
+
+/**
+ * 批量标记本地可操作状态（docs/03 §7.1 operability_status）。仅更新该源已存在的职位行。
+ * 用于把「上游仍沉睡但不在账号可操作集」的职位标记为 `not_in_access_scope`（区别于 closed）。
+ */
+export async function markOperabilityStatus(sql, { sourceId, externalIds, status }) {
+  const ids = Array.isArray(externalIds) ? externalIds : [];
+  if (ids.length === 0) return 0;
+  const result = await sql`
+    update jobs
+    set operability_status = ${status}, updated_at = now()
+    where source_connection_id = ${sourceId}
+      and external_id = any(${ids})
   `;
   return Number(result.count);
 }

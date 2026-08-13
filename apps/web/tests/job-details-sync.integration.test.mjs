@@ -42,38 +42,28 @@ function fixtureJob(externalId, ageDays) {
   };
 }
 
-function jobsListPage(list) {
-  const payload = {
-    Code: 0,
-    Message: "success",
-    Data: {
-      total: list.length,
-      page: 1,
-      page_size: list.length || 1,
-      total_pages: 1,
-      list,
-    },
-  };
-  return { content: [{ type: "text", text: JSON.stringify(payload) }] };
-}
-
-function jobsListItem(externalId, jobDescription) {
+/** wb.jobs.get 单职位响应（fix4：JD 补全路径，受控验证 get 返回 Code=0 + job_description）。 */
+function jobsGetPage(jobId, jobDescription) {
   return {
-    job_id: externalId,
-    job_title: `Job ${externalId}`,
-    category: "Engineering",
-    client_company: "Fixture Company",
-    customer_name: "Fixture Customer",
-    department_path: "Eng/Platform",
-    job_description: jobDescription,
-    salary: "20-30K",
-    city: "Shanghai",
-    created_by: "Fixture Recruiter",
-    status: "active",
-    portal_url: `https://portal.invalid/jobs/${externalId}`,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          Code: 0,
+          Message: "success",
+          Data: {
+            job_id: jobId,
+            job_title: `Job ${jobId}`,
+            status: "active",
+            job_description: jobDescription,
+          },
+        }),
+      },
+    ],
   };
 }
 
+/** seed：可操作（operability_status=actionable）的沉睡职位，JD 空缺。 */
 async function seedJobs(sql, sourceId, specs) {
   const runId = await startSyncRun(sql, sourceId, "under_served_jobs");
   for (const spec of specs) {
@@ -83,6 +73,7 @@ async function seedJobs(sql, sourceId, specs) {
       rawPayload: { job_id: spec.externalId },
       job: fixtureJob(spec.externalId, spec.ageDays),
       encryption,
+      operabilityStatus: "actionable",
     });
   }
   await finishSyncRun(sql, runId, { processed: specs.length, persisted: specs.length });
@@ -99,7 +90,7 @@ async function cleanup(sql, sourceId) {
 }
 
 test(
-  "job_details 同步：wb.jobs.list 补全 job_description，命中/缺失计数正确",
+  "job_details 同步（DB 驱动 jobs.get）：只对可操作∩沉睡缺 JD 职位补全，命中/缺失计数正确",
   { skip: !connectionString },
   async () => {
     const sql = postgres(connectionString, { max: 1 });
@@ -113,7 +104,7 @@ test(
 
     try {
       sourceId = await getOrCreateSourceConnection(sql, source);
-      // 三条在职职位；wb.jobs.list 只返回 j1/j2（j3 缺失），另返回库中没有的 j4
+      // 三条可操作沉睡职位缺 JD；j3 上游无 JD（get 返回 null）
       await seedJobs(sql, sourceId, [
         { externalId: "j1", ageDays: 9 },
         { externalId: "j2", ageDays: 12 },
@@ -123,30 +114,21 @@ test(
       let calls = 0;
       const callTool = async (toolName, args) => {
         calls += 1;
-        assert.equal(toolName, "wb.jobs.list");
-        assert.equal(args.page_size, 2);
-        return jobsListPage([
-          jobsListItem("j1", "JD for j1"),
-          jobsListItem("j2", "JD for j2"),
-          jobsListItem("j4", "JD for j4"),
-        ]);
+        assert.equal(toolName, "wb.jobs.get");
+        const jd = { j1: "JD for j1", j2: "JD for j2", j3: null }[args.job_id];
+        return jobsGetPage(args.job_id, jd);
       };
 
-      const outcome = await runJobDetailsSync({
-        sql,
-        source,
-        pageSize: 2,
-        mcp: { callTool },
-      });
+      const outcome = await runJobDetailsSync({ sql, source, mcp: { callTool } });
       sourceId = outcome.sourceId;
       assert.equal(outcome.status, "succeeded");
       assert.deepEqual(outcome.stats, {
-        pages: 1,
-        seen: 3,
-        detailsSeen: 3,
+        queried: 3,
         detailsMatched: 2,
         detailsMissing: 1,
+        failed: 0,
       });
+      assert.equal(calls, 3, "只对缺 JD 的可操作职位调 jobs.get");
 
       const rows = await sql`
         select external_id, job_description
@@ -157,8 +139,7 @@ test(
       const map = new Map(rows.map((r) => [r.external_id, r.job_description]));
       assert.equal(map.get("j1"), "JD for j1");
       assert.equal(map.get("j2"), "JD for j2");
-      assert.equal(map.get("j3"), null, "wb.jobs.list 未返回的职位保持 NULL");
-      assert.equal(calls, 1);
+      assert.equal(map.get("j3"), null, "上游无 JD 的职位保持 NULL");
     } finally {
       await cleanup(sql, sourceId);
     }
@@ -166,7 +147,7 @@ test(
 );
 
 test(
-  "job_details 同步：幂等跑两次，第二次 detailsMatched=0，职位行数不变，sync_runs 两条",
+  "job_details 同步：幂等跑两次，第二次 queried=0/matched=0，职位行数不变，sync_runs 两条",
   { skip: !connectionString },
   async () => {
     const sql = postgres(connectionString, { max: 1 });
@@ -182,20 +163,18 @@ test(
       sourceId = await getOrCreateSourceConnection(sql, source);
       await seedJobs(sql, sourceId, [{ externalId: "j1", ageDays: 9 }]);
 
-      const callTool = async () =>
-        jobsListPage([jobsListItem("j1", "JD for j1")]);
+      const callTool = async (_toolName, args) => jobsGetPage(args.job_id, "JD for j1");
 
       const first = await runJobDetailsSync({ sql, source, mcp: { callTool } });
       assert.equal(first.status, "succeeded");
+      assert.equal(first.stats.queried, 1);
       assert.equal(first.stats.detailsMatched, 1);
 
+      // 第二次：JD 已补全，不再查询
       const second = await runJobDetailsSync({ sql, source, mcp: { callTool } });
       assert.equal(second.status, "succeeded");
-      assert.equal(
-        second.stats.detailsMatched,
-        0,
-        "描述已一致时 IS DISTINCT FROM 应跳过更新",
-      );
+      assert.equal(second.stats.queried, 0, "已补 JD 的职位不再查询");
+      assert.equal(second.stats.detailsMatched, 0);
 
       const [jobCount] = await sql`
         select count(*)::int as count from jobs
@@ -217,7 +196,7 @@ test(
 );
 
 test(
-  "job_details 同步：源 job_description 为空不抹除既有 JD（null 安全）",
+  "job_details 同步：已有 JD 的职位不被查询（null 安全，不抹既有值）",
   { skip: !connectionString },
   async () => {
     const sql = postgres(connectionString, { max: 1 });
@@ -237,19 +216,17 @@ test(
         where source_connection_id = ${sourceId} and external_id = 'j1'
       `;
 
-      // 源返回 job_description = null
-      const callTool = async () =>
-        jobsListPage([jobsListItem("j1", null)]);
-
+      // 已有 JD 的职位缺 JD 查询不可见 → 不调 jobs.get，JD 保留
+      const callTool = async (_toolName, args) => jobsGetPage(args.job_id, "JD for j1");
       const outcome = await runJobDetailsSync({ sql, source, mcp: { callTool } });
       assert.equal(outcome.status, "succeeded");
-      assert.equal(outcome.stats.detailsMatched, 0, "null 不应视为变更");
+      assert.equal(outcome.stats.queried, 0, "已有 JD 不查询");
 
       const [row] = await sql`
         select job_description from jobs
         where source_connection_id = ${sourceId} and external_id = 'j1'
       `;
-      assert.equal(row.job_description, "existing JD", "源缺失不应抹除既有 JD");
+      assert.equal(row.job_description, "existing JD", "既有 JD 不被覆盖");
     } finally {
       await cleanup(sql, sourceId);
     }
@@ -257,7 +234,7 @@ test(
 );
 
 test(
-  "job_details 同步：wb.jobs.list 失败 → 运行标记失败，仅记录机器可读错误码",
+  "job_details 同步：单职位 jobs.get 失败仅计数 failed 并跳过，不毒化整轮",
   { skip: !connectionString },
   async () => {
     const sql = postgres(connectionString, { max: 1 });
@@ -265,32 +242,44 @@ test(
     const source = {
       provider: `fixture-details-${marker}`,
       environment: "test",
-      displayName: "Fixture Job Details Failure",
+      displayName: "Fixture Job Details Graceful",
     };
     let sourceId;
 
     try {
       sourceId = await getOrCreateSourceConnection(sql, source);
-      await seedJobs(sql, sourceId, [{ externalId: "j1", ageDays: 9 }]);
+      await seedJobs(sql, sourceId, [
+        { externalId: "j1", ageDays: 9 },
+        { externalId: "j2", ageDays: 12 },
+      ]);
 
-      const callTool = async () => {
-        throw new McpDiscoveryError("rate limited", {
-          code: "RATE_LIMITED",
-          retryable: true,
-        });
+      // j1 的 get 失败（限流），j2 成功
+      const callTool = async (_toolName, args) => {
+        if (args.job_id === "j1") {
+          throw new McpDiscoveryError("rate limited", {
+            code: "RATE_LIMITED",
+            retryable: true,
+          });
+        }
+        return jobsGetPage(args.job_id, "JD for j2");
       };
 
       const outcome = await runJobDetailsSync({ sql, source, mcp: { callTool } });
-      assert.equal(outcome.status, "failed");
-      assert.equal(outcome.errorCode, "RATE_LIMITED");
-      assert.equal(outcome.retryable, true);
+      assert.equal(outcome.status, "succeeded", "单职位失败不使整轮失败");
+      assert.deepEqual(outcome.stats, {
+        queried: 2,
+        detailsMatched: 1,
+        detailsMissing: 0,
+        failed: 1,
+      });
 
-      const [run] = await sql`
-        select status, error_code from sync_runs
-        where id = ${outcome.syncRunId}
+      const rows = await sql`
+        select external_id, job_description
+        from jobs where source_connection_id = ${sourceId} order by external_id
       `;
-      assert.equal(run.status, "failed");
-      assert.equal(run.error_code, "RATE_LIMITED");
+      const map = new Map(rows.map((r) => [r.external_id, r.job_description]));
+      assert.equal(map.get("j1"), null, "失败职位保持缺 JD，下次同步补全");
+      assert.equal(map.get("j2"), "JD for j2");
     } finally {
       await cleanup(sql, sourceId);
     }

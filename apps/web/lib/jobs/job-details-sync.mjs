@@ -5,7 +5,7 @@ import {
 } from "../adapters/mcp-discovery.mjs";
 import {
   McpContractError,
-  parseJobsListResult,
+  parseJobsGetResult,
 } from "../adapters/mcp-under-served-contract.mjs";
 import {
   failStaleRunningSyncRuns,
@@ -16,81 +16,76 @@ import {
   updateJobDescriptions,
 } from "./job-sync-repository.mjs";
 
-export const JOBS_LIST_TOOL = "wb.jobs.list";
+export const JOBS_GET_TOOL = "wb.jobs.get";
 export const JOB_DETAILS_SYNC_TYPE = "job_details_jobs";
-const DEFAULT_PAGE_SIZE = 20;
-const DEFAULT_MAX_PAGES = 100;
+/** 每轮最多补全的 JD 条数（可操作∩沉睡通常很小；上限防异常扩散）。 */
+const DEFAULT_JD_BATCH = 50;
 const DEFAULT_STALE_SYNC_RUN_MS = 30 * 60 * 1000;
 
 /**
- * 独立 `job_details_jobs` 同步：分页拉取 `wb.jobs.list`，按 external_id 补全
- * 该数据源下所有职位的 `job_description`（含历史遗留 NULL 回填）。
+ * 独立 `job_details_jobs` 同步：补全「可操作∩沉睡」职位的 `job_description`。
  *
- * - 独立于 under_served 同步运行：`wb.jobs.list` 的权限边界/瞬时失败不会
- *   毒化已成功的 dormant 同步，单独暴露错误码、单独重试（docs/04 §4）。
- * - 不做 raw_records 原始快照（JD 属规范化字段补全，非新实体）；不 INSERT
- *   职位行（`wb.jobs.list` 无沉睡口径，不作为职位行来源）。
- * - 成功 `finishSyncRun`；失败仅把机器可读 `error_code` 写入 `sync_runs`
- *   （`failSyncRun`），不落原始错误正文或任何凭证。
+ * - **DB 驱动 + `wb.jobs.get`**（fix4，2026-08-13 受控验证：get 对沉睡职位广泛可用，返回 JD）：
+ *   查询本地 `operability_status='actionable'` 且 7–30 天、缺 JD 的职位，逐个调 `wb.jobs.get(job_id)`
+ *   补全——**只对交集职位调用**，不给 771 个不可操作职位逐个补 JD。
+ * - 独立于 under_served 同步运行：`wb.jobs.get` 的权限边界/瞬时失败不会毒化已成功的
+ *   dormant 同步；单个职位 get 失败（1003/瞬时）仅计入 `failed` 并跳过，不中断整轮。
+ * - 不做 raw_records 原始快照（JD 属规范化字段补全，非新实体）；不 INSERT 职位行
+ *   （职位行来源为 under_served 同步）。
+ * - 成功 `finishSyncRun`；失败仅把机器可读 `error_code` 写入 `sync_runs`。
  *
- * `mcp.callTool` 可注入（测试用假客户端）；缺省使用真实适配器且白名单
- * 收紧为 `[JOBS_LIST_TOOL]`。
+ * `mcp.callTool` 可注入（测试用假客户端）；缺省使用真实适配器且白名单收紧为 `[JOBS_GET_TOOL]`。
  */
 export async function runJobDetailsSync({
   sql,
   source,
-  pageSize = DEFAULT_PAGE_SIZE,
-  maxPages = DEFAULT_MAX_PAGES,
   staleSyncRunMs = DEFAULT_STALE_SYNC_RUN_MS,
   now = () => new Date(),
   mcp,
 }) {
-  const callTool = mcp?.callTool ?? createJobDetailsCallTool(mcp?.actorId);
+  const callTool = mcp?.callTool ?? createJobDetailsCallTool();
   const sourceId = await getOrCreateSourceConnection(sql, source);
   await failStaleRunningSyncRuns(sql, {
     staleBefore: new Date(now().getTime() - staleSyncRunMs),
   });
   const syncRunId = await startSyncRun(sql, sourceId, JOB_DETAILS_SYNC_TYPE);
-  const stats = {
-    pages: 0,
-    seen: 0,
-    detailsSeen: 0,
-    detailsMatched: 0,
-    detailsMissing: 0,
-  };
+  const stats = { queried: 0, detailsMatched: 0, detailsMissing: 0, failed: 0 };
 
   try {
+    // 只补「可操作∩沉睡」且缺 JD 的职位（fix4：不给不可操作职位逐个补 JD）。
+    const missing = await sql`
+      select external_id as "externalId"
+      from jobs
+      where source_connection_id = ${sourceId}
+        and status = 'active'
+        and days_without_recommendation between 7 and 30
+        and operability_status = 'actionable'
+        and job_description is null
+      order by created_at
+      limit ${DEFAULT_JD_BATCH}
+    `;
+    stats.queried = missing.length;
+
     const rows = [];
-    let pageNumber = 1;
-    let totalPages = 1;
-
-    while (pageNumber <= totalPages && pageNumber <= maxPages) {
-      const result = await callTool(JOBS_LIST_TOOL, {
-        page: pageNumber,
-        page_size: pageSize,
-      });
-      const parsed = parseJobsListResult(result);
-      totalPages = parsed.totalPages;
-      stats.pages += 1;
-      stats.seen += parsed.jobs.length;
-      rows.push(...parsed.jobs);
-
-      if (totalPages === 0) break;
-      pageNumber += 1;
+    for (const { externalId } of missing) {
+      let jobDescription;
+      try {
+        const result = await callTool(JOBS_GET_TOOL, { job_id: externalId });
+        ({ jobDescription } = parseJobsGetResult(result));
+      } catch {
+        stats.failed += 1; // 单职位失败跳过，不毒化整轮
+        continue;
+      }
+      if (jobDescription === null || jobDescription === undefined) {
+        stats.detailsMissing += 1; // 上游无 JD，保留现状（不抹既有值）
+        continue;
+      }
+      rows.push({ externalId, jobDescription });
     }
 
-    if (totalPages > maxPages) {
-      stats.maxPagesReached = 1;
-    }
-
-    stats.detailsSeen = rows.length;
     if (rows.length > 0) {
-      const { matched, present, total } = await updateJobDescriptions(sql, {
-        sourceId,
-        rows,
-      });
+      const { matched } = await updateJobDescriptions(sql, { sourceId, rows });
       stats.detailsMatched = matched;
-      stats.detailsMissing = Math.max(0, total - present);
     }
 
     await finishSyncRun(sql, syncRunId, stats);
@@ -115,7 +110,7 @@ export async function runJobDetailsSync({
 }
 
 /**
- * 默认 MCP 调用工具（收紧白名单到 `[wb.jobs.list]`）：配置从 `env`（Worker 绑定）
+ * 默认 MCP 调用工具（收紧白名单到 `[wb.jobs.get]`）：配置从 `env`（Worker 绑定）
  * 或缺省 process.env 解析。兼容旧调用 `createJobDetailsCallTool(actorId)`（字符串）。
  */
 export function createJobDetailsCallTool(options = {}) {
@@ -128,7 +123,7 @@ export function createJobDetailsCallTool(options = {}) {
       actorId,
       toolName,
       arguments: toolArguments,
-      allowedTools: [JOBS_LIST_TOOL],
+      allowedTools: [JOBS_GET_TOOL],
     });
 }
 

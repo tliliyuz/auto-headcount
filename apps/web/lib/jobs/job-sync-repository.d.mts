@@ -22,8 +22,21 @@ export function persistUnderServedJob(
     rawPayload: unknown;
     job: UnderServedJobSourceRecord;
     encryption: { key: string; keyVersion: string };
+    operabilityStatus?: string | null;
   },
 ): Promise<{ rawRecordId: string; jobId: string }>;
+
+/** 关闭本次完整拉取未见的陈旧沉睡职位（seen 含不可操作，不误标 not_in_access_scope）。 */
+export function closeStaleUnderServedJobs(
+  sql: SqlClient,
+  input: { sourceId: string; seenExternalIds: string[] },
+): Promise<number>;
+
+/** 批量标记本地可操作状态（如 seen 但不可操作 → not_in_access_scope）。 */
+export function markOperabilityStatus(
+  sql: SqlClient,
+  input: { sourceId: string; externalIds: string[]; status: string },
+): Promise<number>;
 
 export function finishSyncRun(
   sql: SqlClient,

@@ -284,6 +284,15 @@ export const jobs = pgTable(
     detailedLocation: text("detailed_location"),
     /** 完整 JD（内部运营详情视图；落地页白名单投影禁止输出，docs/03 §10）。由 wb.jobs.list 补全。 */
     jobDescription: text("job_description"),
+    /**
+     * 本地可操作状态（docs/04 §6，2026-08-13 决策）：
+     * - `actionable`：账号自身作用域（wb.jobs.list），可创建匹配任务；
+     * - `not_in_access_scope`：上游仍沉睡但不在账号可操作集（不是"已关闭"，只是当前数据源下不可操作）；
+     * - `match_unavailable`：在作用域但 match_candidates 返回权限边界（未来匹配工作流写入）；
+     * - `source_incomplete`：数据源不完整（未来 JD/详情缺失时标记）。
+     * 沉睡巡检视图只展示 actionable。
+     */
+    operabilityStatus: text("operability_status"),
     salaryMin: integer("salary_min"),
     salaryMax: integer("salary_max"),
     status: text("status").notNull(),

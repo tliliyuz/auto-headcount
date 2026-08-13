@@ -143,6 +143,58 @@ function mapJobListItem(item, index) {
   };
 }
 
+/**
+ * 解析 `wb.jobs.get(job_id)` 响应：`Data` 为单个职位对象（非 list 包裹）。
+ * 受控验证（2026-08-13）：get 对沉睡职位（含非账号可操作）均返回 Code=0 + job_description；
+ * 权限边界码（403/1003/1004）映射 MCP_PERMISSION_BOUNDARY（不重试、不换身份）。
+ * 仅提取 JD 所需字段，不投影其他原始字段。
+ */
+export function parseJobsGetResult(result) {
+  if (!isObject(result) || !Array.isArray(result.content)) {
+    throw invalid("content must be an array");
+  }
+  if (result.isError === true) {
+    throw new McpContractError(
+      "MCP tool reported an error",
+      "MCP_UPSTREAM_ERROR",
+    );
+  }
+
+  const textBlock = result.content.find(
+    (item) => isObject(item) && item.type === "text" && typeof item.text === "string",
+  );
+  if (!textBlock) throw invalid("content has no text result");
+
+  let payload;
+  try {
+    payload = JSON.parse(textBlock.text);
+  } catch {
+    throw invalid("text result is not valid JSON");
+  }
+
+  if (!isObject(payload)) throw invalid("payload must be an object");
+  requireNumber(payload.Code, "Code");
+  requireString(payload.Message, "Message");
+  if (payload.Code !== 0) {
+    throw new McpContractError(
+      "MCP provider returned a business error",
+      PERMISSION_BOUNDARY_CODES.has(payload.Code)
+        ? "MCP_PERMISSION_BOUNDARY"
+        : "MCP_UPSTREAM_ERROR",
+    );
+  }
+  if (!isObject(payload.Data)) throw invalid("Data must be an object");
+
+  const data = payload.Data;
+  return {
+    externalId: requireString(data.job_id, "Data.job_id"),
+    jobDescription: requireJobDescription(
+      data.job_description,
+      "Data.job_description",
+    ),
+  };
+}
+
 /** 职位描述：null/undefined/空串归一为 null（无 JD），非字符串拒绝（不吞类型漂移）。 */
 function requireJobDescription(value, path) {
   if (value === null || value === undefined) return null;

@@ -2,7 +2,7 @@ import { McpDiscoveryError } from "../adapters/mcp-discovery.mjs";
 import { createAuthRepository } from "../identity/auth-repository.mjs";
 import { createAsyncTaskRepository } from "./async-task-repository.mjs";
 import {
-  JOBS_LIST_TOOL,
+  JOBS_GET_TOOL,
   runJobDetailsSync,
 } from "./job-details-sync.mjs";
 import {
@@ -120,10 +120,10 @@ export async function enqueueJobDetailSyncTasks(
 async function runSyncForTask(sql, { env, task, mcp }) {
   try {
     const source = task.payload?.source ?? resolveSyncSource(env);
-    // job_details 同步独立运行（白名单收紧到 [wb.jobs.list]）：其失败不毒化 dormant 同步。
+    // job_details 同步独立运行（白名单收紧到 [wb.jobs.get]）：其失败不毒化 dormant 同步。
     if (task.kind === TASK_KIND_JOB_DETAILS) {
       const callTool =
-        mcp?.callTool ?? createDefaultCallTool({ env, allowedTools: [JOBS_LIST_TOOL] });
+        mcp?.callTool ?? createDefaultCallTool({ env, allowedTools: [JOBS_GET_TOOL] });
       return await runJobDetailsSync({ sql, source, mcp: { callTool } });
     }
     const encryption = {
@@ -171,11 +171,15 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "seen",
       "eligible",
       "skipped",
+      "operable",
+      "inoperableSeen",
       "persisted",
+      "closedStale",
       "maxPagesReached",
-      "detailsSeen",
+      "queried",
       "detailsMatched",
       "detailsMissing",
+      "failed",
     ]) {
       if (key in outcome.stats) metadata[key] = outcome.stats[key];
     }

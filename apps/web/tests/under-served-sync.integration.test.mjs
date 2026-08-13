@@ -45,6 +45,30 @@ function fakeJob(externalId, ageDays, companyMarker) {
   };
 }
 
+/** wb.jobs.list 可操作集页：job_id + job_description（fix4 只提取 externalId）。 */
+function fakeJobsListPage(externalIds) {
+  return fakePage({
+    total: externalIds.length,
+    page: 1,
+    pageSize: 100,
+    totalPages: externalIds.length ? 1 : 0,
+    list: externalIds.map((id) => ({
+      job_id: id,
+      job_title: `Job ${id}`,
+      status: "active",
+      job_description: `JD for ${id}`,
+    })),
+  });
+}
+
+/** 路由 wb.jobs.list → 可操作集；其余工具委托被测 callTool。 */
+function dispatchOperable(callTool, operableIds) {
+  return async (toolName, args) => {
+    if (toolName === "wb.jobs.list") return fakeJobsListPage(operableIds);
+    return callTool(toolName, args);
+  };
+}
+
 test(
   "两页分页同步：合格职位入库、原始快照加密追加写、重跑不产生重复职位",
   { skip: !connectionString },
@@ -77,13 +101,19 @@ test(
         list: [fakeJob("day-30", 30, "SECRET_COMPANY_MARKER_C")],
       });
       let calls = 0;
-      const callTool = async (toolName, args) => {
+      const underServedCallTool = async (toolName, args) => {
         calls += 1;
         assert.equal(toolName, "wb.jobs.under_served");
         assert.equal(args.days_without_rec, 7);
         assert.equal(args.page_size, 2);
         return args.page === 1 ? page1 : page2;
       };
+      // 全部 fixture 职位均为可操作集 → 2 个合格职位都入库
+      const callTool = dispatchOperable(underServedCallTool, [
+        "day-7",
+        "day-31",
+        "day-30",
+      ]);
 
       const first = await runUnderServedSync({
         sql,
@@ -99,6 +129,8 @@ test(
         seen: 3,
         eligible: 2,
         skipped: 1,
+        operable: 3,
+        inoperableSeen: 0,
         persisted: 2,
         closedStale: 0,
       });
@@ -281,7 +313,7 @@ test(
     let sourceId;
 
     try {
-      // 首次：供应方返回 alpha + beta 两个合格职位
+      // 首次：供应方返回 alpha + beta 两个合格职位，均为可操作集
       const firstPage = fakePage({
         total: 2,
         page: 1,
@@ -294,13 +326,13 @@ test(
         encryption,
         source,
         pageSize: 20,
-        mcp: { callTool: async () => firstPage },
+        mcp: { callTool: dispatchOperable(async () => firstPage, ["alpha", "beta"]) },
       });
       sourceId = first.sourceId;
       assert.equal(first.status, "succeeded");
       assert.equal(first.stats.closedStale, 0);
 
-      // 第二次：beta 从供应方列表消失（已关闭/已有推荐）
+      // 第二次：beta 从供应方列表消失（已关闭/已有推荐），也不再是可操作集
       const secondPage = fakePage({
         total: 1,
         page: 1,
@@ -313,7 +345,7 @@ test(
         encryption,
         source,
         pageSize: 20,
-        mcp: { callTool: async () => secondPage },
+        mcp: { callTool: dispatchOperable(async () => secondPage, ["alpha"]) },
       });
       assert.equal(second.status, "succeeded");
       assert.equal(second.stats.closedStale, 1, "beta 应被标记 closed");
@@ -397,6 +429,101 @@ test(
       assert.equal(staleRun.status, "failed", "卡住的 running 应被回收");
       assert.equal(staleRun.error_code, "RUN_STALE_TIMEOUT");
       assert.notEqual(staleRun.finished_at, null);
+    } finally {
+      if (sourceId) {
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "fix4：不可操作沉睡职位标记 not_in_access_scope（非 closed），仅可操作集入库并进入沉睡视图",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = {
+      provider: `fixture-sync-${marker}`,
+      environment: "test",
+      displayName: "Fixture Operable",
+    };
+    let sourceId;
+
+    try {
+      const page = fakePage({
+        total: 3,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+        list: [
+          fakeJob("alpha", 9, "MARKER_A"),
+          fakeJob("beta", 12, "MARKER_B"),
+          fakeJob("gamma", 15, "MARKER_C"),
+        ],
+      });
+
+      // 首轮：三个职位均入库为 actionable（模拟作用域曾覆盖它们）
+      const first = await runUnderServedSync({
+        sql,
+        encryption,
+        source,
+        pageSize: 20,
+        mcp: { callTool: dispatchOperable(async () => page, ["alpha", "beta", "gamma"]) },
+      });
+      sourceId = first.sourceId;
+      assert.equal(first.status, "succeeded");
+      assert.equal(first.stats.persisted, 3);
+
+      // 第二轮：可操作集收窄到 alpha → beta/gamma 标记 not_in_access_scope（非 closed）
+      const second = await runUnderServedSync({
+        sql,
+        encryption,
+        source,
+        pageSize: 20,
+        mcp: { callTool: dispatchOperable(async () => page, ["alpha"]) },
+      });
+      assert.equal(second.status, "succeeded");
+      assert.equal(second.stats.operable, 1);
+      assert.equal(second.stats.persisted, 1);
+      assert.equal(second.stats.inoperableSeen, 2);
+      assert.equal(second.stats.closedStale, 0, "不可操作≠已关闭，不触发 closeStale");
+
+      const rows = await sql`
+        select external_id, status, operability_status
+        from jobs where source_connection_id = ${sourceId}
+        order by external_id
+      `;
+      assert.deepEqual(
+        rows.map((r) => [r.external_id, r.status, r.operability_status]),
+        [
+          ["alpha", "active", "actionable"],
+          ["beta", "active", "not_in_access_scope"],
+          ["gamma", "active", "not_in_access_scope"],
+        ],
+        "不可操作职位标记 not_in_access_scope 而非 closed",
+      );
+
+      // 沉睡视图只展示 actionable（共享库数据多，用 q 定位 fixture 职位）
+      const alphaView = await listUnderServedJobs(sql, { q: "alpha", pageSize: 100 });
+      assert.ok(
+        alphaView.list.some((j) => j.externalId === "alpha"),
+        "actionable 进入沉睡视图",
+      );
+      const betaView = await listUnderServedJobs(sql, { q: "beta", pageSize: 100 });
+      assert.ok(
+        !betaView.list.some((j) => j.externalId === "beta"),
+        "not_in_access_scope 不进入沉睡视图",
+      );
+      const gammaView = await listUnderServedJobs(sql, { q: "gamma", pageSize: 100 });
+      assert.ok(
+        !gammaView.list.some((j) => j.externalId === "gamma"),
+        "not_in_access_scope 不进入沉睡视图",
+      );
     } finally {
       if (sourceId) {
         await sql`delete from jobs where source_connection_id = ${sourceId}`;
