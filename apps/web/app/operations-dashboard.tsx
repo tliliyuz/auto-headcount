@@ -54,6 +54,26 @@ const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
 
 const categories = ["全部", "技术研发", "产品设计", "市场销售", "数据智能"];
 
+const JOB_PAGE_SIZE = 10;
+
+/** 生成分页页码序列：总数 ≤7 全显示，否则显示首尾与当前页邻域，空隙用省略号。 */
+function pageItems(current: number, total: number): Array<number | "…"> {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  // 去重后再排序：current 落在端点时（如 current=1 或 current=total），
+  // 候选集里的 1/current/total 会重复，重复项会同时造成重复页码与重复 React key。
+  const pages = [...new Set([1, current - 1, current, current + 1, total])]
+    .filter((p) => p >= 1 && p <= total)
+    .sort((a, b) => a - b);
+  const items: Array<number | "…"> = [];
+  let prev = 0;
+  for (const p of pages) {
+    if (p - prev > 1) items.push("…");
+    items.push(p);
+    prev = p;
+  }
+  return items;
+}
+
 type PageId = "jobs" | "matching" | "campaigns" | "followups" | "funnel" | "sources" | "audit";
 
 const pageLabels: Record<PageId, string> = {
@@ -555,6 +575,8 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [activePage, setActivePage] = useState<PageId>("jobs");
   const [activeCategory, setActiveCategory] = useState("全部");
   const [query, setQuery] = useState("");
+  const [jobPage, setJobPage] = useState(1);
+  const [jumpValue, setJumpValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -677,6 +699,23 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
         .includes(query.trim().toLowerCase());
     return categoryMatches && queryMatches;
   });
+
+  const filteredTotal = filteredJobs.length;
+  const jobTotalPages = Math.max(1, Math.ceil(filteredTotal / JOB_PAGE_SIZE));
+  const currentJobPage = Math.min(jobPage, jobTotalPages);
+  const pageJobs = filteredJobs.slice(
+    (currentJobPage - 1) * JOB_PAGE_SIZE,
+    currentJobPage * JOB_PAGE_SIZE,
+  );
+
+  // 跳页：输入页码直接到达（超界收敛到首/末页），跳完清空输入。
+  function jumpToPage() {
+    const page = Number.parseInt(jumpValue, 10);
+    if (!Number.isNaN(page) && page >= 1) {
+      setJobPage(Math.min(page, jobTotalPages));
+    }
+    setJumpValue("");
+  }
 
   const selectedJob =
     sleepingJobs.find((job) => job.id === selectedId) ?? sleepingJobs[0];
@@ -810,7 +849,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     role="tab"
                     aria-selected={activeCategory === category}
                     className={activeCategory === category ? "active" : ""}
-                    onClick={() => setActiveCategory(category)}
+                    onClick={() => { setActiveCategory(category); setJobPage(1); }}
                   >
                     {category}
                     {category === "全部" && <span>{sleepingJobs.length}</span>}
@@ -819,7 +858,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               </div>
 
               <div className="table-tools">
-                <label className="table-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索职位名称或城市" /></label>
+                <label className="table-search"><span>⌕</span><input value={query} onChange={(event) => { setQuery(event.target.value); setJobPage(1); }} placeholder="搜索职位名称或城市" /></label>
                 <button>发布时间：7–30 天⌄</button>
                 <button>负责人：全部⌄</button>
                 <button className="filter-button">≡ 筛选</button>
@@ -829,7 +868,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                 <table>
                   <thead><tr><th><span className="fake-checkbox" /></th><th>职位</th><th>类别 / 地点</th><th>沉睡时长</th><th>匹配池</th><th>负责人</th><th /></tr></thead>
                   <tbody>
-                    {filteredJobs.map((job) => (
+                    {pageJobs.map((job) => (
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><input aria-label={`选择 ${job.title}`} type="checkbox" checked={selectedRows.includes(job.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleRow(job.id)} /></td>
                         <td><strong>{job.title}</strong><small>{job.externalId} · 更新于 {formatDateTime(job.updatedAt)}</small></td>
@@ -851,7 +890,33 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                 )}
               </div>
 
-              <div className="table-footer"><span>显示 {filteredJobs.length} 个，共 {sleepingJobs.length} 个沉睡职位</span><div><button disabled>‹</button><button className="active">1</button><button>2</button><button>3</button><button>›</button></div></div>
+              <div className="table-footer">
+                <span>{filteredTotal === 0 ? "显示 0 条" : `显示 ${(currentJobPage - 1) * JOB_PAGE_SIZE + 1}–${Math.min(currentJobPage * JOB_PAGE_SIZE, filteredTotal)} 条，共 ${filteredTotal} 条匹配`}</span>
+                <div>
+                  <button disabled={currentJobPage <= 1} onClick={() => setJobPage(currentJobPage - 1)} aria-label="上一页">‹</button>
+                  {pageItems(currentJobPage, jobTotalPages).map((item, index) =>
+                    item === "…" ? (
+                      <span key={`gap-${index}`} className="page-gap">…</span>
+                    ) : (
+                      <button key={item} className={item === currentJobPage ? "active" : ""} onClick={() => setJobPage(item)}>{item}</button>
+                    ),
+                  )}
+                  <button disabled={currentJobPage >= jobTotalPages} onClick={() => setJobPage(currentJobPage + 1)} aria-label="下一页">›</button>
+                  <div className="page-jump">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={jumpValue}
+                      onChange={(event) => setJumpValue(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === "Enter") jumpToPage(); }}
+                      aria-label="跳转到指定页"
+                      placeholder="页码"
+                    />
+                    <span>/ {jobTotalPages} 页</span>
+                    <button type="button" onClick={jumpToPage} disabled={!jumpValue}>GO</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <aside className="insight-panel" aria-label="当前职位详情">
