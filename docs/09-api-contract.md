@@ -81,6 +81,19 @@
 - 每次点击入队一个幂等键唯一（`under-served-sync:manual:<uuid>`）的 `under_served_sync` 任务，`scheduled_at=now`，调度 tick 下轮认领执行；任务结果落 `sync_runs` 与 `async_tasks` 状态，可在数据源页 / 审计日志页观察。
 - **手动触发去重**：`enqueueTaskIfIdle` 原子保证同 kind 至多一个活跃（`pending/running`）任务，重复点击/并发触发不重复入队，返回既有活跃任务 id（`deduplicated:true`）供前端跟踪进度；活跃任务由调度 tick 的任务看门狗（见 02-architecture §5）在超时后回收，避免卡死任务永久锁死同步。
 
+### 2.5 业务写/读：匹配（M2 · 本地评分）
+
+本地版本化评分是权威分（ADR-005）；供应方 `match_candidates` 仅存 `matches.external_*` 外部对照。统一要求：会话 + RBAC `operations|admin`；写路由 CSRF 同源；每次访问写审计（`match-tasks.trigger` / `matches.list` / `matches.detail` / `matches.review`，元数据白名单仅计数/决策/状态）。
+
+| 接口 | 方法 | 鉴权 | 请求 | 响应 |
+|---|---|---|---|---|
+| `/api/match-tasks` | POST | 会话 + `operations\|admin` | `{ job_ids: string[] }`（仅可操作职位） | `202 { accepted: true, taskId }`；`202 { accepted:false, taskId, deduplicated:true }`；非法 `400` |
+| `/api/matches` | GET | 会话 + `operations\|admin` | `job_id?`/`band?`/`status?`/`page`/`page_size` | `200` 分页包络，`list[]` 匹配投影 |
+| `/api/matches/:id` | GET | 会话 + `operations\|admin` | 路径 `id`（UUID） | `200` 匹配详情（含维度分）；非 UUID `400`；查无 `404` |
+| `/api/matches/:id/review` | POST | 会话 + `operations\|admin` | `{ decision: "approve"\|"reject" }` | `200 { id, status }`；已审核 `409` |
+
+**匹配投影（`list[]`/详情）**：`id`、`jobId`、`jobTitle`、`jobExternalId`、`candidateId`、`candidateName`（打码）、`candidateSummary`、`score`（本地权威分）、`band`、`status`、`ruleVersion`、`inputHash`、`scoreStatus`、`externalScore`/`externalTier`/`externalScoreStatus`（外部对照，可空）、`evidence`/`missing`/`risk`、`createdAt`/`updatedAt`；详情含 `dimensions[]`。**永不返回** `portal_url`、联系方式与 `raw_records.payload_*`。
+
 ## 3. 规划端点（随里程碑补充）
 
 以下按页面模块列出规划端点，**路径为草案**，契约须在对应里程碑实现前完成并回写本文档：
@@ -90,7 +103,7 @@
 | 职位巡检（M1） | `GET /api/jobs/under-served`、`GET /api/jobs/:id` | 已设计（见 §2.2；`/api/jobs` 全列表另行设计） |
 | 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 已设计（见 §2.2） |
 | 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
-| 匹配（M2） | `POST /api/match-tasks`、`GET /api/matches` | 待设计 |
+| 匹配（M2） | `POST /api/match-tasks`、`GET /api/matches`、`GET /api/matches/:id`、`POST /api/matches/:id/review` | 已设计（见 §2.5） |
 | 浏览器采集控制（M2） | `POST /api/browser-collections`、`GET /api/browser-collections/:id` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
 | 浏览器受控直传（M2） | `POST /api/browser-ingestion/:ticket` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
 | 触达活动（M3） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |

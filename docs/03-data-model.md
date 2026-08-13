@@ -26,9 +26,11 @@
 | 数据 | [`jobs`](#71-jobs) | 规范化职位；公司名/详细地址不进公开视图 |
 | 任务 | [`async_tasks`](#72-async_tasks任务调度) | 数据库任务表调度（状态/幂等键/退避重试/dead） |
 
-### 2.2 规划表（M2–M4，未落库）
+### 2.2 规划表（M3–M4，未落库）
 
-`job_requirements`、`candidates`、`candidate_profiles`、`candidate_contacts`、`match_rules`、`matches`、`match_dimensions`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m2m4未落库)，落地前必须先回写本文件再写迁移。
+`candidate_contacts`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m3m4未落库)，落地前必须先回写本文件再写迁移。
+
+**M2 匹配表（迁移 0007 已落库）**：`job_requirements`（§7.2）、`match_rules`（§7.3）、`candidates`（§7.4）、`candidate_profiles`（§7.5）、`matches`（§7.6）、`match_dimensions`（§7.7）。本地版本化评分是权威分（ADR-005）；`matches.external_*` 保存供应方 match_candidates 外部对照（非权威分）。
 
 ## 3. 通用存储约定
 
@@ -180,7 +182,20 @@ erDiagram
 
 **禁含**：MCP 凭证、原始载荷、简历正文、联系方式等敏感字段。`async_tasks_due_idx(status, scheduled_at)` 支撑调度认领（`FOR UPDATE SKIP LOCKED`）。
 
-## 8. 规划表（M2–M4，未落库）
+## 7.3 匹配域表（M2 本地评分，迁移 0007 已落库）
+
+本地版本化、可复算评分是权威分（ADR-005）；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。
+
+| 表 | 关键字段与约束 |
+|:---|:---|
+| `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入 |
+| `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
+| `candidates` | `external_id`(unique), `display_name`, `summary`, `consent_status`(unknown→permitted→opted_out)。打码、无联系方式 |
+| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `expected_salary_min/max`, `activity_updated_at` |
+| `matches` | `job_id`(FK jobs), `candidate_id`(FK candidates), `score`(本地总分), `band`, `status`(generated→approved/rejected), `rule_version`, `input_hash`(可复算), `score_status`(local_computed), `external_score/tier/score_status`(外部对照), `evidence/missing/risk`(jsonb)。唯一 `(job_id,candidate_id,rule_version)` |
+| `match_dimensions` | `match_id`(FK matches CASCADE), `dimension`, `score`, `evidence`, `risk` |
+
+## 8. 规划表（M3–M4，未落库）
 
 字段草案见下表；**落地前必须先修订本文件、再写迁移与测试**。这些表在当前数据库**不存在**。
 

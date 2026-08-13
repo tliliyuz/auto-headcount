@@ -361,3 +361,169 @@ export const asyncTasks = pgTable(
     index("async_tasks_due_idx").on(table.status, table.scheduledAt),
   ],
 );
+
+/** M2 本地匹配：职位要求（本地硬过滤/加权评分的职位输入，docs/03 §8；真实来源 JD 派生或 Web 采集）。 */
+export const jobRequirements = pgTable(
+  "job_requirements",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "restrict" }),
+    /** 硬过滤/加权评分所需技能清单。 */
+    skills: jsonb("skills").$type<string[]>().notNull().default([]),
+    seniority: text("seniority"),
+    education: text("education"),
+    salaryMin: integer("salary_min"),
+    salaryMax: integer("salary_max"),
+    /** 其他不可妥协约束（如学历门槛/证书/语言）。 */
+    constraints: jsonb("constraints").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("job_requirements_job_id_unique").on(table.jobId),
+  ],
+);
+
+/** M2 匹配：评分规则版本（本地版本化、可复算；ADR-005 主评分路径，供应方 match_candidates 仅外部对照）。 */
+export const matchRules = pgTable(
+  "match_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** 规则版本号：matches.rule_version 引用；版本不变则同输入可复算。 */
+    version: integer("version").notNull(),
+    /** 7 维权重：技能/行业/职级/经历/地点/薪资/活跃度（docs/01 §1.3）。 */
+    weights: jsonb("weights").$type<Record<string, number>>().notNull().default({}),
+    /** 分带阈值 {high:85, medium:75} + 硬过滤阈值（如 education_min）。 */
+    thresholds: jsonb("thresholds").$type<Record<string, number | string>>().notNull(),
+    activeAt: timestamp("active_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("match_rules_version_unique").on(table.version)],
+);
+
+/** M2 匹配：候选人（打码名 + 摘要，无联系方式——docs/06）。 */
+export const candidates = pgTable(
+  "candidates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    externalId: text("external_id").notNull(),
+    displayName: text("display_name").notNull(),
+    summary: text("summary"),
+    /** 触达许可：unknown → permitted → opted_out（M3 写入；docs/03 §9）。 */
+    consentStatus: text("consent_status").notNull().default("unknown"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("candidates_external_id_unique").on(table.externalId)],
+);
+
+/** M2 匹配：候选人画像（本地评分输入：技能/经历/地点/学历/职级/行业/薪资/活跃度，docs/03 §8）。 */
+export const candidateProfiles = pgTable(
+  "candidate_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "restrict" }),
+    skills: jsonb("skills").$type<string[]>().notNull().default([]),
+    experienceYears: integer("experience_years"),
+    location: text("location"),
+    education: text("education"),
+    seniority: text("seniority"),
+    industry: text("industry"),
+    expectedSalaryMin: integer("expected_salary_min"),
+    expectedSalaryMax: integer("expected_salary_max"),
+    /** 活跃度：画像/简历最近更新时间（越近越高分）。 */
+    activityUpdatedAt: timestamp("activity_updated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("candidate_profiles_candidate_id_unique").on(table.candidateId),
+  ],
+);
+
+/** M2 匹配：职位—候选人匹配结果（**本地评分是权威分**；供应方 match_candidates 仅存 external_* 外部对照）。 */
+export const matches = pgTable(
+  "matches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "restrict" }),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "restrict" }),
+    /** 本地加权总分（0-100，可复算）。 */
+    score: integer("score"),
+    /** 本地分带：high(≥85) / medium(75-84) / low(0-74)。 */
+    band: text("band"),
+    /** 审核状态：generated → approved/rejected（docs/03 §9）。 */
+    status: text("status").notNull().default("generated"),
+    ruleVersion: integer("rule_version").notNull(),
+    /** 规范化输入哈希（同规则版本同输入可复算，docs/01 §1.3）。 */
+    inputHash: text("input_hash"),
+    /** 本地计算状态。 */
+    scoreStatus: text("score_status").notNull().default("local_computed"),
+    /** 供应方 match_candidates 外部对照（非权威分）。 */
+    externalScore: integer("external_score"),
+    externalTier: text("external_tier"),
+    externalScoreStatus: text("external_score_status"),
+    /** 匹配证据（命中项）。 */
+    evidence: jsonb("evidence").$type<string[]>().notNull().default([]),
+    /** 缺失项。 */
+    missing: jsonb("missing").$type<string[]>().notNull().default([]),
+    /** 风险提示。 */
+    risk: jsonb("risk").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("matches_job_candidate_rule_unique").on(
+      table.jobId,
+      table.candidateId,
+      table.ruleVersion,
+    ),
+    index("matches_job_idx").on(table.jobId),
+    index("matches_status_idx").on(table.status),
+  ],
+);
+
+/** M2 匹配：维度分与证据/风险（本地评分各维度，docs/01 §1.3）。 */
+export const matchDimensions = pgTable(
+  "match_dimensions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    dimension: text("dimension").notNull(),
+    score: integer("score"),
+    evidence: text("evidence"),
+    risk: text("risk"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("match_dimensions_match_idx").on(table.matchId)],
+);

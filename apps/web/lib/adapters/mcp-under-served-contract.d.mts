@@ -74,6 +74,11 @@ export type JobsGetDetail = {
 /** `wb.jobs.get(job_id)`：Data 为单职位对象（非 list 包裹）。 */
 export function parseJobsGetResult(result: unknown): JobsGetDetail;
 
+export type MatchDimensionScore = {
+  dimension: string;
+  score: number | null;
+};
+
 export type MatchCandidateView = {
   candidateId: string;
   isOwn: boolean;
@@ -83,6 +88,16 @@ export type MatchCandidateView = {
   scoreStatus: string;
   totalScore: number | null;
   tier: string | null;
+  /** 维度分：pending 时为 null，cached 时为 [{dimension, score}]。 */
+  dimensionScores: MatchDimensionScore[] | null;
+  /** 匹配证据（命中项）。 */
+  matchHighlights: string[] | null;
+  /** 缺失项。 */
+  gapAnalysis: string[] | null;
+  /** 风险提示。 */
+  riskFlags: string[] | null;
+  verificationSuggestions: string[] | null;
+  jobSummary: string | null;
   candidate: {
     name: string | null;
     currentTitle: string | null;

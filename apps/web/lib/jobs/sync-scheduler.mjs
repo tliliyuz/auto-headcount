@@ -5,6 +5,7 @@ import {
   JOBS_GET_TOOL,
   runJobDetailsSync,
 } from "./job-details-sync.mjs";
+import { runMatchSync } from "./match-sync.mjs";
 import {
   createDefaultCallTool,
   runUnderServedSync,
@@ -19,6 +20,7 @@ const RETRY_MAX_MS = 60 * 60 * 1000;
 const DEFAULT_STALE_TASK_MS = 30 * 60 * 1000;
 const TASK_KIND_SYNC = "under_served_sync";
 const TASK_KIND_JOB_DETAILS = "job_details_sync";
+const TASK_KIND_MATCH = "match_candidates_sync";
 
 /** 周期槽位键：now 所在的 interval 序号（纯函数，可单测）。 */
 export function syncPeriodKey(now, intervalMs) {
@@ -126,6 +128,17 @@ async function runSyncForTask(sql, { env, task, mcp }) {
         mcp?.callTool ?? createDefaultCallTool({ env, allowedTools: [JOBS_GET_TOOL] });
       return await runJobDetailsSync({ sql, source, mcp: { callTool } });
     }
+    // 匹配任务流（M2）：按需触发（POST /api/match-tasks 入队），对选定可操作职位跑本地评分
+    // （外部对照 mcp 可选——提供时把 match_candidates 结果写入 external_*，不作为权威分）。
+    if (task.kind === TASK_KIND_MATCH) {
+      const jobIds = Array.isArray(task.payload?.jobIds)
+        ? task.payload.jobIds
+        : [];
+      if (mcp?.callTool) {
+        return await runMatchSync({ sql, source, jobIds, mcp });
+      }
+      return await runMatchSync({ sql, source, jobIds });
+    }
     const encryption = {
       key: env.APP_ENCRYPTION_KEY,
       keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
@@ -179,6 +192,10 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "queried",
       "detailsMatched",
       "detailsMissing",
+      "jobsQueried",
+      "candidatesScored",
+      "matchesStored",
+      "hardFiltered",
       "failed",
     ]) {
       if (key in outcome.stats) metadata[key] = outcome.stats[key];

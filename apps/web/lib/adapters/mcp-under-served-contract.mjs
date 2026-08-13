@@ -273,6 +273,22 @@ function mapMatchCandidate(item, index) {
     scoreStatus: requireString(item.score_status, `${path}.score_status`),
     totalScore: requireNullableNumber(item.total_score, `${path}.total_score`),
     tier: requireNullableString(item.tier, `${path}.tier`),
+    // M2 退出门禁（docs/05:190）要求证据/缺失项/风险提示三类信息——透传供应方解释字段。
+    dimensionScores: parseDimensionScores(
+      item.dimension_scores,
+      `${path}.dimension_scores`,
+    ),
+    matchHighlights: requireStringArray(
+      item.match_highlights,
+      `${path}.match_highlights`,
+    ),
+    gapAnalysis: requireStringArray(item.gap_analysis, `${path}.gap_analysis`),
+    riskFlags: requireStringArray(item.risk_flags, `${path}.risk_flags`),
+    verificationSuggestions: requireStringArray(
+      item.verification_suggestions,
+      `${path}.verification_suggestions`,
+    ),
+    jobSummary: requireNullableString(item.job_summary, `${path}.job_summary`),
     candidate: summary
       ? {
           name: requireNullableString(summary.name, `${path}.candidate_summary.name`),
@@ -296,6 +312,40 @@ function mapMatchCandidate(item, index) {
         }
       : null,
   };
+}
+
+/** 字符串数组（如 match_highlights/gap_analysis/risk_flags）；null/undefined 归一为 null。 */
+function requireStringArray(value, path) {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value)) throw invalid(`${path} must be an array or null`);
+  return value.map((item, index) => {
+    if (typeof item !== "string") throw invalid(`${path}[${index}] must be a string`);
+    return item;
+  });
+}
+
+/** 维度分：接受数组 [{dimension,score}] 或对象 {dimension:score}；null 归一为 null。 */
+function parseDimensionScores(value, path) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    return value.map((item, index) => {
+      if (!isObject(item)) throw invalid(`${path}[${index}] must be an object`);
+      return {
+        dimension: requireString(
+          item.dimension ?? item.name ?? `${index}`,
+          `${path}[${index}].dimension`,
+        ),
+        score: requireNullableNumber(item.score, `${path}[${index}].score`),
+      };
+    });
+  }
+  if (isObject(value)) {
+    return Object.entries(value).map(([dimension, score]) => ({
+      dimension,
+      score: requireNullableNumber(score, `${path}.${dimension}`),
+    }));
+  }
+  throw invalid(`${path} must be an array, object, or null`);
 }
 
 /** 职位描述：null/undefined/空串归一为 null（无 JD），非字符串拒绝（不吞类型漂移）。 */
@@ -398,7 +448,7 @@ function requireStringOrEmpty(value, path) {
 }
 
 function requireNullableString(value, path) {
-  if (value === null) return null;
+  if (value === null || value === undefined) return null;
   return requireString(value, path);
 }
 

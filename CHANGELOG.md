@@ -22,6 +22,26 @@
 - 真实联调修复：猎必得把 `30K-60K` 与后续文字直接拼接，原薪资正则错误要求尾部空白，首次回执薪资为 null。先将无空白 DOM 写入虚构测试并确认 RED，再放宽边界，插件 66/66 GREEN，重载扩展后的真实回执薪资恢复为 30000–60000。
 - 已知边界：真实页面仅用于单职位只读协议验证，未把真实 JD 写入 Fixture；验证职位不满足 7–30 天且零推荐，不能作为沉睡职位入库样本。下一步接 `browser_job_collect` 任务时必须重新校验 `active + 7–30 天 + 推荐数 0`，不合格只记跳过，不写 `jobs`。
 
+### 2026-08-13 — M2 本地评分引擎 + 匹配池（Fixture 闭环，ADR-005 主路径）
+
+> 状态速览：本地确定性硬过滤 + 版本化加权评分（`lib/matching/score.mjs` 纯函数，可复算输入哈希）成为权威分；`match_rules`/`job_requirements`/`candidates`/`candidate_profiles`/`matches`/`match_dimensions` 六表落库（迁移 0007）；`match_sync` 任务对可操作职位跑本地评分并把供应方 `match_candidates` 结果写入 `external_*` 外部对照（非权威分）；匹配列表/详情/审核 API；摘要服务（≤150 字确定性）。虚构 Fixture 闭环跑通，开发不阻塞于供应商。
+
+#### 已实现（implemented）
+
+- 评分引擎：`lib/matching/score.mjs` `hardFilter`（地点/技能/年限/学历）+ 7 维加权评分（技能/行业/职级/经历/地点/薪资/活跃度）+ `classifyMatch` 分带 + `computeInputHash`（SHA-256 规范化输入，同版本同输入同结果）。
+- 数据模型：`db/schema.ts` 六张匹配表（迁移 0007）；`matches.score` 本地权威分 + `external_*` 外部对照 + `input_hash` 可复算。
+- 任务流：`lib/jobs/match-sync.mjs` `runMatchSync`——对选定可操作职位加载 requirements + 候选池 → 逐个 `scoreMatch` → 落库（本地分/维度/证据/风险/哈希）；提供 `mcp` 时把 `match_candidates` 结果写 `external_*`；单职位失败跳过。调度 `match_candidates_sync` kind 分发。
+- API：`POST /api/match-tasks`（去重触发）、`GET /api/matches`、`GET /api/matches/:id`、`POST /api/matches/:id/review`（approve/reject）；`match-read-repository` 白名单投影（打码名、无联系方式）。
+- 摘要服务：`lib/summaries/summary.mjs` `summarizeJob`/`summarizeCandidate`（≤150 字、无联系方式）。
+
+#### 已验证（verified）
+
+- `npm run lint` 0 问题；`npm run build` 通过（新路由注册）。
+- `npm run test:unit` 124 通过（含评分引擎硬过滤/可复算/分带边界/哈希、摘要服务）。
+- `npm run test:integration` 33 通过（match-sync 本地分落库/硬过滤不入池/可复算/外部对照 external_*、读仓储投影无联系方式、审核状态流转、调度分发、HTTP 匿名 401）。
+
+> 已知边界：本地评分权重/阈值是 version 1 默认（`match_rules` 版本化可调）；真实候选人接入（match_candidates 摘要 → candidate_profiles、Web 采集 ADR-005）与人工审核页 UI 属后续切片。
+
 ### 2026-08-13 — 授权 Web 采集与本地匹配架构决策
 
 > 状态：`specified`。接受 `ADR-005`：供应方 Web 平台成为与 MCP 并列的正式数据源；复用现有 CSDN-Agent 浏览器插件作为登录态与设备路由执行端；本地版本化、可复算规则评分成为业务主路径，供应方 `match_candidates` 降为外部对照。仅完成规范，未实现浏览器采集适配器、受限提取工具、ingestion ticket、候选人直传/脱敏或本地评分。

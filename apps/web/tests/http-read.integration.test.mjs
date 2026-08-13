@@ -64,6 +64,21 @@ test(
     assert.equal(syncTrigger.status, 401, "触发同步无会话应 401");
     assert.equal((await syncTrigger.json()).code, "unauthorized");
 
+    // 1d) M2 匹配端点：只读列表 / 详情 / 触发匹配任务 / 审核，无会话均 401。
+    for (const req of [
+      new Request(`${base}/api/matches`),
+      new Request(`${base}/api/matches/00000000-0000-0000-0000-000000000000`),
+      new Request(`${base}/api/matches/not-a-uuid`),
+      new Request(`${base}/api/match-tasks`, { method: "POST" }),
+      new Request(`${base}/api/matches/00000000-0000-0000-0000-000000000000/review`, {
+        method: "POST",
+      }),
+    ]) {
+      const res = await worker.fetch(req, env, ctx);
+      assert.equal(res.status, 401, `${req.method} ${req.url} 应 401`);
+      assert.equal((await res.json()).code, "unauthorized");
+    }
+
     // 2) 空/畸形会话 Cookie → 401（parseSessionToken 拒绝，同样不触 DB）
     for (const cookie of ["session_token=", "session_token", "foo=bar"]) {
       const res = await worker.fetch(

@@ -7,6 +7,12 @@ import postgres from "postgres";
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
 import { createAsyncTaskRepository } from "../lib/jobs/async-task-repository.mjs";
 import {
+  finishSyncRun,
+  getOrCreateSourceConnection,
+  persistUnderServedJob,
+  startSyncRun,
+} from "../lib/jobs/job-sync-repository.mjs";
+import {
   buildSyncIdempotencyKey,
   enqueueDueSyncTasks,
   runScheduledTick,
@@ -93,6 +99,53 @@ function dispatchCallTool(underServedCallTool, { operableIds = [] } = {}) {
         ],
       };
     }
+    if (toolName === "wb.jobs.match_candidates") {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              Code: 0,
+              Message: "success",
+              Data: {
+                source_id: args.job_id,
+                source_type: "job",
+                total: 1,
+                page: 1,
+                page_size: 20,
+                total_pages: 1,
+                matches: [
+                  {
+                    candidate_id: "cand-x",
+                    is_own: true,
+                    owner_id: "o-1",
+                    owner_name: "示例顾问",
+                    score_status: "cached",
+                    total_score: 80,
+                    tier: "moderate",
+                    dimension_scores: null,
+                    match_highlights: [],
+                    gap_analysis: [],
+                    risk_flags: [],
+                    verification_suggestions: [],
+                    job_summary: null,
+                    candidate_summary: {
+                      candidate_id: "cand-x",
+                      name: "王**",
+                      current_title: "算法工程师",
+                      current_company: "示例公司",
+                      city: "上海",
+                      experience_years: 5,
+                      resume_summary: "示例公司-算法工程师",
+                    },
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      };
+    }
     return underServedCallTool(toolName, args);
   };
 }
@@ -120,7 +173,7 @@ async function reclaimRunningSyncTasks(sql) {
     update async_tasks
     set status = 'failed', last_error_code = 'TEST_SLATE_RESET',
         finished_at = now(), updated_at = now()
-    where kind in ('under_served_sync', 'job_details_sync')
+    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync')
       and status = 'running'
   `;
 }
@@ -130,13 +183,25 @@ async function cleanupFixture(sql, { source, taskIds }) {
   if (source) {
     await sql`
       delete from async_tasks
-      where kind in ('under_served_sync', 'job_details_sync')
+      where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync')
         and payload->'source'->>'provider' = ${source.provider}
     `;
     const sourceRows = await sql`
       select id from source_connections where provider = ${source.provider}
     `;
     for (const row of sourceRows) {
+      // FK 顺序：先删本源 matches（match_dimensions 级联）→ candidates → job_requirements → jobs
+      const referenced = await sql`
+        select distinct m.candidate_id as id
+        from matches m join jobs j on j.id = m.job_id
+        where j.source_connection_id = ${row.id}
+      `;
+      await sql`delete from matches where job_id in (select id from jobs where source_connection_id = ${row.id})`;
+      if (referenced.length) {
+        await sql`delete from candidate_profiles where candidate_id = any(${referenced.map((r) => r.id)})`;
+        await sql`delete from candidates where id = any(${referenced.map((r) => r.id)})`;
+      }
+      await sql`delete from job_requirements where job_id in (select id from jobs where source_connection_id = ${row.id})`;
       await sql`delete from jobs where source_connection_id = ${row.id}`;
       await sql`delete from raw_records where source_connection_id = ${row.id}`;
       await sql`delete from sync_runs where source_connection_id = ${row.id}`;
@@ -756,6 +821,115 @@ test(
       await sql`
         delete from async_tasks where idempotency_key like ${`serial:${marker}%`}
       `;
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "调度分发：match_candidates_sync 任务被认领执行并落库匹配",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(marker);
+    const env = fixtureEnv(source);
+    const now = new Date();
+    const taskIds = [];
+    await reclaimRunningSyncTasks(sql);
+
+    try {
+      // seed 一个可操作职位
+      const sourceId = await getOrCreateSourceConnection(sql, source);
+      const runId = await startSyncRun(sql, sourceId, "under_served_jobs");
+      const { jobId } = await persistUnderServedJob(sql, {
+        sourceId,
+        syncRunId: runId,
+        rawPayload: { job_id: "m-1" },
+        job: {
+          externalId: "m-1",
+          title: "Match Job",
+          companyName: "Fixture Co",
+          ownerExternalId: "fixture-owner",
+          ownerName: "Fixture Owner",
+          ageDays: 9,
+          lastRecommendationAt: null,
+          category: "Engineering",
+          city: "Shanghai",
+          salaryMin: 20,
+          salaryMax: 30,
+          portalUrl: "https://portal.invalid/jobs/m-1",
+          sourceCreatedAt: null,
+          eligibilityEvidence: {
+            activeStatus: "provider_filter",
+            zeroRecommendations: "provider_filter",
+            age: "days_without_rec",
+          },
+        },
+        encryption: { key: ENC_KEY, keyVersion: "test-v1" },
+        operabilityStatus: "actionable",
+      });
+      await finishSyncRun(sql, runId, { persisted: 1 });
+
+      // seed 一个候选人 + 画像（本地评分候选池）
+      const candExt = `m-cand-${marker}`;
+      const [candRow] = await sql`
+        insert into candidates (external_id, display_name, summary)
+        values (${candExt}, '王**', '示例工程师')
+        returning id
+      `;
+      await sql`
+        insert into candidate_profiles (
+          candidate_id, skills, experience_years, location, education, seniority,
+          industry, expected_salary_min, expected_salary_max, activity_updated_at
+        ) values (
+          ${candRow.id}, '[]'::jsonb, 6, '上海', '本科', '高级',
+          '互联网', 20, 30, now()
+        )
+      `;
+
+      // 入队匹配任务（payload 携带 jobIds）
+      const taskRepo = createAsyncTaskRepository(sql);
+      const matchKey = `match-candidates:manual:${marker}`;
+      const matchTaskId = await taskRepo.enqueueTask({
+        kind: "match_candidates_sync",
+        idempotencyKey: matchKey,
+        payload: { jobIds: [jobId] },
+        scheduledAt: now,
+      });
+      taskIds.push(matchTaskId);
+
+      const callTool = dispatchCallTool(
+        async () =>
+          fakePage({
+            total: 0,
+            page: 1,
+            pageSize: 20,
+            totalPages: 0,
+            list: [],
+          }),
+        { operableIds: [] },
+      );
+      await runScheduledTick({
+        env,
+        sql,
+        now,
+        intervalMs: SIX_HOURS_MS,
+        mcp: { callTool },
+      });
+
+      const [task] = await sql`
+        select status from async_tasks where id = ${matchTaskId}
+      `;
+      assert.equal(task.status, "succeeded", "匹配任务应成功");
+      const [matchCount] = await sql`
+        select count(*)::int as n from matches where job_id = ${jobId}
+      `;
+      assert.equal(matchCount.n, 1, "匹配结果落库");
+      await sql`delete from async_tasks where idempotency_key = ${matchKey}`;
+    } finally {
+      // cleanupFixture 按 FK 顺序清理 matches/candidates/job_requirements/jobs/source
+      await cleanupFixture(sql, { source, taskIds });
       await sql.end();
     }
   },

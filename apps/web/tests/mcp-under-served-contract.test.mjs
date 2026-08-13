@@ -316,6 +316,11 @@ test("parseMatchCandidatesResult：解析真实响应形状（score_status=pendi
   assert.equal(first.candidate.name, "张**");
   assert.equal(first.candidate.currentTitle, "产品经理");
   assert.equal(first.candidate.city, "北京市");
+  // pending 时解释字段归一为 null/[]（M2 退出门禁：证据/缺失项/风险提示可空待评分完成）
+  assert.equal(first.dimensionScores, null, "pending 时维度分为 null");
+  assert.deepEqual(first.matchHighlights, [], "pending 时命中项为空数组");
+  assert.deepEqual(first.gapAnalysis, []);
+  assert.deepEqual(first.riskFlags, []);
   // 投影收敛：保留已打码摘要，不暴露 portal_url
   assert.equal("portal_url" in first.candidate, false, "不投影 portal_url");
 });
@@ -344,6 +349,15 @@ test("parseMatchCandidatesResult：cached 评分（真实验证形状：total_sc
                 score_status: "cached",
                 total_score: 78,
                 tier: "moderate",
+                dimension_scores: [
+                  { dimension: "技能", score: 85 },
+                  { dimension: "地点", score: 70 },
+                ],
+                match_highlights: ["候选人在搜索推荐引擎有 5 年经验"],
+                gap_analysis: ["缺少海外市场经验"],
+                risk_flags: ["当前在职，离职周期可能较长"],
+                verification_suggestions: ["核实职级与汇报关系"],
+                job_summary: "搜推引擎 leader，211 本起",
                 candidate_summary: {
                   candidate_id: "c-1",
                   name: "王**",
@@ -361,10 +375,20 @@ test("parseMatchCandidatesResult：cached 评分（真实验证形状：total_sc
     ],
   };
   const parsed = parseMatchCandidatesResult(result);
-  assert.equal(parsed.matches[0].scoreStatus, "cached");
-  assert.equal(parsed.matches[0].totalScore, 78);
-  assert.equal(parsed.matches[0].tier, "moderate");
-  assert.equal(parsed.matches[0].isOwn, true);
+  const m = parsed.matches[0];
+  assert.equal(m.scoreStatus, "cached");
+  assert.equal(m.totalScore, 78);
+  assert.equal(m.tier, "moderate");
+  assert.equal(m.isOwn, true);
+  // M2 退出门禁：维度分 + 证据/缺失项/风险提示三类信息透传
+  assert.deepEqual(m.dimensionScores, [
+    { dimension: "技能", score: 85 },
+    { dimension: "地点", score: 70 },
+  ]);
+  assert.deepEqual(m.matchHighlights, ["候选人在搜索推荐引擎有 5 年经验"]);
+  assert.deepEqual(m.gapAnalysis, ["缺少海外市场经验"]);
+  assert.deepEqual(m.riskFlags, ["当前在职，离职周期可能较长"]);
+  assert.equal(m.jobSummary, "搜推引擎 leader，211 本起");
 });
 
 test("parseMatchCandidatesResult：权限边界业务码（1003）映射 MCP_PERMISSION_BOUNDARY，不重试不换身份", () => {
