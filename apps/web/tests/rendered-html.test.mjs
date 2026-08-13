@@ -59,9 +59,10 @@ test("服务端渲染运营后台不泄漏公司与详细地址", async () => {
   const html = await response.text();
   assert.match(html, /<title>沉睡职位巡检｜职位激活台<\/title>/i);
   assert.match(html, /让沉睡的职位，重新流动起来。/);
-  assert.match(html, /发布 7–30 天、仍有效且零推荐/);
+  assert.match(html, /系统自动同步、补全职位并增量匹配/);
   assert.match(html, /正在加载职位…/);
   assert.match(html, /候选人看到的内容/);
+  assert.doesNotMatch(html, /创建匹配任务/);
   assert.doesNotMatch(html, /海岳智能科技有限公司/);
   assert.doesNotMatch(html, /浦东新区张江路/);
 });
@@ -76,7 +77,10 @@ test("静态原型覆盖登录页与运营后台导航页面", async () => {
     "登录职位激活台",
     "设置新口令",
     "账号或口令不正确",
-    "匹配审核队列",
+    "匹配审核工作台",
+    "系统自动生成 · 人工最终确认",
+    "七维评分",
+    "需要人工处理",
     "活动执行概况",
     "今日跟进",
     "转化趋势",

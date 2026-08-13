@@ -119,10 +119,44 @@ const pageLabels: Record<PageId, string> = {
 };
 
 const candidates = [
-  { id: "C-2048", name: "周先生", role: "高级前端工程师", city: "上海", score: 94, years: "8 年经验", education: "本科", status: "待审核", tags: ["React", "TypeScript", "复杂系统"] },
-  { id: "C-2017", name: "陈女士", role: "前端技术专家", city: "上海", score: 89, years: "7 年经验", education: "硕士", status: "待审核", tags: ["工程化", "Node.js", "团队管理"] },
-  { id: "C-1982", name: "林先生", role: "资深全栈工程师", city: "杭州", score: 86, years: "9 年经验", education: "本科", status: "待审核", tags: ["React", "可视化", "B 端产品"] },
-  { id: "C-1961", name: "许女士", role: "高级前端开发", city: "上海", score: 82, years: "6 年经验", education: "本科", status: "需关注", tags: ["Vue", "TypeScript", "跨端"] },
+  {
+    id: "C-2048", name: "候选人 A", role: "高级前端工程师", city: "上海", score: 94,
+    years: "8 年经验", status: "待审核", job: "资深前端工程师", jobCode: "JOB-0821",
+    confidence: "高", updatedAt: "12 分钟前", tags: ["React", "TypeScript", "复杂系统"],
+    evidence: [["核心技能", "React 与 TypeScript 经验覆盖职位核心要求"], ["业务复杂度", "长期负责复杂 B 端系统与平台重构"], ["地点意向", "当前在上海，接受同城机会"]],
+    missing: "英文沟通频率尚未确认", risk: "期望薪资接近职位上限",
+    dimensions: [["技能", 96], ["行业", 88], ["职级", 92], ["经历", 91], ["地点", 100], ["薪资", 78], ["活跃度", 90]],
+  },
+  {
+    id: "C-2017", name: "候选人 B", role: "前端技术专家", city: "上海", score: 89,
+    years: "7 年经验", status: "待审核", job: "资深前端工程师", jobCode: "JOB-0821",
+    confidence: "中", updatedAt: "18 分钟前", tags: ["工程化", "Node.js", "团队管理"],
+    evidence: [["工程能力", "具备大型前端工程治理经验"], ["管理经验", "有小型技术团队管理经历"], ["地点意向", "当前所在地与职位一致"]],
+    missing: "未明确最近一年的编码投入比例", risk: "职级可能高于岗位当前范围",
+    dimensions: [["技能", 91], ["行业", 82], ["职级", 86], ["经历", 93], ["地点", 100], ["薪资", 74], ["活跃度", 86]],
+  },
+  {
+    id: "C-1982", name: "候选人 C", role: "资深全栈工程师", city: "杭州", score: 86,
+    years: "9 年经验", status: "待审核", job: "资深前端工程师", jobCode: "JOB-0821",
+    confidence: "中", updatedAt: "26 分钟前", tags: ["React", "可视化", "B 端产品"],
+    evidence: [["核心技能", "React 与数据可视化经验匹配"], ["业务经验", "持续参与 B 端产品建设"], ["复杂度", "有跨团队系统整合经验"]],
+    missing: "异地到岗安排未确认", risk: "当前城市与职位地点不同",
+    dimensions: [["技能", 90], ["行业", 87], ["职级", 88], ["经历", 92], ["地点", 62], ["薪资", 84], ["活跃度", 83]],
+  },
+  {
+    id: "C-1961", name: "候选人 D", role: "高级前端开发", city: "上海", score: 82,
+    years: "6 年经验", status: "待审核", job: "跨端开发专家", jobCode: "JOB-0816",
+    confidence: "中", updatedAt: "31 分钟前", tags: ["Vue", "TypeScript", "跨端"],
+    evidence: [["跨端经验", "有多个跨端项目交付记录"], ["语言能力", "TypeScript 使用年限满足要求"], ["地点意向", "当前所在地与职位一致"]],
+    missing: "React Native 深度不可评估", risk: "核心框架经历偏 Vue 生态",
+    dimensions: [["技能", 80], ["行业", 78], ["职级", 84], ["经历", 86], ["地点", 100], ["薪资", 76], ["活跃度", 79]],
+  },
+];
+
+const matchingExceptions = [
+  { id: "E-031", job: "数据平台架构师", code: "REQUIRED_FIELD_MISSING", title: "职位硬性要求不完整", detail: "最低工作年限和必备证书未明确，系统已停止评分。", action: "补充职位要求", tone: "amber" },
+  { id: "E-027", job: "高级算法工程师", code: "MATCH_PROJECTION_PII_DETECTED", title: "候选人投影脱敏未通过", detail: "检测到残留联系方式，未向评分模型发送任何内容。", action: "检查脱敏结果", tone: "red" },
+  { id: "E-019", job: "商业化产品经理", code: "LLM_TIMEOUT", title: "详情评分暂时失败", detail: "评分服务超时，任务将在预算窗口内自动重试。", action: "查看运行记录", tone: "blue" },
 ];
 
 function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: string }) {
@@ -279,39 +313,60 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
 function MatchingPage() {
   const [selected, setSelected] = useState(candidates[0].id);
   const [decisions, setDecisions] = useState<Record<string, string>>({});
+  const [queueView, setQueueView] = useState<"review" | "exceptions">("review");
   const candidate = candidates.find((item) => item.id === selected) ?? candidates[0];
   const decision = decisions[candidate.id];
 
   return <>
-    <PageIntro eyebrow="匹配结果需要人工确认" title="匹配审核队列" description="逐条核对匹配证据、缺失项和风险提示，通过后才可进入触达活动。" action="批量审核" />
+    <PageIntro eyebrow="系统自动生成 · 人工最终确认" title="匹配审核工作台" description="职位或候选人信息变化后系统自动重算；运营只需审核结果和处理异常。" />
     <SummaryStrip items={[
-      { label: "待审核", value: "128", note: "23 个高匹配", tone: "violet" },
-      { label: "今日已通过", value: "36", note: "通过率 71%", tone: "green" },
-      { label: "需补充信息", value: "9", note: "等待运营处理", tone: "amber" },
-      { label: "规则版本", value: "v1.4", note: "今天 09:00 生效" },
+      { label: "待人工审核", value: "28", note: "7 个高匹配", tone: "violet" },
+      { label: "自动评分中", value: "6", note: "预计 4 分钟完成" },
+      { label: "需要处理", value: "3", note: "数据或评分异常", tone: "amber" },
+      { label: "今日已通过", value: "12", note: "进入触达准备", tone: "green" },
     ]} />
-    <section className="review-layout">
+    <section className="matching-flow" aria-label="自动匹配流程">
+      <div className="flow-step done"><i>✓</i><span><strong>数据就绪</strong><small>职位与候选人投影</small></span></div><b>→</b>
+      <div className="flow-step done"><i>✓</i><span><strong>硬过滤</strong><small>剔除明确不符合项</small></span></div><b>→</b>
+      <div className="flow-step running"><i>◎</i><span><strong>详情评分</strong><small>脱敏七维评估</small></span></div><b>→</b>
+      <div className="flow-step"><i>4</i><span><strong>人工审核</strong><small>通过后进入触达</small></span></div>
+      <span className="flow-budget">本轮 14 / 20 个评分额度</span>
+    </section>
+    <div className="queue-switch" role="tablist" aria-label="匹配工作区">
+      <button role="tab" aria-selected={queueView === "review"} className={queueView === "review" ? "active" : ""} onClick={() => setQueueView("review")}>待审核 <b>28</b></button>
+      <button role="tab" aria-selected={queueView === "exceptions"} className={queueView === "exceptions" ? "active" : ""} onClick={() => setQueueView("exceptions")}>需要处理 <b>3</b></button>
+    </div>
+    {queueView === "exceptions" ? <section className="surface-card exception-panel">
+      <div className="surface-header"><div><h2>需要人工处理</h2><p>失败关闭的任务不会生成分数，也不会进入触达池</p></div><button className="plain-filter">全部异常⌄</button></div>
+      <div className="exception-list">{matchingExceptions.map((item) => <article key={item.id}>
+        <span className={`exception-icon ${item.tone}`}>!</span>
+        <div><header><strong>{item.title}</strong><code>{item.code}</code></header><p>{item.job} · {item.detail}</p></div>
+        <button>{item.action}</button>
+      </article>)}</div>
+    </section> : <section className="review-layout">
       <div className="surface-card review-list">
-        <div className="surface-header"><div><h2>资深前端工程师</h2><p>JOB-0821 · 共 48 位匹配候选人</p></div><button className="plain-filter">匹配度：从高到低⌄</button></div>
-        <div className="segmented"><button className="active">全部 48</button><button>高匹配 9</button><button>中匹配 21</button><button>已处理 18</button></div>
+        <div className="surface-header"><div><h2>待审核候选人</h2><p>已完成硬过滤、详情评分和本地汇总</p></div><button className="plain-filter">优先级：从高到低⌄</button></div>
+        <div className="segmented"><button className="active">全部 28</button><button>高匹配 7</button><button>中匹配 21</button></div>
         <div className="candidate-list">
           {candidates.map((item) => <button key={item.id} className={`candidate-row ${selected === item.id ? "active" : ""}`} onClick={() => setSelected(item.id)}>
-            <span className="candidate-avatar">{item.name.slice(0, 1)}</span>
-            <span className="candidate-main"><strong>{item.name}<i>{decisions[item.id] ?? item.status}</i></strong><small>{item.role} · {item.city} · {item.years}</small><em>{item.tags.map((tag) => <b key={tag}>{tag}</b>)}</em></span>
+            <span className="candidate-avatar">{item.name.slice(-1)}</span>
+            <span className="candidate-main"><strong>{item.name}<i>{decisions[item.id] ?? item.status}</i></strong><small>{item.job} · {item.jobCode}</small><em>{item.tags.map((tag) => <b key={tag}>{tag}</b>)}</em></span>
             <span className={`match-score ${item.score >= 85 ? "high" : "medium"}`}><strong>{item.score}</strong><small>匹配分</small></span>
           </button>)}
         </div>
       </div>
       <aside className="surface-card candidate-detail">
-        <div className="detail-head"><span className="candidate-avatar large">{candidate.name.slice(0, 1)}</span><div><h2>{candidate.name}</h2><p>{candidate.role} · {candidate.city}</p></div><span className="score-badge">{candidate.score} 分</span></div>
+        <div className="detail-head"><span className="candidate-avatar large">{candidate.name.slice(-1)}</span><div><h2>{candidate.name}</h2><p>{candidate.role} · {candidate.city} · {candidate.years}</p></div><span className="score-badge">{candidate.score} 分</span></div>
+        <div className="score-context"><span>匹配职位 <b>{candidate.job}</b></span><span>评分置信度 <b>{candidate.confidence}</b></span><span>更新于 <b>{candidate.updatedAt}</b></span></div>
         {decision && <div className={`decision-banner ${decision === "已通过" ? "success" : "danger"}`}>当前审核结果：{decision}</div>}
-        <div className="detail-section"><h3>匹配证据</h3><ul className="evidence-list positive"><li><b>核心技能</b><span>React 与 TypeScript 项目经历 5 年</span></li><li><b>业务复杂度</b><span>主导过大型 B 端平台重构</span></li><li><b>地点意向</b><span>当前在上海，接受同城机会</span></li></ul></div>
-        <div className="detail-section two-cols"><div><h3>缺失项</h3><p className="notice amber">未确认英文沟通频率</p></div><div><h3>风险提示</h3><p className="notice red">期望薪资接近上限</p></div></div>
-        <div className="dimension-scores"><h3>维度评分</h3>{[["技能",96],["行业",88],["职级",92],["地点",100],["薪资",78]].map(([label, value]) => <div key={label}><span>{label}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>)}</div>
+        <div className="detail-section"><h3>匹配证据</h3><ul className="evidence-list positive">{candidate.evidence.map(([label, copy]) => <li key={label}><b>{label}</b><span>{copy}</span></li>)}</ul></div>
+        <div className="detail-section two-cols"><div><h3>缺失项</h3><p className="notice amber">{candidate.missing}</p></div><div><h3>风险提示</h3><p className="notice red">{candidate.risk}</p></div></div>
+        <div className="dimension-scores"><h3>七维评分</h3>{candidate.dimensions.map(([label, value]) => <div key={label}><span>{label}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>)}</div>
+        <details className="score-trace"><summary>评分追溯</summary><p>投影 v1 · Prompt v1 · 汇总规则 v1 · 已保存结构化评分结果</p></details>
         <label className="review-note"><span>审核备注</span><textarea placeholder="填写判断依据或后续关注点（选填）" /></label>
         <div className="review-actions"><button onClick={() => setDecisions((current) => ({ ...current, [candidate.id]: "已拒绝" }))}>拒绝</button><button className="approve" onClick={() => setDecisions((current) => ({ ...current, [candidate.id]: "已通过" }))}>通过并加入触达池</button></div>
       </aside>
-    </section>
+    </section>}
   </>;
 }
 
@@ -638,7 +693,6 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [onlyWithDetail, setOnlyWithDetail] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [dormantJobs, setDormantJobs] = useState<DormantJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState<string | null>(null);
@@ -921,14 +975,6 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     return () => controller.abort();
   }, [selectedJob?.id, handleAuthExpired]);
 
-  function toggleRow(id: string) {
-    setSelectedRows((current) =>
-      current.includes(id)
-        ? current.filter((rowId) => rowId !== id)
-        : [...current, id],
-    );
-  }
-
   if (view === "login") {
     return (
       <LoginPage
@@ -959,7 +1005,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
         <nav className="nav" aria-label="主导航">
           <span className="nav-label">工作台</span>
           <button className={`nav-item ${activePage === "jobs" ? "active" : ""}`} onClick={() => setActivePage("jobs")}><span>⌁</span>沉睡职位<i>{sleepingJobs.length}</i></button>
-          <button className={`nav-item ${activePage === "matching" ? "active" : ""}`} onClick={() => setActivePage("matching")}><span>◎</span>智能匹配<i>128</i></button>
+          <button className={`nav-item ${activePage === "matching" ? "active" : ""}`} onClick={() => setActivePage("matching")}><span>◎</span>智能匹配<i>28</i></button>
           <button className={`nav-item ${activePage === "campaigns" ? "active" : ""}`} onClick={() => setActivePage("campaigns")}><span>↗</span>触达活动</button>
           <button className={`nav-item ${activePage === "followups" ? "active" : ""}`} onClick={() => setActivePage("followups")}><span>◇</span>跟进任务<i className="warning">12</i></button>
           <span className="nav-label secondary">数据与配置</span>
@@ -1003,7 +1049,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
             <div>
               <span className="eyebrow"><i />每日职位巡检</span>
               <h1>让沉睡的职位，重新流动起来。</h1>
-              <p>已自动筛选发布 7–30 天、仍有效且零推荐的职位，等待运营确认。</p>
+              <p>系统自动同步、补全职位并增量匹配；这里用于查看数据状态和处理异常。</p>
             </div>
             <div className="heading-actions">
               <span className="last-sync">最近同步：{formatDateTime(latestSyncAt)}</span>
@@ -1040,9 +1086,6 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                         ? "重试"
                         : "同步职位"}
               </button>
-              <button className="primary-button" disabled={selectedRows.length === 0}>
-                创建匹配任务 {selectedRows.length > 0 && `(${selectedRows.length})`}
-              </button>
             </div>
           </section>
 
@@ -1053,7 +1096,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
             </article>
             <article className="metric-card">
               <div><span className="metric-icon violet">◎</span><span className="trend">本周</span></div>
-              <small>待审核匹配</small><strong>128</strong><p>其中高匹配 23 人</p>
+              <small>待审核匹配</small><strong>28</strong><p>其中高匹配 7 人</p>
             </article>
             <article className="metric-card">
               <div><span className="metric-icon amber">↗</span><span className="trend up">↑ 8.4%</span></div>
@@ -1102,16 +1145,16 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
 
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th><span className="fake-checkbox" /></th><th>职位</th><th>类别 / 地点</th><th>沉睡时长</th><th>匹配池</th><th>负责人</th><th /></tr></thead>
+                  <thead><tr><th>运行状态</th><th>职位</th><th>类别 / 地点</th><th>沉睡时长</th><th>匹配结果</th><th>最近运行</th><th /></tr></thead>
                   <tbody>
                     {pageJobs.map((job) => (
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
-                        <td><input aria-label={`选择 ${job.title}`} type="checkbox" checked={selectedRows.includes(job.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleRow(job.id)} /></td>
+                        <td><span className={`job-run-state ${job.hasDescription ? "queued" : "blocked"}`}><i />{job.hasDescription ? "自动排队" : "待补详情"}</span></td>
                         <td><strong>{job.title}{job.hasDescription && <span className="detail-badge">有详情</span>}</strong><small>{job.externalId} · 更新于 {formatDateTime(job.updatedAt)}</small></td>
                         <td><span>{job.category}</span><small>{job.city}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
-                        <td><strong>待匹配</strong><small><i className="dot high" />高 — <i className="dot medium" />中 —</small></td>
-                        <td><span className="owner-avatar">—</span>—</td>
+                        <td><strong>{job.hasDescription ? "等待评分" : "尚未生成"}</strong><small>{job.hasDescription ? "输入变化后自动运行" : "补全 JD 后自动继续"}</small></td>
+                        <td><span>{job.hasDescription ? "排队中" : "—"}</span><small>{job.hasDescription ? "无需人工触发" : "等待数据"}</small></td>
                         <td><button aria-label={`查看 ${job.title}`} onClick={() => setSelectedId(job.id)}>›</button></td>
                       </tr>
                     ))}
@@ -1179,10 +1222,10 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                   </div>
 
                   <div className="panel-section">
-                    <div className="section-title"><h3>候选人匹配池</h3><button>查看全部</button></div>
+                    <div className="section-title"><h3>自动匹配状态</h3><button onClick={() => setActivePage("matching")}>查看审核队列</button></div>
                     <div className="score-summary">
-                      <div className="score-ring"><strong>—</strong><span>待匹配</span></div>
-                      <p className="muted-note">匹配能力随 M2 里程碑接入。</p>
+                      <div className="score-ring"><strong>{selectedJob.hasDescription ? "队列" : "阻塞"}</strong><span>{selectedJob.hasDescription ? "等待运行" : "缺少 JD"}</span></div>
+                      <p className="muted-note">{selectedJob.hasDescription ? "职位输入准备完成，系统将在预算窗口内自动生成匹配结果。" : "补全职位详情后，系统会自动恢复后续匹配流程。"}</p>
                     </div>
                   </div>
 
@@ -1197,7 +1240,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     </div>
                   </div>
 
-                  <div className="panel-note"><span>i</span><p>创建匹配任务前，系统会再次检查职位状态和推荐数。</p></div>
+                  <div className="panel-note"><span>i</span><p>正常匹配无需人工创建任务；职位、候选人或规则版本变化时系统自动增量重算。</p></div>
                 </>
               ) : (
                 <>
