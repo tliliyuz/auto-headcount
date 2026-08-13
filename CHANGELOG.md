@@ -10,6 +10,41 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 客户端会话心跳（tab 开着不因静默掉线）
+
+> 状态速览：前端每 5 分钟静默调 `/api/auth/me` 续期服务端会话空闲窗口（空闲 30 分钟窗口多次续期），tab 开着即保持登录；会话真正失效（401 / 12h 上限）才回落登录。会话逻辑本身验证无误（空闲 30min / 最长 12h，触碰随每次 API 请求刷新），此前「静默被踢」是前端无轮询、空闲窗口到期所致。
+
+#### 已实现（implemented）
+
+- `operations-dashboard.tsx` 新增会话心跳 effect：`view=app` 时 `setInterval` 每 5 分钟调 `meRequest()`（服务端 `getSessionUser` 触碰续期），401 时 `handleAuthExpired` 回落登录；登出/切视图时 `clearInterval`。
+- 心跳走 `/api/auth/me`（无 withAudit），不产生审计噪音。
+
+#### 已验证（verified）
+
+- 会话逻辑复验：登录后 `idle_expires_at=+30min`，业务请求后刷新（curl 实测）；cookie `Max-Age=43200`；主机/容器/db 时钟一致。
+- `npm run build` 通过；`eslint` 0 问题。
+
+### 2026-08-13 — 本地真实职位数据 + 页面手动同步按钮 + dev 定时调度
+
+> 状态速览：真实 MCP 数据本地入库（全量 2799 看到 / 771 条沉睡职位，6 条示例已关闭）· `POST /api/sync/under-served` 手动同步端点（入队 async_tasks）· 页面「同步职位」按钮解禁接线 · dev compose 增 `scheduler` 服务 + 本地 `sync:tick --loop` · 契约放宽 category 空值（真实数据 category 为空致 `MCP_CONTRACT_INVALID`）· 单元 11 契约通过 + 构建注册新路由
+
+#### 已实现（implemented）
+
+- 契约修复：`mcp-under-served-contract.mjs` 的 `category` 放宽为可空（真实供应商数据 category 为空串），`requireCompanyOrCityString` 更名为通用 `requireStringOrEmpty`（公司/城市/类别共用），补空值用例。
+- 本地真实数据：`.env.local` 补齐 `APP_ENCRYPTION_KEY`/`KEY_VERSION`/`DATABASE_URL`；`npm run sync:under-served` 全量拉取真实 `wb.jobs.under_served`（2799 看到 → 771 条 7–30 天沉睡入库，6 条旧示例职位被 `closeStaleUnderServedJobs` 关闭）；页面沉睡职位列表现为真实公司数据（阿里巴巴/小红书/蚂蚁金服等 + 部分空公司名）。
+- 手动同步端点：新增 `POST /api/sync/under-served`（会话 + RBAC operations/admin + withAudit 审计 + CSRF 同源校验）——入队 `under_served_sync` 任务（`scheduled_at=now`，幂等键唯一）立即返回 `202 { accepted, taskId }`，由调度 tick 异步认领执行，不在请求内长同步。
+- 前端接线：`ops-client.ts` 增 `triggerSync()`；jobs 页「同步职位」与 sources 页「立即同步」按钮解禁，触发后显示「同步中…/已触发」，401 回落登录。
+- dev 定时调度：`docker-compose.yml` 增 `scheduler` 服务（同一 development 镜像 + `.env.local` env_file + `node scripts/run-scheduled-tick.mjs --loop`，每 15 分钟 tick）；本地亦可用 `npm run sync:tick -- --loop` 起循环。
+- 契约文档：`docs/09-api-contract.md` 增 §2.4「业务写：同步触发」。
+
+#### 已验证（verified）
+
+- 真实数据：`npm run sync:under-served` 全量成功（pages 94 / seen 2799 / persisted 771 / closedStale 6）；DB 校验 active 771 / closed 6，真实公司名可见。
+- 闭环：手动入队任务（模拟按钮）→ `npm run sync:tick` 认领执行 → 新 `sync_runs` running + `async_tasks` succeeded，链路通。
+- `npm run build`：通过，路由表含 `/api/sync/under-served`。
+- 契约单测：`mcp-under-served-contract.test.mjs` 11 通过（含 category 空值）。
+- 说明：docker web 容器当前未运行（并发部署工作/环境变动所致，数据在 DB 不受影响）；本地调度先以 `npm run sync:tick -- --loop`（host）验证，docker `scheduler` 服务待镜像重建网络恢复后生效。
+
 ### 2026-08-12 — 路线图变更：M1 生产部署门禁顺延，M2 正式启动
 
 > 状态速览：项目负责人决策「服务器实际部署」不构成 M1 退出阻塞，随开发推进到对应里程碑时执行（开发到哪就部署）· M1 其余 9 条退出门禁逐条对照本日志 verified 证据后勾选 · M1 标记已完成、M2 标记进行中 · 纯文档/路线图变更，不宣称新功能实现

@@ -115,16 +115,18 @@ test("jobs 与 rawItems 长度不一致时明确失败", async () => {
   );
 });
 
-test("公司/城市为空（null 或空串）不再拒绝整页解析，归一为空串入库", async () => {
+test("公司/城市/类别为空（null 或空串）不再拒绝整页解析，归一为空串入库", async () => {
   const fixture = await loadFixture();
   const payload = JSON.parse(fixture.content[0].text);
   payload.Data.list[0].client_company = null;
   payload.Data.list[0].city = "";
+  payload.Data.list[0].category = "";
   fixture.content[0].text = JSON.stringify(payload);
 
   const page = parseUnderServedJobsResult(fixture);
   assert.equal(page.jobs[0].companyName, "", "null 公司归一为空串");
   assert.equal(page.jobs[0].city, "", "空串城市原样保留");
+  assert.equal(page.jobs[0].category, "", "空串类别原样保留");
 });
 
 test("公司/城市非字符串仍拒绝（不静默吞类型漂移）", async () => {

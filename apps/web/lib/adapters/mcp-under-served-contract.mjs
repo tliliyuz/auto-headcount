@@ -108,7 +108,7 @@ function mapJob(item, index) {
   return {
     externalId: requireString(item.job_id, `${path}.job_id`),
     title: requireString(item.job_title, `${path}.job_title`),
-    companyName: requireCompanyOrCityString(
+    companyName: requireStringOrEmpty(
       item.client_company,
       `${path}.client_company`,
     ),
@@ -122,8 +122,8 @@ function mapJob(item, index) {
       item.last_rec_date,
       `${path}.last_rec_date`,
     ),
-    category: requireString(item.category, `${path}.category`),
-    city: requireCompanyOrCityString(item.city, `${path}.city`),
+    category: requireStringOrEmpty(item.category, `${path}.category`),
+    city: requireStringOrEmpty(item.city, `${path}.city`),
     salaryMin: requireNullableNumber(item.salary_min, `${path}.salary_min`),
     salaryMax: requireNullableNumber(item.salary_max, `${path}.salary_max`),
     portalUrl: requireString(item.portal_url, `${path}.portal_url`),
@@ -147,11 +147,11 @@ function requireString(value, path) {
 }
 
 /**
- * 公司/城市放宽校验：供应商已确认这些字段可为空（docs/04 实测「公司/薪资/城市为空」），
- * null/空串统一归一为空串（jobs.company_name/city 为 NOT NULL，避免入库约束失败）；
+ * 公司/城市/类别放宽校验：供应商实测这些字段可为空（docs/04「公司/薪资/城市为空」，
+ * 真实数据 category 亦为空串），null/空串统一归一为空串（jobs.* 为 NOT NULL，避免入库约束失败）；
  * 非字符串仍拒绝（不静默吞类型漂移）。
  */
-function requireCompanyOrCityString(value, path) {
+function requireStringOrEmpty(value, path) {
   if (value === null || value === undefined) return "";
   if (typeof value !== "string") {
     throw invalid(`${path} must be a string or null`);

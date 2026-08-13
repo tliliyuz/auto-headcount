@@ -103,7 +103,8 @@ test(
 
       // 1) 沉睡规则边界（夹具范围断言，容忍共享 DB 并行数据）：
       //    7/30 天含边界入选，6/31 天、失效、非零推荐出局
-      const all = await listUnderServedJobs(sql, { pageSize: 100 });
+      // 夹具可能被真实数据（按沉睡天数排序）挤出前 N 页：查询页大小放宽到足以包含夹具
+      const all = await listUnderServedJobs(sql, { pageSize: 5000 });
       const allIds = new Set(all.list.map((job) => job.externalId));
       assert.equal(allIds.has("a-1"), true);
       assert.equal(allIds.has("a-2"), true);
@@ -112,17 +113,17 @@ test(
       }
 
       // 2) category 与 q 过滤（夹具范围）
-      const engineering = await listUnderServedJobs(sql, { category: "Engineering", pageSize: 100 });
+      const engineering = await listUnderServedJobs(sql, { category: "Engineering", pageSize: 5000 });
       const engIds = engineering.list.map((job) => job.externalId);
       assert.equal(engIds.includes("a-1"), true);
       assert.equal(engIds.includes("a-3"), false);
-      const byQuery = await listUnderServedJobs(sql, { q: "beta", pageSize: 100 });
+      const byQuery = await listUnderServedJobs(sql, { q: "beta", pageSize: 5000 });
       assert.equal(byQuery.list.length >= 1, true);
       assert.equal(
         byQuery.list.every((job) => job.externalId === "a-2"),
         true,
       );
-      const byCity = await listUnderServedJobs(sql, { q: "beijing", pageSize: 100 });
+      const byCity = await listUnderServedJobs(sql, { q: "beijing", pageSize: 5000 });
       assert.equal(byCity.list.length >= 1, true);
       assert.equal(
         byCity.list.every((job) => job.externalId === "a-2"),

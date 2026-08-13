@@ -35,6 +35,7 @@
   - `passwordChangeRequired` 时进入「设置新口令」步，`POST /api/auth/password` 改密成功后进入工作台。
   - 侧边栏「退出登录」`POST /api/auth/logout` 后回登录页。
 - **会话门禁分层**：SSR（`page.tsx`）按 `x-prototype-view: app` 请求头或 `session_token` Cookie 存在性渲染视图（不查库）；客户端挂载后无条件 `GET /api/auth/me` 核实会话——`200` 用真实用户刷新资料区，`401`（过期/撤销/禁用）退回登录页。会话 Cookie 为 HttpOnly，JS 无法探测，因此不能用 `document.cookie` 判断登录态。
+- **客户端会话心跳**：工作台视图下每 5 分钟静默 `GET /api/auth/me` 续期服务端会话空闲窗口（服务端空闲 30 分钟/最长 12 小时，空闲窗口仅在 API 请求时刷新）；tab 开着即保持登录，会话真正失效（`401`）才回落登录页。心跳不产生审计。
 - 客户端认证封装见 [`lib/auth-client.ts`](../lib/auth-client.ts)。
 
 ## 3. 假数据清单（接真数据时的替换点）

@@ -67,6 +67,16 @@
 - 元数据在写入时已按动作白名单收敛（`lib/server/audit.mjs` 的 `pickMetadata`），读回不含 Secret、Cookie、令牌、手机号、邮箱、简历正文或完整外部响应。
 - `audit_logs` 追加写由数据库触发器强制：`UPDATE` 无条件拒绝；`DELETE` 仅保留任务在事务内设 `app.audit_retention=on` 时放行。未登录 → `401`；角色无权 → `403`。
 
+### 2.4 业务写：同步触发（M1 · `async_tasks`）
+
+统一要求：会话 + RBAC `operations|admin`；写路由执行 CSRF 同源校验（跨源 `403 { code:"forbidden" }`）；每次触发写审计（`sync.trigger`，成功元数据仅 `taskId`）。**不执行长请求内同步**——入队 `async_tasks` 任务后立即返回，由调度 tick（dev `scheduler` / 生产 `scheduler` 服务）异步认领执行。
+
+| 接口 | 方法 | 鉴权 | 请求 | 响应 |
+|---|---|---|---|---|
+| `/api/sync/under-served` | POST | 会话 + `operations\|admin` | 空 body | `202 { accepted: true, taskId }`；未登录 `401`；角色无权 `403`；跨源 `403` |
+
+- 每次点击入队一个幂等键唯一（`under-served-sync:manual:<uuid>`）的 `under_served_sync` 任务，`scheduled_at=now`，调度 tick 下轮认领执行；任务结果落 `sync_runs` 与 `async_tasks` 状态，可在数据源页 / 审计日志页观察。
+
 ## 3. 规划端点（随里程碑补充）
 
 以下按页面模块列出规划端点，**路径为草案**，契约须在对应里程碑实现前完成并回写本文档：

@@ -14,6 +14,7 @@ import {
   fetchDormantJobs,
   fetchSources,
   fetchSyncRuns,
+  triggerSync,
   type AuditLogView,
   type DormantJob,
   type SourceView,
@@ -55,6 +56,9 @@ const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
 const categories = ["全部", "技术研发", "产品设计", "市场销售", "数据智能"];
 
 const JOB_PAGE_SIZE = 10;
+
+/** 客户端会话心跳间隔：静默调 /api/auth/me 刷新服务端空闲窗口（空闲 30 分钟内多次续期）。 */
+const SESSION_HEARTBEAT_MS = 5 * 60 * 1000;
 
 /** 生成分页页码序列：总数 ≤7 全显示，否则显示首尾与当前页邻域，空隙用省略号。 */
 function pageItems(current: number, total: number): Array<number | "…"> {
@@ -325,7 +329,15 @@ function FunnelPage() {
   return <><PageIntro eyebrow="近 30 天运营数据" title="转化趋势" description="从消息发送到完成推荐，按职位、活动和渠道观察每一层转化。" action="导出报表" /><div className="analytics-grid"><section className="surface-card trend-card"><div className="surface-header"><div><h2>触达与意向趋势</h2><p>7 月 13 日 — 8 月 11 日</p></div><div className="legend"><span><i className="blue" />已送达</span><span><i className="green" />表达意向</span></div></div><div className="chart-area"><div className="y-axis"><span>300</span><span>200</span><span>100</span><span>0</span></div><div className="bar-chart">{bars.map((bar, index) => <div key={index}><i style={{ height: `${bar}%` }} /><b style={{ height: `${Math.max(8, bar * .18)}%` }} /></div>)}</div></div><div className="x-labels"><span>7/13</span><span>7/20</span><span>7/27</span><span>8/3</span><span>8/11</span></div></section><section className="surface-card funnel-card"><div className="surface-header"><div><h2>全链路漏斗</h2><p>所有渠道汇总</p></div></div><div className="funnel-steps">{stages.map((stage, index) => <div key={stage[0]} style={{ width: `${100 - index * 7}%` }}><span>{stage[0]}</span><strong>{stage[1]}</strong><em>{stage[2]}</em></div>)}</div></section></div><section className="surface-card data-card channel-performance"><div className="surface-header"><div><h2>职位转化表现</h2><p>按最终推荐率排序</p></div><button className="plain-filter">全部活动⌄</button></div><div className="data-table performance-table"><div className="data-row data-head"><span>职位</span><span>已送达</span><span>点击率</span><span>意向率</span><span>确认联系</span><span>完成推荐</span></div>{[["资深前端工程师","384","32.6%","11.7%","28","9"],["AI 产品经理","296","29.4%","10.1%","19","7"],["高级数据分析师","248","25.8%","7.7%","12","5"],["海外市场负责人","182","31.3%","9.3%","11","4"]].map((row) => <div className="data-row" key={row[0]}>{row.map((cell, index) => <span key={cell}>{index === 0 ? <strong>{cell}</strong> : cell}</span>)}</div>)}</div></section></>;
 }
 
-function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
+function SourcesPage({
+  onAuthExpired,
+  onSync,
+  syncState,
+}: {
+  onAuthExpired: () => void;
+  onSync: () => void;
+  syncState: "idle" | "triggering" | "done" | "error";
+}) {
   const [sources, setSources] = useState<SourceView[]>([]);
   const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
@@ -388,7 +400,14 @@ function SourcesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
               <div><small>契约版本</small><strong>2025-11-25</strong></div>
             </div>
             <div className="source-actions">
-              <button className="secondary-button" disabled title="同步由 CLI 或定时任务触发：npm run sync:under-served">立即同步</button>
+              <button
+                className="secondary-button"
+                onClick={() => onSync()}
+                disabled={syncState === "triggering"}
+                title="触发沉睡职位同步（入队调度任务）"
+              >
+                {syncState === "triggering" ? "同步中…" : syncState === "done" ? "已触发" : "立即同步"}
+              </button>
               <button>查看字段映射</button>
               <button>连接设置</button>
             </div>
@@ -556,15 +575,20 @@ function AuditPage({ onAuthExpired }: { onAuthExpired: () => void }) {
 function PrototypePage({
   page,
   onAuthExpired,
+  onSync,
+  syncState,
 }: {
   page: Exclude<PageId, "jobs">;
   onAuthExpired: () => void;
+  onSync: () => void;
+  syncState: "idle" | "triggering" | "done" | "error";
 }) {
   if (page === "matching") return <MatchingPage />;
   if (page === "campaigns") return <CampaignsPage />;
   if (page === "followups") return <FollowupsPage />;
   if (page === "funnel") return <FunnelPage />;
-  if (page === "sources") return <SourcesPage onAuthExpired={onAuthExpired} />;
+  if (page === "sources")
+    return <SourcesPage onAuthExpired={onAuthExpired} onSync={onSync} syncState={syncState} />;
   return <AuditPage onAuthExpired={onAuthExpired} />;
 }
 
@@ -616,6 +640,36 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     setUser({ name: "林然", role: "招聘运营" });
     setView("login");
   }, []);
+
+  // 手动同步触发状态：入队 async_tasks 任务即返回，调度 tick 异步执行。
+  const [syncState, setSyncState] = useState<"idle" | "triggering" | "done" | "error">("idle");
+  const handleSync = useCallback(async () => {
+    if (syncState === "triggering") return;
+    setSyncState("triggering");
+    const result = await triggerSync();
+    if (result.ok) {
+      setSyncState("done");
+    } else if (result.status === 401 || result.code === "password_change_required") {
+      setSyncState("idle");
+      handleAuthExpired();
+    } else {
+      setSyncState("error");
+    }
+  }, [syncState, handleAuthExpired]);
+
+  // 客户端会话心跳：服务端空闲窗口仅在 API 请求时刷新，前端无轮询则静默 30 分钟掉线。
+  // tab 开着（view=app）时每 5 分钟静默调 /api/auth/me 续期；会话真正失效（401）时回落登录。
+  useEffect(() => {
+    if (view !== "app") return;
+    const timer = setInterval(() => {
+      void meRequest().then((result) => {
+        if (!result.ok && (result.status === 401 || result.code === "password_change_required")) {
+          handleAuthExpired();
+        }
+      });
+    }, SESSION_HEARTBEAT_MS);
+    return () => clearInterval(timer);
+  }, [view, handleAuthExpired]);
 
   // 业务数据加载：SSR 阶段无数据库，进入工作台后客户端拉取。
   // 401（会话中途失效）与 password_change_required 统一退回登录页；
@@ -807,8 +861,26 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
             </div>
             <div className="heading-actions">
               <span className="last-sync">最近同步：{formatDateTime(latestSyncAt)}</span>
-              <button className="secondary-button" disabled title="同步由 CLI 或定时任务触发：npm run sync:under-served">
-                <span>↻</span>同步职位
+              <button
+                className="secondary-button"
+                onClick={() => void handleSync()}
+                disabled={syncState === "triggering"}
+                title={
+                  syncState === "done"
+                    ? "已触发，调度稍后执行"
+                    : syncState === "error"
+                      ? "触发失败，请重试"
+                      : "触发沉睡职位同步（入队调度任务）"
+                }
+              >
+                <span>↻</span>
+                {syncState === "triggering"
+                  ? "同步中…"
+                  : syncState === "done"
+                    ? "已触发"
+                    : syncState === "error"
+                      ? "重试"
+                      : "同步职位"}
               </button>
               <button className="primary-button" disabled={selectedRows.length === 0}>
                 创建匹配任务 {selectedRows.length > 0 && `(${selectedRows.length})`}
@@ -963,7 +1035,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               )}
             </aside>
           </section>
-          </> : <PrototypePage page={activePage} onAuthExpired={handleAuthExpired} />}
+          </> : <PrototypePage page={activePage} onAuthExpired={handleAuthExpired} onSync={() => void handleSync()} syncState={syncState} />}
         </div>
       </main>
 

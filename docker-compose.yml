@@ -65,6 +65,32 @@ services:
       - ./apps/web/tests:/app/tests
       - web_node_modules_bookworm:/app/node_modules
 
+  # 本地定时同步调度：每 15 分钟跑一轮任务表 tick（入队周期同步 + 处理到期任务，
+  # 含页面「同步职位」按钮入队的立即任务）。env 来自 .env.local（MCP 凭证/加密 key）。
+  scheduler:
+    build:
+      context: ./apps/web
+      target: development
+    env_file:
+      - path: ./.env.local
+        required: false
+      - path: ./apps/web/.env.local
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auto_headcount}:${POSTGRES_PASSWORD:-local_dev_only}@db:5432/${POSTGRES_DB:-auto_headcount}
+    command: node scripts/run-scheduled-tick.mjs --loop
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./apps/web/lib:/app/lib
+      - ./apps/web/scripts:/app/scripts
+      - ./apps/web/db:/app/db
+      - ./apps/web/drizzle:/app/drizzle
+      - web_node_modules_bookworm:/app/node_modules
+
 volumes:
   postgres_data:
   web_node_modules_bookworm:
