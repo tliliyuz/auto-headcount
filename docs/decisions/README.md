@@ -57,3 +57,4 @@ ADR-001-简短中文标题.md
 - [ADR-002：PostgreSQL 与容器开发基线](ADR-002-postgresql-and-container-baseline.md)（accepted）
 - [ADR-003：身份、部署区域与数据存储基线](ADR-003-identity-region-and-data-storage.md)（accepted）
 - [ADR-004：自有账号口令登录](ADR-004-self-managed-login.md)（accepted）
+- [ADR-005：授权网页采集与本地可复算匹配](ADR-005-authorized-web-collection-and-local-matching.md)（accepted）

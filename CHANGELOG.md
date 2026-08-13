@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-13 — 授权 Web 采集与本地匹配架构决策
+
+> 状态：`specified`。接受 `ADR-005`：供应方 Web 平台成为与 MCP 并列的正式数据源；复用现有 CSDN-Agent 浏览器插件作为登录态与设备路由执行端；本地版本化、可复算规则评分成为业务主路径，供应方 `match_candidates` 降为外部对照。仅完成规范，未实现浏览器采集适配器、受限提取工具、ingestion ticket、候选人直传/脱敏或本地评分。
+
+- 数据边界：Cookie、密码、验证码和 Authorization 留在员工浏览器；生产任务只能选择预审核的只读提取契约，不下发任意脚本/选择器/域名。
+- 敏感传输：完整简历和联系方式不得通过 Agent 对话或通用 MCP 结果中转；规划使用短期、单任务、单次消费 ticket 从浏览器直传 auto-headcount 受控入口，Relay 只返回计数、哈希、游标和机器错误码。
+- 开发数据：真实 Web/MCP 数据只用于有界集成验证；Git/CI 使用完全虚构 Fixture，不能提交真实简历的打码版本。
+- 同步文档：项目章程、MVP 需求、架构、数据模型、MCP 关系、安全、验收、路线图、README 与前端地图。
+
 ### 2026-08-13 — 同步串行化 + MCP 只入库可操作∩沉睡（operability_status + jobs.get 补 JD）
 
 > 状态速览：`claimDueTasks` 按 kind 单飞（同一 kind 同时只跑一个，EXISTS 原子加锁）· MCP 同步只入库「账号可操作（`wb.jobs.list` 24 个）∩ 沉睡」，`under_served` page_size 提到 200（100 页→14 页，拉取减 7 倍）· `jobs` 新增 `operability_status`（迁移 0006：actionable / not_in_access_scope / match_unavailable / source_incomplete）· 不可操作的上游仍沉睡职位标记 `not_in_access_scope`（**非 closed**），closeStale 只关闭真正未见的 · `job_details_jobs` 改为 DB 驱动 + `wb.jobs.get` 补 JD（只对可操作∩沉睡缺 JD 职位调用）。**真实同步实测：771 个沉睡收敛到 2 个可操作**（767 标记不可操作，2 个关闭）。
@@ -28,7 +37,7 @@
 - **真实 MCP 同步**（2026-08-13）：eligible 769 / operable 24 / persisted 2 / inoperableSeen 767 / closedStale 2；`operability_status` 分布 2 actionable + 767 not_in_access_scope；沉睡视图 771 → 2（搜推算法leader / 搜推架构leader）。
 - **受控能力验证**：`wb.jobs.get` 对沉睡职位（含非可操作）均 Code=0 + JD；`match_candidates` 对交集职位 Code=0（score_status cached/pending 均正常态），`score_status=pending` 为 LLM 打分中非失败；可操作边界 = `wb.jobs.list`（match_candidates 成功）。
 
-> 已知边界：`match_unavailable`/`source_incomplete` 状态为未来匹配工作流预留，当前同步只写 `actionable`/`not_in_access_scope`；宽口径沉睡由第二条数据源（网站爬虫，决策中）承接。
+> 已知边界：`match_unavailable`/`source_incomplete` 状态为未来匹配工作流预留，当前同步只写 `actionable`/`not_in_access_scope`；宽口径由 `ADR-005` 已确认的授权 Web 数据源承接，适配器尚未实现。
 
 ### 2026-08-13 — 手动同步去重 + 同步状态反馈与自动刷新
 

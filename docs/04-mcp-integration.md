@@ -47,7 +47,7 @@ npm run mcp:discover -- --output /tmp/auto-headcount-mcp-discovery.json
 | 短信 | `sms_send_marketing_lbd` | 写工具 | 🚫 禁用 |
 | 邮件 | `mail_send_common_lbd` | 写工具 | 🚫 禁用 |
 
-真实发现记录见 [validation/2026-08-11-mcp-discovery.md](validation/2026-08-11-mcp-discovery.md)，2026-08-12 的最小调用验证见 [validation/2026-08-12-mcp-candidate-sync.md](validation/2026-08-12-mcp-candidate-sync.md)。`candidates.list/search/stats` 对当前账号返回空属权限边界，不作为扩大权限的理由。匹配分后续采用供应方 MCP 评分（`wb.jobs.match_candidates`），不建自研评分引擎。
+真实发现记录见 [validation/2026-08-11-mcp-discovery.md](validation/2026-08-11-mcp-discovery.md)，2026-08-12 的最小调用验证见 [validation/2026-08-12-mcp-candidate-sync.md](validation/2026-08-12-mcp-candidate-sync.md)。`candidates.list/search/stats` 对当前账号返回空属 MCP 权限边界，不作为换身份或绕过权限的理由。根据 `ADR-005`，业务主匹配改为本地版本化、可复算规则；`wb.jobs.match_candidates` 保留为供应方评分对照和受控联调能力。
 
 ## 4. 内部适配要求
 
@@ -82,18 +82,26 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 - `MCP_ACTOR_ID` 仅在供应商要求时由服务端适配器注入；业务输入不得任意指定其他 Actor。
 - 403、业务错误 `1004` 或空结果按权限边界处理，不自动换用其他账号、扩大团队范围或尝试绕过。
 - MVP 只允许显式列入适配器白名单的读工具。短信、邮件、批量创建、候选人详情及其他可能写入或触发画像回写的工具保持禁用，直到对应审批和数据授权门禁完成。
-- MCP 是唯一主数据接入方式；浏览器采集已确认不需要（2026-08-12 澄清流程偏差，无需自建浏览器爬取职位/简历）。
-- 当前账号 `candidates.list/search/stats` 返回空属权限边界；`wb.jobs.match_candidates` 可跨顾问返回简历摘要（姓名打码、无联系方式），是当前可用的候选人数据路径，MVP 匹配以该工具为主。
+- MCP 与授权 Web 采集是并列数据源；MCP 适配器仍按当前 Actor 的最低权限运行，Web 数据由 `ADR-005` 的独立浏览器采集适配器处理，不在 MCP 适配器内模拟网页请求。
+- 当前账号 `candidates.list/search/stats` 返回空属 MCP 权限边界；`wb.jobs.match_candidates` 可返回姓名打码、无联系方式的简历摘要，作为低敏候选人样本和外部评分对照，不再是唯一候选人路径。
+
+## 5.2 与授权 Web 采集的关系（2026-08-13）
+
+- CSDN-Agent 浏览器插件复用员工现有平台登录态，作为网页执行端；Cookie、密码、验证码和原始 Authorization 不得进入本系统或 MCP 返回值。
+- 生产采集只调用预审核、版本化的提取契约。现有通用 `csdn_get_page_snapshot`、`csdn_fetch_with_cookie`、`csdn_evaluate_script` 等能力只用于受控探索和契约开发，不作为批量简历采集接口。
+- 完整简历与联系方式不得经 Agent 对话或通用 MCP 工具结果中转；应使用短期单次 ingestion ticket 从浏览器直传 auto-headcount 采集入口。
+- MCP 和 Web 对同一实体的字段不得无条件互相覆盖；规范化层保存字段来源、契约/映射版本、采集时间和内容哈希，并按已确认优先级生成业务投影。
+- `days_without_rec` 等沉睡证据继续优先使用明确提供该语义的来源；仅在 Web 页面字段口径完成验证后，Web 记录才能独立证明 7～30 天、有效和零推荐。
 
 ## 6. 待向对方确认（2026-08-12 更新）
 
-已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；不调用 `wb.candidates.get`（画像回写 + LLM）；`wb.jobs.under_served` 已确认等价产品沉睡条件（active + 有效推荐数 0 + 发布时间）；`wb.jobs.list` **2026-08-13 已纳入内部 JD 详情补全**（独立 `job_details_jobs` 同步，仅写 `jobs.job_description`，不作为职位行来源、不进入落地页白名单）。
+已确认：MCP 协议 `2025-11-25`、40 个工具清单、测试凭证联调、`wb.jobs.under_served`/`wb.jobs.list`/`wb.jobs.get`/`wb.jobs.match_candidates` 最小调用成功；项目负责人确认脱敏候选人数据可入库且暂不设固定保留期限上限、生产区域为中国大陆、登录采用自有账号（`ADR-004`）；`wb.jobs.under_served` 提供沉睡召回证据，`wb.jobs.get` 为 MCP 职位补 JD；`ADR-005` 已接受授权 Web 采集与本地匹配方向，但尚未实现。
 
 **2026-08-13 供应方能力受控验证与可操作收敛（fix4 决策）**：
 - `wb.jobs.get` 受控调用（3 个沉睡职位含 1 个非可操作）：**均返回 Code=0 + job_description**（此前文档「get 对 775 个返回 1003」是从 `match_candidates` 推断，实测 get 不受限）。**JD 补全路径 = `under_served + jobs.get`**（`job_details_jobs` 同步已改为 DB 驱动 + `jobs.get`，只对可操作∩沉睡缺 JD 职位调用，不给 771 个逐个补）。
 - **「可操作」边界 = `wb.jobs.list` 账号自身作用域（24 个）**，判据 `match_candidates` 对该集合成功、对 under_served 非自身职位返回 `1003 Data not found`（validation 2026-08-12）。`match_candidates` 评分 `score_status=pending` 是**正常业务状态**（LLM 打分中），后续轮询/重读，不视为失败。
 - **fix4 只入库可操作∩沉睡**：`under_served` page_size 提到 200（100 页→14 页，拉取减 7 倍）；`wb.jobs.list` 拉可操作集；只持久化两者交集；**不在交集的上游仍沉睡职位标记 `operability_status=not_in_access_scope`，不用 closeStale 标 closed**（「上游职位关闭」≠「当前账号无法匹配」）。closeStale 只关闭本次完整拉取真正未见的职位。
-- 真实同步实测（2026-08-13）：eligible 769 / operable 24 / persisted 2 / inoperableSeen 767 / closedStale 2；沉睡视图从 771 收敛到 2 个可操作职位。宽口径沉睡由第二条数据源（网站爬虫，决策中）承接。
+- 真实同步实测（2026-08-13）：eligible 769 / operable 24 / persisted 2 / inoperableSeen 767 / closedStale 2；沉睡视图从 771 收敛到 2 个可操作职位。宽口径由 `ADR-005` 已确认的授权 Web 数据源承接，适配器尚未实现。
 
 仍待确认：
 

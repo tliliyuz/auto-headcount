@@ -193,6 +193,9 @@ erDiagram
 | 匹配 | `match_rules` | `version, weights, thresholds, active_at`（可复算） |
 | 匹配 | `matches` | `job_id, candidate_id, score, band, status, rule_version`；`(job_id, candidate_id, rule_version)` 唯一 |
 | 匹配 | `match_dimensions` | `match_id, dimension, score, evidence, risk` |
+| 采集 | `browser_source_bindings` | `source_connection_id, user_id, device_id, contract_set_version, status`；只保存路由元数据，不保存 Cookie/平台口令/browser session |
+| 采集 | `ingestion_tickets` | `task_id, token_hash, contract_id, expires_at, consumed_at, max_bytes`；高熵单次票据只存哈希 |
+| 采集 | `source_field_observations` | `entity_type, entity_id, field_name, source_connection_id, contract_version, captured_at, value_hash`；字段级来源追溯，不存敏感正文 |
 | 触达 | `campaigns` | `job_id, channel, status, approved_by` |
 | 触达 | `campaign_recipients` | `campaign_id, candidate_id, status, idempotency_key` |
 | 触达 | `landing_links` | `recipient_id, token_hash, expires_at, revoked_at`（不存明文令牌） |
@@ -209,6 +212,15 @@ erDiagram
 generated → pending_review → approved/rejected
 approved → queued_for_campaign → contacted → responded
 ```
+
+### Web 采集任务状态
+
+```text
+pending → waiting_for_device → running → succeeded/failed/dead
+running → waiting_for_auth | contract_changed | permission_boundary
+```
+
+`waiting_for_device`/`waiting_for_auth` 是可恢复状态，不等价于上游实体关闭。浏览器任务载荷禁止包含 Cookie、Authorization、验证码、HTML、JD/简历正文、联系方式或可直接使用的私有 URL。
 
 ### 活动状态
 
@@ -249,7 +261,9 @@ unknown → permitted → opted_out
 | 备份 | 35 天 |
 
 - 保留期限需要业务、法务与数据提供方共同确认。在最终期限确认前，工程实现按 `ADR-003` 上限设计为可配置 TTL；该上限不构成真实数据处理授权，书面授权未取得前只能使用脱敏 Fixture。
-- **2026-08-12 项目负责人书面确认**：供应方已脱敏（姓名打码、不含联系方式）的候选人数据可以入库，且暂不设定固定保留期限上限；收到更严格要求时以更严格者为准。原始载荷加密、可配置 TTL 清理任务与「收到更严格要求以更严格者为准」基线保持不变。完整简历、联系方式与原始载荷在授权与期限明确前仍只允许脱敏 Fixture。
+- **2026-08-12 项目负责人书面确认**：供应方已脱敏（姓名打码、不含联系方式）的候选人数据可以入库，且暂不设定固定保留期限上限；收到更严格要求时以更严格者为准。
+- **2026-08-13 Web 采集决策**：负责人确认可使用已开通 Web 平台账号做受控采集。完整简历与联系方式只允许经 `ADR-005` 的受限采集入口进入独立加密分层；正式批量保存前仍须固化允许字段、频率、用途、保存期限和删除要求。未完成该门禁时，开发/CI 只使用完全虚构 Fixture，受控真实样本不得进入 Git。
+- 原始载荷加密、可配置 TTL 清理任务与「收到更严格要求以更严格者为准」基线保持不变。
 - 实现必须支持：按候选人查找/导出/删除、撤销落地页令牌、清理过期原始快照与联系信息、保留不含敏感正文的必要审计证明。
 
 ## 13. 索引策略（已落库）

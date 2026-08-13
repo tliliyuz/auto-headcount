@@ -91,8 +91,18 @@
 | 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 已设计（见 §2.2） |
 | 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
 | 匹配（M2） | `POST /api/match-tasks`、`GET /api/matches` | 待设计 |
+| 浏览器采集控制（M2） | `POST /api/browser-collections`、`GET /api/browser-collections/:id` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
+| 浏览器受控直传（M2） | `POST /api/browser-ingestion/:ticket` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
 | 触达活动（M3） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |
 | 跟进任务（M4） | `GET/POST /api/followups` | 待设计 |
 | 漏斗（M4） | `GET /api/funnel` | 待设计 |
 
 > 候选人落地页端点属于独立身份域，只接受令牌哈希校验，契约在 M3 另行定义，不并入本管理端契约。
+
+### 3.1 浏览器采集规划边界（specified，未实现）
+
+- `POST /api/browser-collections` 由管理端会话 + `operations|admin` 创建有界采集任务，只接受 `sourceConnectionId`、`userId`、`deviceId`、预审核 `contractId`、外部实体引用、游标和批量；不得接收任意脚本、选择器、Cookie、页面正文或联系方式。
+- 服务端为单个任务签发短期、高熵、单次消费 ingestion ticket；数据库只保存 token 哈希、任务/契约绑定、到期时间和大小上限，明文 ticket 不写日志或审计。
+- `POST /api/browser-ingestion/:ticket` 不接受管理端 Cookie，以 ticket 作为独立身份域；必须校验 HTTPS、到期/撤销/已消费、任务、契约版本、来源域/设备声明、内容类型、载荷大小、Schema 和内容哈希后，先加密再持久化。
+- 成功响应只返回 receipt ID、接受/拒绝计数、内容哈希和下一游标；错误只返回机器码。任何响应、审计或普通日志都不得回显 ticket、Cookie、完整简历或联系方式。
+- 具体请求/响应 Schema、签名/重放防护和来源证明必须在实现前补齐并以失败测试锁定；本节不得作为“端点已可用”的声明。

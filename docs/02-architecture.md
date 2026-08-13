@@ -11,10 +11,10 @@
 ## 2. 逻辑架构
 
 ```text
-┌──────────────── 外部系统 ────────────────┐
-│ 招聘网站/MCP │ 浏览器插件 │ LLM │ SMS/Email │
-└───────────────┬──────────────────────────┘
-                │ adapters
+┌──────────────────── 外部系统 ────────────────────┐
+│ 招聘网站/MCP │ CSDN-Agent 浏览器执行端 │ LLM │ SMS/Email │
+└──────────────────────┬──────────────────────────┘
+                       │ adapters / restricted ingestion
 ┌───────────────▼──────────────────────────┐
 │              Web/API 应用                │
 │                                          │
@@ -50,13 +50,33 @@
 ```ts
 interface RecruitmentSource {
   listUnderServedJobs(input: UnderServedJobQuery): Promise<JobPage>;
+  collectJobDetails?(input: JobCollectionQuery): Promise<CollectionReceipt>;
   findCandidates(input: CandidateSearchQuery): Promise<CandidatePage>;
   matchCandidates?(input: MatchRequest): Promise<ExternalMatchResult>;
   recommendCandidate?(input: RecommendRequest): Promise<RecommendResult>;
 }
 ```
 
-MCP 只是该接口的一种实现。浏览器插件导入、CSV 导入或未来其他供应商可以实现相同接口。
+MCP 只是该接口的一种实现。根据 `ADR-005`，CSDN-Agent 浏览器插件是授权 Web 数据源的执行端，CSV 导入或未来其他供应商也可以实现相同接口。
+
+### 4.1 CSDN-Agent 浏览器采集边界（specified）
+
+```text
+auto-headcount async_tasks
+  → CSDN-Agent Relay（userId + deviceId + browserSessionId）
+  → 员工 Chrome/Edge（既有供应方登录态）
+  → 版本化只读提取契约
+  ├─ 最小化结构化结果 → Relay 回执
+  └─ 完整简历/联系方式 → 短期 ingestion ticket → auto-headcount HTTPS 采集入口
+  → 加密原始区 → 规范化 → 脱敏评分投影
+```
+
+- CSDN-Agent 只拥有浏览器执行与设备路由，不拥有招聘业务状态；auto-headcount 是任务、数据、评分和审核的唯一业务系统。
+- 生产采集不得下发任意 JavaScript、选择器或 URL，只能选择预审核的 `contract_id`；通用 `csdn_*` 工具只用于探索和契约开发。
+- Cookie、密码、验证码、原始 Authorization 和可复用浏览器会话不得离开浏览器，也不得写入 PostgreSQL、Agent 上下文或任务载荷。
+- 完整简历与联系方式不经过 Agent/MCP 返回值；浏览器使用短期单次 ticket 直传采集入口，Relay 只返回计数、哈希、游标和机器错误码。
+- 浏览器离线或登录失效属于可恢复等待状态，不静默切换到其他用户、设备或平台账号。
+- 本节是目标契约；受限提取工具、直传入口和浏览器数据源适配器尚未实现，不得描述为已接入。
 
 ## 5. 异步任务与可靠性
 
@@ -67,6 +87,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 网络类错误（MCP 连接/限流/超时，`McpDiscoveryError.retryable`）指数退避重试（`next_attempt_at` 门控），业务校验错误不自动重试。
 - 失败超过阈值进入 `dead`，后续转人工处理队列。
 - `payload` 为白名单 jsonb，不存敏感字段；外部请求和响应只保存必要字段，敏感内容需加密或脱敏。
+- Web 采集任务后续复用同表，规划 kind 包括 `browser_job_collect`、`browser_candidate_discovery`、`browser_candidate_collect`、`browser_ingestion_normalize` 和 `browser_candidate_sanitize`；载荷只含来源/外部 ID、用户/设备、契约版本、游标和批量，不含浏览器 Session、页面正文或联系方式。
 - **手动触发去重（2026-08-13）**：同一 kind 至多一个活跃（`pending/running`）任务。手动触发经 `enqueueTaskIfIdle` 原子入队（`INSERT … WHERE NOT EXISTS (活跃)`），活跃被拦截时返回既有任务 id（前端跟踪其进度，`deduplicated:true`）。此前多次点击会堆积多个并发同步任务同时打 MCP 触发限流/假死。
 - **任务看门狗（2026-08-13）**：每个调度 tick 先回收 `running` 超过 30 分钟的任务（`failed + TASK_STALE_TIMEOUT`），与同步运行看门狗（`failStaleRunningSyncRuns`）对称。进程崩溃/假死导致任务永久卡 `running` 时，若无回收，手动同步去重会被卡死任务永久锁死。
 - **同步串行化（2026-08-13，fix3）**：`claimDueTasks` 按 kind 每类至多认领 1 条（`not exists running` + `not exists earlier` 行比较，取 `(scheduled_at,id)` 最早），同一 kind 同时只跑一个同步——避免多个同 kind 任务并发打 MCP（此前多次点击 + 周期/手动叠加 = 多任务并发）。EXISTS 子查询可被 `FOR UPDATE SKIP LOCKED` 加锁且跨进程原子（窗口函数/DISTINCT 不可加锁，PG 0A000）。
@@ -116,7 +137,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 ## 8. 数据存储分层
 
 ```text
-MCP 响应
+MCP 响应 / 授权 Web 提取
   → 加密原始快照（追加写、短期保留）
   → 映射/校验记录
   → PostgreSQL 规范化业务表
@@ -129,4 +150,5 @@ MCP 响应
 - 原始快照用于追溯和受控重放，不是页面或业务规则的查询模型。
 - 规范化表保存来源、外部 ID、原始记录和映射版本的追溯关系。
 - 联系方式与原始载荷使用应用层信封加密；密钥由环境 Secret/密钥服务管理。
+- Web 来源的完整简历与联系方式经独立 ingestion 边界进入；匹配模块只读取脱敏评分投影，不能查询联系方式保险箱。
 - 审计日志与普通应用日志分离，应用日志不得承担审计证据职责。

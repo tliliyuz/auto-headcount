@@ -12,7 +12,7 @@
 
 当前切片是单页交互演示，不是完整产品原型。侧边栏多数模块、创建匹配任务、分页、触达和候选人意向提交仍是未接线占位。
 
-当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-12 已验证职位数据链路（`wb.jobs.under_served`/`wb.jobs.list` 有真实数据）与 `wb.jobs.match_candidates` 匹配摘要（姓名打码、无联系方式）；候选人列表/搜索对当前账号返回空，属权限边界。项目负责人已确认脱敏候选人数据可入库、暂不设固定保留期限上限，匹配分采用供应方 MCP，浏览器采集确认不需要。M1 数据底座已把 `wb.jobs.under_served` 接入可审计 CLI 同步任务（`npm run sync:under-served`：分页拉取、原始快照加密入库、失败记录机器可读错误码）。M1 自有登录后端已实现并通过运行时冒烟：`users`/`sessions`/`role_assignments`/`audit_logs` 表与迁移、`/api/auth/login|logout|me|password`、bcrypt 口令、会话令牌、连续失败锁定、首登强制改密、RFC 6238 TOTP（生产管理员强制）、dev 种子（`npm run seed:dev-users`）。登录页前端已接线真实 API（登录/强制改密/登出/会话恢复），两步交付完成。M1 数据底座保留清理任务已接线（`npm run retention`：可配置 TTL 清理过期原始快照/关闭职位/过期会话/过期审计，并记录 `retention.run` 审计）。业务页面已接真实数据（只读）：沉睡职位巡检页读 `GET /api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则），数据源页读 `GET /api/sources` + `GET /api/sync-runs`（`source_connections`/`sync_runs` 表），审计日志页读 `GET /api/audit-logs`（`audit_logs` 表，元数据写入时已按动作白名单收敛）；四端点会话 + RBAC `operations|admin` + 数据访问审计。通用审计中间件已收口：`withAudit` 统一 request_id/IP/actor 解析、未预期异常也写审计、成功审计元数据只保留动作白名单键，`audit_logs` 由数据库触发器强制追加写（`UPDATE` 拒绝、`DELETE` 仅保留任务带 `app.audit_retention=on` 放行），审计日志页展示真实审计（含来源 IP）。`npm run sync:under-served` 后可即时看到职位与同步批次。真实定时调度已落地：数据库任务表 `async_tasks` + 同步调度器（周期幂等入队、`FOR UPDATE SKIP LOCKED` 认领、网络错误退避重试、超阈值 `dead`），定时触发（cron 每 15 分钟 tick）随部署环境生效（自托管用服务器级定时器；Cloudflare Worker 用 `scheduled` 处理器），每次任务完成落 `sync.run` 系统审计；运维直连路径仍可用 `npm run sync:under-served`。测试/生产部署基线已就绪（云服务器 docker compose）：`docker-compose.prod.yml`（web + db + scheduler）`docker compose up -d` 拉起，`scheduler` 服务跑 `npm run sync:tick -- --loop` 每 15 分钟触发任务表，`.env.production`（gitignored）注入配置与凭证；Cloudflare Worker 部署降为可选路径（见下方「部署」章节）。M1 退出门禁已通过：实际部署到云服务器（上传 compose + `.env.production`、`docker compose up -d`、域名/HTTPS）已决策顺延，随开发推进到对应里程碑时执行，不构成里程碑阻塞。匹配池（M2）为当前进行中的里程碑。
+当前里程碑 0 已完成 MCP 发现、最小只读调用以及 PostgreSQL + Docker 开发基线。2026-08-13 的真实验证确认：`wb.jobs.get` 可为沉睡职位补 JD，MCP 可操作∩沉睡当前约 2 个。`ADR-005` 已进一步确认授权 Web 采集作为并列数据源，复用 CSDN-Agent 浏览器执行端；本地版本化规则评分成为业务主路径，供应方 `match_candidates` 只作外部对照。该 Web 采集适配器、受限提取契约和简历直传入口目前仅为 `specified`，尚未实现。M1 数据底座、登录/RBAC、加密快照、审计、保留、同步任务表和自托管容器基线已完成；匹配池（M2）为当前进行中的里程碑，详细验证记录见 `CHANGELOG.md`。
 
 各里程碑状态、门禁清单与卡点见 [实施路线图](docs/05-roadmap.md)。
 
@@ -30,7 +30,8 @@
 - 数据库：PostgreSQL 17、Drizzle 迁移；标准本地环境通过 Docker Compose 运行 Web、迁移和数据库。
 - ORM：Drizzle ORM。
 - 异步任务：MVP 先使用数据库任务表，规模扩大后再引入队列。
-- MCP、LLM、短信和邮件均通过适配器接入（浏览器采集已确认不需要）。
+- MCP、授权 Web 采集、LLM、短信和邮件均通过适配器接入；Web 执行端复用 CSDN-Agent，Cookie/验证码不离开员工浏览器。
+- 匹配采用本地版本化、可复算规则；供应方匹配分只作外部对照。
 - 部署目标在完成基础设施确认后确定，不绑定 CloudBase/CloudStudio。
 
 PostgreSQL 与容器基线已由 `ADR-002` 固化。自有账号口令登录由 `ADR-004` 固化；中国大陆测试/生产区域、数据加密分层和保留上限由 `ADR-003` 固化。真实数据上线仍需取得数据授权并书面确认最终保留期限。
@@ -48,6 +49,7 @@ PostgreSQL 与容器基线已由 `ADR-002` 固化。自有账号口令登录由 
 - [开发与交付流程](docs/08-development-workflow.md)
 - [内部 API 契约](docs/09-api-contract.md)
 - [架构决策记录](docs/decisions/README.md)
+- [ADR-005：授权网页采集与本地可复算匹配](docs/decisions/ADR-005-authorized-web-collection-and-local-matching.md)
 
 ## 本地开发
 
