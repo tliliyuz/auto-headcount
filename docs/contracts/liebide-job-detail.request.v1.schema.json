@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/liebide-job-detail.request.v1.schema.json",
+  "title": "Liebide Job Detail Extraction Request v1",
+  "description": "auto-headcount 发送给 CSDN-Agent 受限提取工具的固定参数。生产任务不得增加脚本、选择器、URL、Cookie 或页面正文。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["userId", "deviceId", "browserSessionId", "contractId", "expectedExternalId"],
+  "properties": {
+    "userId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "browserSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "contractId": {
+      "const": "liebide-job-detail-v1"
+    },
+    "expectedExternalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    }
+  }
+}

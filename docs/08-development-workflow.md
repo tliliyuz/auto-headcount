@@ -75,6 +75,19 @@ auto-headcount/
 
 真实 MCP、Web、LLM 和短信调用不进入每次提交的快速门禁；日常 CI 使用完全虚构 Fixture，候选版本再运行受控联调并记录授权范围、设备/环境、费用和结果。真实网页或简历打码副本不得成为 CI Fixture。
 
+### 4.1 浏览器提取契约专项流程
+
+浏览器采集除遵守 §2 通用门禁外，还必须执行 [`授权浏览器采集开发与联调 Runbook`](runbooks/browser-collection.md)：
+
+1. 先确认并记录授权页面、字段、用途、频率、保存和删除范围；授权不完整时只运行虚构 Fixture。
+2. 通用浏览器工具只用于单页探索；生产任务只能选择预审核的版本化只读契约。
+3. 请求和回执先固化 JSON Schema，再分别完成 CSDN-Agent Provider 与 auto-headcount Consumer 契约测试。
+4. 真实页面发现的新边界先转为完全虚构 Fixture 并确认 RED，再修改解析器；真实网页副本和打码简历不得进入仓库。
+5. 候选版本只运行单实体受控 smoke test，输出限制为字段存在性、类型、长度、哈希、耗时和机器错误码。
+6. 每次真实联调在 `docs/validation/` 保存脱敏证据并关联两端 commit/tag；任一执行端未版本化时必须登记偏差，不能声明可复现发布。
+
+当前职位详情协议使用 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json)。统一根命令、双端 Schema 哈希和连接诊断属于后续实现门禁，在落地前不得把人工联调描述为无人值守采集能力。
+
 ### CI 实现（GitHub Actions）
 
 - `.github/workflows/ci.yml` 在 push（`main`/`dev`）与 PR 上运行，分层：静态（ESLint + 空白 + markdown 相对链接）→ 单元/契约（`test:unit`）→ 数据库迁移（`node db/migrate.mjs`，兑现 ADR-002 §44）→ 集成（`test:integration`，PostgreSQL 17 服务容器）→ 构建 + 服务端渲染 + HTTP 层。
