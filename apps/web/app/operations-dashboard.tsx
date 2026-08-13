@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
 import {
+  JOB_CATEGORY_BUCKETS,
+  mapJobCategory,
+} from "@/lib/job-category.mjs";
+import {
   changePasswordRequest,
   loginRequest,
   logoutRequest,
@@ -53,7 +57,7 @@ const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
 };
 
 
-const categories = ["全部", "技术研发", "产品设计", "市场销售", "数据智能"];
+const categories = ["全部", ...JOB_CATEGORY_BUCKETS];
 
 const JOB_PAGE_SIZE = 10;
 
@@ -743,9 +747,19 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     [dormantJobs],
   );
 
+  // 每个粗桶 tab 的计数：按映射后的粗桶统计沉睡职位数（与「全部」tab 同口径）。
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const job of sleepingJobs) {
+      const bucket = mapJobCategory(job.category);
+      counts[bucket] = (counts[bucket] ?? 0) + 1;
+    }
+    return counts;
+  }, [sleepingJobs]);
+
   const filteredJobs = sleepingJobs.filter((job) => {
     const categoryMatches =
-      activeCategory === "全部" || job.category === activeCategory;
+      activeCategory === "全部" || mapJobCategory(job.category) === activeCategory;
     const queryMatches =
       query.trim() === "" ||
       `${job.title}${job.city}${job.category}`
@@ -924,7 +938,9 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     onClick={() => { setActiveCategory(category); setJobPage(1); }}
                   >
                     {category}
-                    {category === "全部" && <span>{sleepingJobs.length}</span>}
+                    {category === "全部"
+                      ? <span>{sleepingJobs.length}</span>
+                      : <span>{categoryCounts[category] ?? 0}</span>}
                   </button>
                 ))}
               </div>
