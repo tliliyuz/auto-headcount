@@ -6,9 +6,19 @@ import {
   readSessionToken,
   writeAudit,
 } from "../identity/auth-http";
+import type { AuditEntry, AuthRepository } from "../identity/auth-repository.mjs";
 import { authorizeOrForbidden } from "../identity/authz.mjs";
 import { planAudit } from "./audit.mjs";
 import { passwordChangeBlockResponse } from "./with-audit-gate.mjs";
+
+/** 写入审计条目；planAudit 对非法结果返回 null（语义即"不写审计"），此处安全跳过。 */
+async function writePlannedAudit(
+  repo: AuthRepository,
+  entry: AuditEntry | null,
+): Promise<void> {
+  if (!entry) return;
+  await writeAudit(repo, entry);
+}
 
 /** 中间件向 handler 提供的上下文：requestId + 原始请求 + 已解析会话（allowedRoles 时非 null）。 */
 export type AuditRouteContext = {
@@ -79,7 +89,7 @@ export function withAudit(
         spec.allowedRoles,
       );
       if (passwordChangeBlock) {
-        await writeAudit(
+        await writePlannedAudit(
           repo,
           planAudit({
             requestId,
@@ -95,11 +105,11 @@ export function withAudit(
 
       const forbidden = authorizeOrForbidden(sessionUser, spec.allowedRoles);
       if (forbidden) {
-        await writeAudit(
+        await writePlannedAudit(
           repo,
           planAudit({
             requestId,
-            actor: sessionUser.user,
+            actor: sessionUser?.user ?? null,
             action: spec.action,
             resourceType: spec.resourceType,
             outcome: "denied",
@@ -113,7 +123,7 @@ export function withAudit(
     const ctx: AuditRouteContext = { requestId, request, sessionUser };
     try {
       const { response, audit } = await handler(ctx);
-      await writeAudit(
+      await writePlannedAudit(
         repo,
         planAudit({
           requestId,
@@ -129,7 +139,7 @@ export function withAudit(
       return response;
     } catch (error) {
       console.error(`[${spec.action}] requestId=${requestId}`, error);
-      await writeAudit(
+      await writePlannedAudit(
         repo,
         planAudit({
           requestId,

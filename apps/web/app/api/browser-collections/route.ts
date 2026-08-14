@@ -6,6 +6,7 @@ import { createAsyncTaskRepository } from "../../../lib/jobs/async-task-reposito
 import { LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID } from "../../../lib/adapters/csdn-browser/browser-collection-contract.mjs";
 import { createBrowserJobBatchRepository } from "../../../lib/jobs/browser-job-batch-repository.mjs";
 import { BrowserJobCollectionError, parseBrowserJobBatchDiscoverTaskPayload, parseBrowserJobCollectTaskPayload } from "../../../lib/jobs/browser-job-collection.mjs";
+import type { BrowserJobBatchDiscoverTaskPayload, BrowserJobCollectTaskPayload } from "../../../lib/jobs/browser-job-collection.mjs";
 import { bindBrowserRoute, BrowserRouteConfigError } from "../../../lib/server/browser-route-config.mjs";
 import { getDb } from "../../../lib/server/db";
 import { withAudit } from "../../../lib/server/with-audit";
@@ -44,15 +45,18 @@ const handler = withAudit(
     }
     const { client } = getDb();
     if (isBatch) {
+      // isBatch 由 contractId 判定（列表合同 → discover 载荷），与上方解析分支一一对应；
+      // payload 类型是两载荷的联合，此处按判别显式收窄。
+      const batchPayload = payload as BrowserJobBatchDiscoverTaskPayload;
       const requestPayload = {
-        sourceConnectionId: payload.sourceConnectionId,
-        userId: payload.userId,
-        deviceId: payload.deviceId,
-        contractId: payload.contractId,
-        batchSize: payload.batchSize,
-        maxPages: payload.maxPages,
-        ...(payload.startPage ? { startPage: payload.startPage } : {}),
-        ...(payload.startOffset !== undefined ? { startOffset: payload.startOffset } : {}),
+        sourceConnectionId: batchPayload.sourceConnectionId,
+        userId: batchPayload.userId,
+        deviceId: batchPayload.deviceId,
+        contractId: batchPayload.contractId,
+        batchSize: batchPayload.batchSize,
+        maxPages: batchPayload.maxPages,
+        ...(batchPayload.startPage ? { startPage: batchPayload.startPage } : {}),
+        ...(batchPayload.startOffset !== undefined ? { startOffset: batchPayload.startOffset } : {}),
       };
       const result = await createBrowserJobBatchRepository(client).createAndEnqueue({
         payload: requestPayload,
@@ -62,28 +66,29 @@ const handler = withAudit(
         response: jsonResponse(result, 202),
         audit: {
           resourceId: result.batchId,
-          metadata: { taskId: result.taskId, deduplicated: result.deduplicated || undefined, contractId: payload.contractId },
+          metadata: { taskId: result.taskId, deduplicated: result.deduplicated || undefined, contractId: batchPayload.contractId },
         },
       };
     }
+    const collectPayload = payload as BrowserJobCollectTaskPayload;
     const taskRepo = createAsyncTaskRepository(client);
     const taskId = await taskRepo.enqueueBrowserJobTaskIfTargetIdle({
       idempotencyKey: `browser-job-collect:manual:${randomUUID()}`,
-      payload,
+      payload: collectPayload,
       scheduledAt: new Date(),
     });
     if (taskId) {
       return {
         response: jsonResponse({ accepted: true, taskId }, 202),
-        audit: { resourceId: taskId, metadata: { taskId, contractId: payload.contractId } },
+        audit: { resourceId: taskId, metadata: { taskId, contractId: collectPayload.contractId } },
       };
     }
-    const active = await taskRepo.findActiveBrowserJobTask(payload);
+    const active = await taskRepo.findActiveBrowserJobTask(collectPayload);
     return {
       response: jsonResponse({ accepted: false, taskId: active?.id ?? null, deduplicated: true }, 202),
       audit: {
         resourceId: active?.id ?? null,
-        metadata: { taskId: active?.id ?? null, deduplicated: true, contractId: payload.contractId },
+        metadata: { taskId: active?.id ?? null, deduplicated: true, contractId: collectPayload.contractId },
       },
     };
   },

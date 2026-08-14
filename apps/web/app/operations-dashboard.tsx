@@ -298,9 +298,15 @@ function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
       fetchMatchExceptions({ pageSize: 50, signal }),
     ]);
     if (!matchResult.ok || !exceptionResult.ok) {
+      // 三元分支里 TS 无法把「至少一个失败」传播到 failure，需按 ok 判别再访问失败字段
       const failure = !matchResult.ok ? matchResult : exceptionResult;
-      if (failure.status === 401 || failure.code === "password_change_required") onAuthExpired();
-      else setError(failure.message);
+      if (failure.ok) {
+        setError("数据加载失败");
+      } else if (failure.status === 401 || failure.code === "password_change_required") {
+        onAuthExpired();
+      } else {
+        setError(failure.message);
+      }
       setLoading(false);
       return;
     }

@@ -1,5 +1,22 @@
 export function createBrowserJobBatchRepository(sql: unknown): {
-  createAndEnqueue(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  createAndEnqueue(input: {
+    payload: {
+      sourceConnectionId: string;
+      userId: string;
+      deviceId: string;
+      contractId: string;
+      batchSize: number;
+      maxPages: number;
+      startPage?: number;
+      startOffset?: number;
+    };
+    scheduledAt: Date;
+  }): Promise<{
+    accepted: boolean;
+    deduplicated: boolean;
+    batchId: string;
+    taskId: string | null;
+  }>;
   sourceExists(sourceConnectionId: string): Promise<boolean>;
   persistDiscovery(input: Record<string, unknown>): Promise<Record<string, unknown>>;
 };

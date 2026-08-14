@@ -55,3 +55,9 @@ export function replaceMatchDimensions(
       | null;
   },
 ): Promise<number>;
+
+/** 审核状态流转：仅从 generated/pending_review 可流转；已审核返回 null（路由 409）。 */
+export function updateMatchStatus(
+  sql: SqlClient,
+  input: { id: string; status: "approved" | "rejected" },
+): Promise<string | null>;

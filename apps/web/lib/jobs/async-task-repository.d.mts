@@ -1,5 +1,7 @@
 import type postgres from "postgres";
 
+import type { BrowserJobCollectTaskPayload } from "./browser-job-collection.mjs";
+
 export interface AsyncTaskRepoRow {
   id: string;
   kind: string;
@@ -52,6 +54,16 @@ export interface AsyncTaskRepository {
     nextAttemptAt: Date;
     errorCode?: string | null;
   }): Promise<void>;
+  /** 浏览器职位目标去重：同目标（source/user/device/contract/externalId）无活跃任务时原子入队；被拦截返回 null。 */
+  enqueueBrowserJobTaskIfTargetIdle(input: {
+    idempotencyKey: string;
+    payload: BrowserJobCollectTaskPayload;
+    scheduledAt: Date;
+  }): Promise<string | null>;
+  /** 返回同浏览器职位目标当前活跃任务（pending/running）；无则 null。 */
+  findActiveBrowserJobTask(
+    payload: BrowserJobCollectTaskPayload,
+  ): Promise<{ id: string; status: string } | null>;
 }
 
 export declare function createAsyncTaskRepository(
