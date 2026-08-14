@@ -241,8 +241,8 @@ erDiagram
 | 采集 | `source_field_observations` | `entity_type, entity_id, field_name, source_connection_id, contract_version, captured_at, value_hash`；字段级来源追溯，不存敏感正文 |
 | 触达 | `campaigns` | `job_id, channel, status, approved_by` |
 | 触达 | `campaign_recipients` | `campaign_id, candidate_id, status, idempotency_key` |
-| 触达 | `landing_links` | `recipient_id, token_hash, expires_at, revoked_at`（不存明文令牌） |
-| 触达 | `intent_responses` | `recipient_id, option, consent_snapshot, created_at`（A/B/C/退订） |
+| 触达 | `landing_links` | `job_id, candidate_id, token_hash, expires_at, revoked_at, revoked_by, created_by, created_at`（不存明文令牌；2026-08-14 修订：活动/收件人流转未建前，按职位+候选人直接建链，替代原 `recipient_id` 草案） |
+| 触达 | `intent_responses` | `landing_link_id, option, contact_phone_ciphertext, contact_email_ciphertext, contact_phone_hmac, contact_email_hmac, key_version, consent_snapshot, notify_status, notify_error_code, created_at`（A/B/C/退订；联系方式自含、应用层加密；同链唯一幂等） |
 | 漏斗 | `funnel_events` | `event_type, job_id, candidate_id, campaign_id, occurred_at`（追加写） |
 | 漏斗 | `follow_up_tasks` | `candidate_id, job_id, owner_id, status, outcome` |
 | 推荐 | `recommendations` | `job_id, candidate_id, external_id, status`（外部幂等键） |
@@ -282,6 +282,22 @@ unknown → permitted → opted_out
 ```
 
 `opted_out` 是终止状态，除非存在经过记录的新授权，不得自动恢复。
+
+### 落地页意向选项
+
+```text
+A（有兴趣，请联系我）| B（暂不考虑）| C（愿意了解更多/开放查看）| opted_out（退订，不再联系）
+```
+
+意向经 [`intent_responses`](#8-规划表m2m5未落库) 记录；`landing_link_id` 唯一，重复提交返回既有记录（不产生冲突数据）。`opted_out` 是终止状态，除非存在经过记录的新授权，不得自动恢复。
+
+### 意向通知投递
+
+```text
+notify_pending → notify_succeeded | notify_failed
+```
+
+`notify_failed` 是尽力转发失败，不影响意向真源落库，可重试（`async_tasks` 退避）；`opt_out` 同样触发通知但 payload 标注意向为退订。通知成功/失败均写审计，审计元数据不含联系方式正文。
 
 ## 10. 候选人落地页投影
 
