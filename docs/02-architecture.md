@@ -119,6 +119,8 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - 测试和生产各自使用独立网络、数据库、MCP 凭证、Secret 和消息渠道。
 - MVP 生产用 docker compose 编排（`docker-compose.prod.yml`：`web` + `db` + `scheduler`，用户 2026-08-12 决定）；托管 PostgreSQL 为扩容选项（`DATABASE_URL` 指向外部实例）。
 
+> **技术债（2026-08-14，未实现）**：本地开发时集成测试的 `DATABASE_URL`（`.env.local` 指向 `127.0.0.1:5432`）与 dev docker compose 的 `db` **共享同一 PostgreSQL**，真实 scheduler 会持续写入 `jobs`/`sync_runs`/`audit_logs`，导致整批集成测试偶发 flaky（分页 total 波动、关键词/审计计数被污染）。规范要求"测试独立数据库"（见上），实际未兑现。修复方向：本地集成测试指向独立测试库（如 `auto_headcount_test`，跑前迁移/清空），或给测试环境关闭真实 scheduler。已通过测试断言加固降低干扰，但未从根源消除。CHANGELOG 见 `2026-08-14` 条目。
+
 身份、区域和敏感数据存储基线见
 [`ADR-003`](decisions/ADR-003-identity-region-and-data-storage.md)。真实数据上线仍受数据授权与最终保留期限门禁约束。
 
