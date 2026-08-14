@@ -9,7 +9,8 @@
 ## 1. 技术基线
 
 - 框架：Vinext（React Server Components），文件顶部 `"use client"`，单页应用。
-- 单文件现状：全部页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、智能匹配、数据源、审计日志五处已接真实 API；触达活动、跟进任务、转化漏斗、候选人仍为静态原型（假数据）。
+- 单文件现状：全部管理端页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、智能匹配、数据源、审计日志五处已接真实 API；触达活动、跟进任务、转化漏斗、候选人仍为静态原型（假数据）。
+- **公开落地页（M4 切片）**：`app/landing/[token]/page.tsx` 是**独立公开路由**（不在管理端 SPA 内、无会话），令牌门禁 + 脱敏职位页 + A/B/C/退订 + 联系方式提交，走公开 API `GET /api/landing/:token`、`POST /api/landing/:token/intent`（独立身份域，见 [API 契约](../../../docs/09-api-contract.md) §3.3 与 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)）。
 - 已建 API 层：认证 `/api/auth/*`（§2.1）与业务只读 `/api/jobs/under-served`、`/api/sources`、`/api/sync-runs`（§2.2，会话 + RBAC `operations|admin`）。
 - 样式：Tailwind 引入 + `globals.css` 自定义类 + `:root` 设计 token。
 
@@ -81,6 +82,12 @@
 - **批次列表不再两个容器平铺**：原「最近采集批次」与「最近同步批次」两个面板合并为一个列表（`workspace-grid` 左列表 + 右侧详情面板，复用沉睡职位样式）。类型 tabs（全部/采集批次/同步批次，带计数）+ 关键词搜索（批次 ID / 来源）+ 每页 10 条 page-jump 分页；行点击后右侧 `insight-panel` 展示该批次的运行统计（采集：发现/入库/失败/跳过；同步：入库/跳过/失败/查询）与批次信息（本批数量/上限页数 或 同步类型/错误码、创建/完成时间、耗时）。列表数据来源不变：`/api/browser-batches` + `/api/sync-runs`（各取最近 100 条，每 10 秒轮询合并刷新）；连接健康改为列表下方的 `health-strip`。
 - **审计日志改为 jobs 风格列表**：原 `data-table` 网格改为 `.table-wrap` 表格 + 结果分类 tabs（全部/成功/失败/已拒绝，走 `result` 过滤）+ 搜索框（`q` 模糊匹配事件/操作人/关联 ID，350ms 防抖）+ 「≡ 筛选」下拉（事件类型 `action`、操作人 `actor_type`）+ **每页 10 条** page-jump 分页（与批次列表/沉睡职位统一）。`q` 为 [`/api/audit-logs`](../../../docs/09-api-contract.md) 新增参数（匹配 `action`/`actor_id`/`request_id`/`resource_id` 子串）。
 - **数据源卡片撑满容器**：`.source-card` 改 flex 纵向排布（按钮 `margin-top:auto` 贴底）、`min-height` 提升，按钮等高 42px 并 `flex:1` 等分填充整行，h2/meta/描述/浏览器采集下拉全部放大字号，消除卡片底部留白。
+
+### 公开落地页（M4 切片，2026-08-15）
+
+- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染标题/类别/城市/薪资范围/「某科技企业」+ A/B/C/退订 + 手机号/邮箱表单。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
+- 公开 API 走独立身份域（无会话，令牌即能力凭证）：`POST /api/landing/:token/intent` 提交后意向落库（联系方式信封加密），notifier 尽力投递（飞书/假/未配置），提交与通知结果写审计。脱敏边界见 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)；**职责摘要当前一律省略**（原始 JD 截断可能泄漏公司/品牌名，见 `docs/03-data-model.md` §10）。
+- 运营侧建链端点为 `POST /api/landing-links`（会话 + RBAC `operations|admin`，返回含明文令牌的 URL，仅此一次）；管理端建链 UI 属后续接线（当前可经 API/脚本触发）。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
 
