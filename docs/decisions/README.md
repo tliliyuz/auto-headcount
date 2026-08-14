@@ -58,3 +58,4 @@ ADR-001-简短中文标题.md
 - [ADR-003：身份、部署区域与数据存储基线](ADR-003-identity-region-and-data-storage.md)（accepted）
 - [ADR-004：自有账号口令登录](ADR-004-self-managed-login.md)（accepted）
 - [ADR-005：授权网页采集与本地可复算匹配](ADR-005-authorized-web-collection-and-local-matching.md)（accepted）
+- [ADR-006：落地页意向反馈实时通知（飞书）](ADR-006-landing-intent-notifier.md)（proposed）
