@@ -64,6 +64,13 @@
       "when": 1786627657333,
       "tag": "0008_furry_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786635000000,
+      "tag": "0009_browser_collection_batches",
+      "breakpoints": true
     }
   ]
 }

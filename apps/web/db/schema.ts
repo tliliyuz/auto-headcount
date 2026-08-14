@@ -363,6 +363,54 @@ export const asyncTasks = pgTable(
   ],
 );
 
+export const browserCollectionBatches = pgTable(
+  "browser_collection_batches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceConnectionId: uuid("source_connection_id").notNull().references(() => sourceConnections.id, { onDelete: "restrict" }),
+    userId: text("user_id").notNull(),
+    deviceId: text("device_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    batchSize: integer("batch_size").notNull(),
+    maxPages: integer("max_pages").notNull(),
+    startPage: integer("start_page"),
+    startOffset: integer("start_offset"),
+    nextPage: integer("next_page"),
+    nextOffset: integer("next_offset"),
+    stopReason: text("stop_reason"),
+    status: text("status").default("pending").notNull(),
+    discoveredCount: integer("discovered_count").default(0).notNull(),
+    succeededCount: integer("succeeded_count").default(0).notNull(),
+    skippedCount: integer("skipped_count").default(0).notNull(),
+    failedCount: integer("failed_count").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [index("browser_collection_batches_route_status_idx").on(table.sourceConnectionId, table.userId, table.deviceId, table.status)],
+);
+
+export const browserCollectionItems = pgTable(
+  "browser_collection_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    batchId: uuid("batch_id").notNull().references(() => browserCollectionBatches.id, { onDelete: "cascade" }),
+    externalId: text("external_id").notNull(),
+    title: text("title").notNull(),
+    pageNumber: integer("page_number").notNull(),
+    position: integer("position").notNull(),
+    status: text("status").default("pending").notNull(),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("browser_collection_items_batch_external_unique").on(table.batchId, table.externalId),
+    index("browser_collection_items_batch_status_idx").on(table.batchId, table.status),
+  ],
+);
+
 /** M2 本地匹配：职位要求（本地硬过滤/加权评分的职位输入，docs/03 §8；真实来源 JD 派生或 Web 采集）。 */
 export const jobRequirements = pgTable(
   "job_requirements",

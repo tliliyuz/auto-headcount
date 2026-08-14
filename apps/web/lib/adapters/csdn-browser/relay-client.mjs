@@ -3,9 +3,13 @@ import {
   CSDN_CONNECTION_STATUS_TOOL,
   CSDN_EXTRACTION_TOOL,
   buildBrowserConnectionStatusArguments,
+  buildFilteredJobListConnectionStatusArguments,
+  buildFilteredJobListExtractionArguments,
   buildJobDetailExtractionArguments,
   parseJobDetailExtractionResult,
   parseBrowserConnectionStatusResult,
+  parseFilteredJobListExtractionResult,
+  LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
 } from "./browser-collection-contract.mjs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -25,6 +29,7 @@ export function createCsdnBrowserRelayClient({
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
   const endpoint = parseRequestUrl(requestUrl);
+  const localToolEndpoint = buildLocalToolUrl(endpoint);
   if (typeof token !== "string" || token.trim() === "") {
     throw new BrowserRelayError("browser relay token is required", "BROWSER_RELAY_CONFIG_INVALID");
   }
@@ -37,17 +42,34 @@ export function createCsdnBrowserRelayClient({
 
   return {
     async getConnectionStatus(input) {
-      return callRelayTool(CSDN_CONNECTION_STATUS_TOOL, buildBrowserConnectionStatusArguments(input), parseBrowserConnectionStatusResult);
+      if (input.contractId === LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID) {
+        return callRelayTool(
+          CSDN_CONNECTION_STATUS_TOOL,
+          buildFilteredJobListConnectionStatusArguments(stripContractId(input)),
+          parseBrowserConnectionStatusResult,
+          localToolEndpoint,
+        );
+      }
+      return callRelayTool(
+        CSDN_CONNECTION_STATUS_TOOL,
+        buildBrowserConnectionStatusArguments(stripContractId(input)),
+        parseBrowserConnectionStatusResult,
+        localToolEndpoint,
+      );
     },
     async extractJobDetail(input) {
       return callRelayTool(CSDN_EXTRACTION_TOOL, buildJobDetailExtractionArguments(input), parseJobDetailExtractionResult);
     },
+    async discoverFilteredJobs(input) {
+      const args = buildFilteredJobListExtractionArguments(stripContractId(input));
+      return callRelayTool(CSDN_EXTRACTION_TOOL, args, (result) => parseFilteredJobListExtractionResult(result, args));
+    },
   };
 
-  async function callRelayTool(tool, args, parseResult) {
+  async function callRelayTool(tool, args, parseResult, targetUrl = endpoint) {
       let response;
       try {
-        response = await fetchImpl(endpoint, {
+        response = await fetchImpl(targetUrl, {
           method: "POST",
           headers: {
             authorization: `Bearer ${token.trim()}`,
@@ -92,7 +114,10 @@ function parseRequestUrl(value) {
   } catch {
     throw new BrowserRelayError("browser relay URL is invalid", "BROWSER_RELAY_CONFIG_INVALID");
   }
-  const local = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  const local =
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "localhost" ||
+    url.hostname === "host.docker.internal";
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
     throw new BrowserRelayError(
       "browser relay URL must use HTTPS outside localhost",
@@ -102,6 +127,24 @@ function parseRequestUrl(value) {
   return url.toString();
 }
 
+function buildLocalToolUrl(requestUrl) {
+  const url = new URL(requestUrl);
+  if (!url.pathname.endsWith("/mcp/request")) {
+    throw new BrowserRelayError(
+      "browser relay URL must end with /mcp/request",
+      "BROWSER_RELAY_CONFIG_INVALID",
+    );
+  }
+  url.pathname = `${url.pathname.slice(0, -"/mcp/request".length)}/mcp/local-tool`;
+  return url.toString();
+}
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stripContractId(input) {
+  const route = { ...input };
+  delete route.contractId;
+  return route;
 }

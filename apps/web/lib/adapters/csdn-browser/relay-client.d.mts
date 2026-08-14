@@ -1,6 +1,7 @@
 import type {
   JobDetailExtractionRoute,
   ParsedJobDetailExtraction,
+  FilteredJobListRoute,
 } from "./browser-collection-contract.mjs";
 
 export class BrowserRelayError extends Error {
@@ -15,9 +16,10 @@ export function createCsdnBrowserRelayClient(options: {
   timeoutMs?: number;
 }): {
   getConnectionStatus(
-    input: JobDetailExtractionRoute,
+    input: JobDetailExtractionRoute | FilteredJobListRoute,
   ): Promise<Record<string, unknown>>;
   extractJobDetail(
     input: JobDetailExtractionRoute,
   ): Promise<ParsedJobDetailExtraction>;
+  discoverFilteredJobs(input: FilteredJobListRoute): Promise<Record<string, unknown>>;
 };

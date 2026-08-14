@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/liebide-filtered-job-list.receipt.v2.schema.json",
+  "title": "Liebide filtered job list extraction receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractId", "contractVersion", "status", "source", "filterEvidence", "items", "page", "contentHash"],
+  "properties": {
+    "contractId": { "const": "liebide-filtered-job-list-v2" },
+    "contractVersion": { "const": 2 },
+    "status": { "const": "extracted" },
+    "source": { "type": "object", "additionalProperties": false, "required": ["origin", "capturedAt"], "properties": { "origin": { "const": "https://portal.liebide.com" }, "capturedAt": { "type": "string", "format": "date-time" } } },
+    "filterEvidence": { "type": "object", "additionalProperties": false, "required": ["recommendationCount", "publishedAgeDaysMin", "publishedAgeDaysMax"], "properties": { "recommendationCount": { "const": 0 }, "publishedAgeDaysMin": { "const": 0 }, "publishedAgeDaysMax": { "const": 30 } } },
+    "items": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["externalId", "title", "pageNumber", "position"], "properties": { "externalId": { "type": "string", "minLength": 1, "maxLength": 200 }, "title": { "type": "string", "minLength": 1, "maxLength": 500 }, "pageNumber": { "type": "integer", "minimum": 1 }, "position": { "type": "integer", "minimum": 1 } } } },
+    "page": { "type": "object", "additionalProperties": false, "required": ["startPage", "startOffset", "endPage", "pagesVisited", "nextPage", "nextOffset", "stopReason"], "properties": { "startPage": { "type": "integer", "minimum": 1 }, "startOffset": { "type": "integer", "minimum": 0 }, "endPage": { "type": "integer", "minimum": 1 }, "pagesVisited": { "type": "integer", "minimum": 1, "maximum": 20 }, "nextPage": { "type": ["integer", "null"], "minimum": 1 }, "nextOffset": { "type": ["integer", "null"], "minimum": 0 }, "stopReason": { "enum": ["batch_size", "max_pages", "end_of_results"] } } },
+    "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

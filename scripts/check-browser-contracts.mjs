@@ -19,6 +19,10 @@ const PROVIDER_REQUEST_RELATIVE =
   "plugins/csdn-browser-agent/contracts/liebide-job-detail.request.v1.schema.json";
 const PROVIDER_RECEIPT_RELATIVE =
   "plugins/csdn-browser-agent/contracts/liebide-job-detail.receipt.v1.schema.json";
+const LIST_REQUEST_SCHEMA_RELATIVE = "docs/contracts/liebide-filtered-job-list.request.v2.schema.json";
+const LIST_RECEIPT_SCHEMA_RELATIVE = "docs/contracts/liebide-filtered-job-list.receipt.v2.schema.json";
+const PROVIDER_LIST_REQUEST_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-filtered-job-list.request.v2.schema.json";
+const PROVIDER_LIST_RECEIPT_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-filtered-job-list.receipt.v2.schema.json";
 
 const REQUEST_KEYS = [
   "userId",
@@ -143,6 +147,10 @@ async function main() {
     receiptSchema: await readSchema(ROOT, RECEIPT_SCHEMA_RELATIVE),
   };
   const manifest = verifyContractSchemas(consumer);
+  const listConsumer = {
+    requestSchema: await readSchema(ROOT, LIST_REQUEST_SCHEMA_RELATIVE),
+    receiptSchema: await readSchema(ROOT, LIST_RECEIPT_SCHEMA_RELATIVE),
+  };
 
   if (providerRoot) {
     const provider = {
@@ -150,11 +158,17 @@ async function main() {
       receiptSchema: await readSchema(providerRoot, PROVIDER_RECEIPT_RELATIVE),
     };
     compareProviderSchemas(consumer, provider);
+    compareProviderSchemas(listConsumer, {
+      requestSchema: await readSchema(providerRoot, PROVIDER_LIST_REQUEST_RELATIVE),
+      receiptSchema: await readSchema(providerRoot, PROVIDER_LIST_RECEIPT_RELATIVE),
+    });
   }
 
   console.log(
     JSON.stringify({
       ...manifest,
+      listRequestSchemaSha256: schemaSha256(listConsumer.requestSchema),
+      listReceiptSchemaSha256: schemaSha256(listConsumer.receiptSchema),
       providerCompared: Boolean(providerRoot),
     }),
   );

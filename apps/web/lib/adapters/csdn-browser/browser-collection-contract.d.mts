@@ -2,6 +2,8 @@ export const CSDN_EXTRACTION_TOOL: "csdn_run_extraction_contract";
 export const CSDN_CONNECTION_STATUS_TOOL: "csdn_get_browser_connection_status";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_ID: "liebide-job-detail-v1";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_VERSION: 1;
+export const LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID: "liebide-filtered-job-list-v2";
+export const LIEBIDE_FILTERED_JOB_LIST_CONTRACT_VERSION: 2;
 export const LIEBIDE_PLATFORM_ORIGIN: "https://portal.liebide.com";
 
 export class BrowserCollectionContractError extends Error {
@@ -49,3 +51,16 @@ export function parseBrowserConnectionStatusResult(
 export function parseJobDetailExtractionResult(
   input: unknown,
 ): ParsedJobDetailExtraction;
+export interface FilteredJobListRoute {
+  userId: string;
+  deviceId: string;
+  browserSessionId?: string;
+  batchSize: number;
+  maxPages: number;
+  startPage?: number;
+  startOffset?: number;
+  contractId?: typeof LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID;
+}
+export function buildFilteredJobListExtractionArguments(input: FilteredJobListRoute): FilteredJobListRoute & { contractId: typeof LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID };
+export function buildFilteredJobListConnectionStatusArguments(input: FilteredJobListRoute): Record<string, unknown>;
+export function parseFilteredJobListExtractionResult(input: unknown, limits: { batchSize: number; maxPages: number }): Record<string, unknown>;

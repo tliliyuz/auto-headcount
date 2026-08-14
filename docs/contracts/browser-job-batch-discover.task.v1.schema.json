@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/browser-job-batch-discover.task.v1.schema.json",
+  "title": "browser_job_batch_discover task payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["batchId", "sourceConnectionId", "userId", "deviceId", "contractId", "batchSize", "maxPages"],
+  "properties": {
+    "batchId": { "type": "string", "format": "uuid" },
+    "sourceConnectionId": { "type": "string", "format": "uuid" },
+    "userId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "deviceId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "contractId": { "const": "liebide-filtered-job-list-v1" },
+    "batchSize": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "maxPages": { "type": "integer", "minimum": 1, "maximum": 20 },
+    "startPage": { "type": "integer", "minimum": 1, "maximum": 10000 }
+    ,"startOffset": { "type": "integer", "minimum": 0, "maximum": 10000 }
+  }
+}

@@ -6,10 +6,13 @@ import {
   CSDN_CONNECTION_STATUS_TOOL,
   CSDN_EXTRACTION_TOOL,
   LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+  LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
+  buildFilteredJobListExtractionArguments,
   buildBrowserConnectionStatusArguments,
   buildJobDetailExtractionArguments,
   parseBrowserConnectionStatusResult,
   parseJobDetailExtractionResult,
+  parseFilteredJobListExtractionResult,
 } from "../lib/adapters/csdn-browser/browser-collection-contract.mjs";
 import { createCsdnBrowserRelayClient } from "../lib/adapters/csdn-browser/relay-client.mjs";
 
@@ -207,10 +210,12 @@ test("Relay 客户端调用只读连接预检且不要求持久化 browserSessio
   const result = await client.getConnectionStatus({
     userId: route.userId,
     deviceId: route.deviceId,
+    contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
     expectedExternalId: "fixture-job-001",
   });
   assert.equal(result.status, "READY");
   assert.equal(calls[0].tool, CSDN_CONNECTION_STATUS_TOOL);
+  assert.equal(calls[0].arguments.contractId, LIEBIDE_JOB_DETAIL_CONTRACT_ID);
   assert.equal("browserSessionId" in calls[0].arguments, false);
 });
 
@@ -233,4 +238,90 @@ test("Relay 网络/HTTP/包络错误映射为机器码且不回显正文", async
       return true;
     },
   );
+});
+
+test("Docker Desktop 开发容器可通过固定主机别名连接本机 HTTP Bridge", () => {
+  assert.doesNotThrow(() => createCsdnBrowserRelayClient({
+    requestUrl: "http://host.docker.internal:48887/mcp/request",
+    token: "fixture-relay-token",
+    fetchImpl: async () => Response.json({ ok: true, result: {} }),
+  }));
+});
+
+test("筛选列表合同关闭调用字段并限制批次、页数和数字断点", () => {
+  assert.deepEqual(buildFilteredJobListExtractionArguments({
+    userId: route.userId, deviceId: route.deviceId,
+    batchSize: 20, maxPages: 3, startPage: 2,
+  }), {
+    userId: route.userId, deviceId: route.deviceId,
+    contractId: LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
+    batchSize: 20, maxPages: 3, startPage: 2,
+  });
+  for (const invalid of [
+    { batchSize: 0, maxPages: 3 },
+    { batchSize: 101, maxPages: 3 },
+    { batchSize: 20, maxPages: 21 },
+    { batchSize: 20, maxPages: 3, selector: ".job" },
+  ]) assert.throws(() => buildFilteredJobListExtractionArguments({
+    userId: route.userId, deviceId: route.deviceId, ...invalid,
+  }), BrowserCollectionContractError);
+});
+
+test("Relay 使用 contractId 选择列表合同但不把内部选择字段重复传给关闭参数构造器", async () => {
+  const calls = [];
+  const client = createCsdnBrowserRelayClient({
+    requestUrl: "https://codeg.invalid/api/csdn_browser_relay/mcp/request",
+    token: "fixture-relay-token",
+    fetchImpl: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      calls.push({ url: String(_url), ...request });
+      if (request.tool === CSDN_CONNECTION_STATUS_TOOL) {
+        return Response.json({ ok: true, result: {
+          status: "READY", ready: true, action: "none", registeredPageCount: 1,
+          sessionMatched: true, origin: "https://portal.liebide.com", authState: "authenticated",
+          contractId: LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, entityMatched: false,
+        } });
+      }
+      return Response.json({ ok: true, result: {
+        contractId: LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, contractVersion: 2, status: "extracted",
+        source: { origin: "https://portal.liebide.com", capturedAt: "2026-08-13T09:00:00.000Z" },
+        filterEvidence: { recommendationCount: 0, publishedAgeDaysMin: 0, publishedAgeDaysMax: 30 },
+        items: [{ externalId: "fixture-job-001", title: "虚构职位", pageNumber: 1, position: 1 }],
+        page: { startPage: 1, startOffset: 0, endPage: 1, pagesVisited: 1, nextPage: null, nextOffset: null, stopReason: "end_of_results" },
+        contentHash: "b".repeat(64),
+      } });
+    },
+  });
+  const input = {
+    userId: route.userId, deviceId: route.deviceId,
+    contractId: LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, batchSize: 20, maxPages: 3,
+  };
+  assert.equal((await client.getConnectionStatus(input)).status, "READY");
+  assert.equal((await client.discoverFilteredJobs(input)).items.length, 1);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].url, /\/mcp\/local-tool$/);
+  assert.match(calls[1].url, /\/mcp\/request$/);
+});
+
+test("筛选列表回执只接受筛选证据、唯一职位最小字段和有界断点", () => {
+  const parsed = parseFilteredJobListExtractionResult({
+    contractId: LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
+    contractVersion: 2,
+    status: "extracted",
+    source: { origin: "https://portal.liebide.com", capturedAt: "2026-08-13T09:00:00.000Z" },
+    filterEvidence: { recommendationCount: 0, publishedAgeDaysMin: 0, publishedAgeDaysMax: 30 },
+    items: [
+      { externalId: "fixture-job-001", title: "虚构职位一", pageNumber: 2, position: 1 },
+      { externalId: "fixture-job-002", title: "虚构职位二", pageNumber: 2, position: 2 },
+    ],
+    page: { startPage: 2, startOffset: 0, endPage: 2, pagesVisited: 1, nextPage: 2, nextOffset: 2, stopReason: "batch_size" },
+    contentHash: "b".repeat(64),
+  }, { batchSize: 2, maxPages: 3 });
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.nextPage, 2);
+  assert.equal(parsed.nextOffset, 2);
+  assert.throws(() => parseFilteredJobListExtractionResult({
+    ...parsed,
+    items: [...parsed.items, parsed.items[0]],
+  }, { batchSize: 2, maxPages: 3 }), BrowserCollectionContractError);
 });

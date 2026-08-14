@@ -5,6 +5,8 @@ import {
   BrowserJobCollectionError,
   evaluateBrowserJobEligibility,
   parseBrowserJobCollectTaskPayload,
+  parseBrowserJobBatchDiscoverTaskPayload,
+  runBrowserJobBatchDiscovery,
   runBrowserJobCollection,
 } from "../lib/jobs/browser-job-collection.mjs";
 
@@ -53,12 +55,15 @@ test("本地沉睡规则包含 7/30 天并拒绝缺失或不合格事实", () =>
   ]) assert.equal(evaluateBrowserJobEligibility(candidate, now).eligible, false);
 });
 
-test("单职位闭环只有 READY 且规则合格时才持久化", async () => {
+test("单职位闭环允许同源 WRONG_ENTITY 进入固定导航且规则合格时持久化", async () => {
   const calls = [];
   const result = await runBrowserJobCollection({
     task, now: new Date("2026-08-13T09:00:00.000Z"),
     relayClient: {
-      async getConnectionStatus(input) { calls.push(["preflight", input]); return { status: "READY", ready: true }; },
+      async getConnectionStatus(input) { calls.push(["preflight", input]); return {
+        status: "WRONG_ENTITY", ready: false, sessionMatched: true,
+        origin: "https://portal.liebide.com", authState: "authenticated",
+      }; },
       async extractJobDetail(input) { calls.push(["extract", input]); return record(); },
     },
     repository: {
@@ -70,16 +75,18 @@ test("单职位闭环只有 READY 且规则合格时才持久化", async () => {
   assert.equal(result.stats.persisted, 1);
   assert.deepEqual(calls.map(([name]) => name), ["source", "preflight", "extract", "persist"]);
   assert.equal(calls[1][1].browserSessionId, undefined);
+  assert.equal(calls[1][1].contractId, "liebide-job-detail-v1");
+  assert.equal(calls[1][1].expectedExternalId, task.externalId);
   assert.equal(calls[3][1].job.ageDays, 9);
 });
 
-test("非 READY 和不合格回执禁止持久化", async () => {
+test("未登录等非导航状态和不合格回执禁止持久化", async () => {
   let extracted = false;
   let persisted = false;
   const blocked = await runBrowserJobCollection({
     task, now: new Date("2026-08-13T09:00:00.000Z"),
     relayClient: {
-      async getConnectionStatus() { return { status: "WRONG_ENTITY", ready: false }; },
+      async getConnectionStatus() { return { status: "AUTH_REQUIRED", ready: false }; },
       async extractJobDetail() { extracted = true; },
     },
     repository: {
@@ -87,7 +94,7 @@ test("非 READY 和不合格回执禁止持久化", async () => {
       async persist() { persisted = true; },
     },
   });
-  assert.equal(blocked.errorCode, "BROWSER_WRONG_ENTITY");
+  assert.equal(blocked.errorCode, "BROWSER_AUTH_REQUIRED");
   assert.equal(extracted, false);
   assert.equal(persisted, false);
 
@@ -105,4 +112,52 @@ test("非 READY 和不合格回执禁止持久化", async () => {
   assert.equal(skipped.status, "succeeded");
   assert.equal(skipped.stats.skipped, 1);
   assert.equal(persisted, false);
+});
+
+test("批量发现任务载荷有界且不接受 session、URL、选择器或提示词", () => {
+  const input = {
+    batchId: "22222222-2222-4222-8222-222222222222",
+    sourceConnectionId: task.sourceConnectionId,
+    userId: task.userId,
+    deviceId: task.deviceId,
+    contractId: "liebide-filtered-job-list-v2",
+    batchSize: 20,
+    maxPages: 3,
+  };
+  assert.deepEqual(parseBrowserJobBatchDiscoverTaskPayload(input), input);
+  for (const extra of [
+    { browserSessionId: "forbidden" }, { url: "https://portal.liebide.com" },
+    { selector: ".job" }, { prompt: "请翻页" },
+  ]) assert.throws(() => parseBrowserJobBatchDiscoverTaskPayload({ ...input, ...extra }), BrowserJobCollectionError);
+});
+
+test("批量发现先验证当前筛选列表，再持久化唯一条目并创建详情任务", async () => {
+  const calls = [];
+  const batchTask = {
+    batchId: "22222222-2222-4222-8222-222222222222",
+    sourceConnectionId: task.sourceConnectionId,
+    userId: task.userId, deviceId: task.deviceId,
+    contractId: "liebide-filtered-job-list-v2", batchSize: 20, maxPages: 3,
+  };
+  const result = await runBrowserJobBatchDiscovery({
+    task: batchTask,
+    relayClient: {
+      async getConnectionStatus(input) { calls.push(["preflight", input]); return { status: "READY", ready: true }; },
+      async discoverFilteredJobs(input) { calls.push(["discover", input]); return {
+        items: [
+          { externalId: "fixture-job-001", title: "虚构职位一", pageNumber: 1, position: 1 },
+          { externalId: "fixture-job-002", title: "虚构职位二", pageNumber: 1, position: 2 },
+        ],
+        nextPage: 2, stopReason: "max_pages", pagesVisited: 1,
+      }; },
+    },
+    repository: {
+      async sourceExists() { calls.push(["source"]); return true; },
+      async persistDiscovery(input) { calls.push(["persist", input]); return { createdItems: 2, enqueuedDetails: 2 }; },
+    },
+  });
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.stats.discovered, 2);
+  assert.deepEqual(calls.map(([name]) => name), ["source", "preflight", "discover", "persist"]);
+  assert.equal(calls[3][1].detailContractId, "liebide-job-detail-v1");
 });

@@ -90,3 +90,12 @@ test("迁移 0008 包含两阶段匹配表与 matches/match_dimensions 扩展", 
     assert.match(sql, new RegExp(`ALTER TABLE "match_dimensions" ADD COLUMN "${col}"`));
   }
 });
+
+test("迁移 0009 持久化浏览器采集批次、断点和唯一发现条目", async () => {
+  const files = (await readdir(migrationsUrl)).filter((name) => name.endsWith(".sql"));
+  const sql = (await Promise.all(files.map((name) => readFile(new URL(name, migrationsUrl), "utf8")))).join("\n");
+  assert.match(sql, /CREATE TABLE "browser_collection_batches"/);
+  assert.match(sql, /"next_page" integer/);
+  assert.match(sql, /CREATE TABLE "browser_collection_items"/);
+  assert.match(sql, /CREATE UNIQUE INDEX "browser_collection_items_batch_external_unique".*batch_id.*external_id/s);
+});
