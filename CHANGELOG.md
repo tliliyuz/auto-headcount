@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 集成测试独立数据库（auto_headcount_test）技术债落地
+
+> 状态：`verified`（单元 179/179、PostgreSQL 集成 37/37 连续三次、ESLint、Vinext 生产构建；rendered-html + http-read 4/4）。消除 `docs/02 §6` 标记的"测试独立数据库"技术债：集成测试不再与 dev 库共享 PostgreSQL。
+
+- 新增 `scripts/run-integration-tests.mjs`：由 `DATABASE_URL` 推导独立测试库 `auto_headcount_test`（仅库名替换），确保建库（缺失则 `CREATE DATABASE`）、清空业务表（保留 `__drizzle_migrations`）、跑 `db:migrate`，再以测试库 URL 派生 `node --test` 并透传退出码；`DATABASE_URL` 缺失时明确失败（退出码 2），不再静默整批跳过。
+- `package.json`：`test:integration` 与 `test` 的 rendered-html/http-read 段改走 harness（`--env-file-if-exists` 加载 `.env.local`）；集成测试文件改为顺序执行（`--test-concurrency=1`），消除并行文件并发写同一测试库导致的分页/计数断言漂移。
+- `ops-read` 分页断言自包含：独立夹具源 + `q:"Paged"` 隔离 5 条夹具，页间不重叠、totalPages、末页余 1 条确定性断言；不再依赖共享库存量数据（此前的 flaky 根源）。
+- 效果：dev 库 `auto_headcount` 不再被集成测试写入（验证：跑前/跑后 dev 库 fixture 来源数不变）；独立测试库连续整批集成 37/37 × 3 稳定。
+- 顺带修复 `worker/index.ts` 两个 TS2304（`Fetcher`/`D1Database` 未定义）：沿用文件既有手写结构类型风格补最小声明，`npx tsc -p tsconfig.json` 下该文件零错误。
+
 ### 2026-08-14 — 匹配自动化修复：成本上界配置、审计白名单、测试稳定性
 
 > 状态：`verified`（单元 176/176、PostgreSQL 集成 38/38、ESLint、生产构建）。修复 `3c27b50d` 引入的自动匹配编排在开发/测试环境的行为与可观测性缺口。

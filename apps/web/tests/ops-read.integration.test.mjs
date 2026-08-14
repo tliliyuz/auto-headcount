@@ -57,6 +57,7 @@ test(
     const marker = randomUUID();
     let sourceIdA;
     let sourceIdB;
+    let pageSource;
 
     try {
       // Source A：成功同步，含边界与非合格职位
@@ -136,21 +137,50 @@ test(
       assert.equal(byCityFixture.length, 1, "夹具来源仅 a-2 命中关键词 beijing");
       assert.equal(byCityFixture[0].externalId, "a-2");
 
-      // 3) 分页一致性（并发容忍：共享 DB 上真实 scheduler 可能在两次查询间写入新职位，
-      //    因此不做跨查询 total 相等；改为单次查询内自洽 + 页间不重叠）
-      const pageOne = await listUnderServedJobs(sql, { page: 1, pageSize: 2 });
+      // 3) 分页一致性：独立夹具源 + q 过滤隔离（不依赖共享库存量数据）。分页查询面向
+      //    全库，此前依赖真实 scheduler 的存量职位填充页数、也受其并发写入扰动；
+      //    现在用 q:"Paged" 把断言窗口收敛到本测试自有的 5 条夹具，页间不重叠可确定断言。
+      pageSource = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-${marker}-page`,
+        environment: "test",
+        displayName: "Fixture Page Source",
+      });
+      const pageRun = await startSyncRun(sql, pageSource, "under_served_jobs");
+      const pagedFixtures = [
+        fixtureJob("p-1", { title: "Paged Alpha", category: "Data", city: "Hangzhou", ageDays: 8 }),
+        fixtureJob("p-2", { title: "Paged Beta", category: "Data", city: "Ningbo", ageDays: 9 }),
+        fixtureJob("p-3", { title: "Paged Gamma", category: "Data", city: "Wenzhou", ageDays: 10 }),
+        fixtureJob("p-4", { title: "Paged Delta", category: "Data", city: "Shaoxing", ageDays: 11 }),
+        fixtureJob("p-5", { title: "Paged Epsilon", category: "Data", city: "Jiaxing", ageDays: 12 }),
+      ];
+      for (const job of pagedFixtures) {
+        await persistUnderServedJob(sql, {
+          sourceId: pageSource,
+          syncRunId: pageRun,
+          rawPayload: { job_id: job.externalId },
+          job,
+          encryption,
+        });
+      }
+      await finishSyncRun(sql, pageRun, { processed: 5, persisted: 5 });
+
+      // 排序：age_days 降序 → created_at 降序 → id 降序（id 为唯一键，次序确定）。
+      // age 8~12 共 5 条，页大小 2 → 第 1/2 页各 2 条、第 3 页余 1 条（p-1）。
+      const pageOne = await listUnderServedJobs(sql, { q: "Paged", page: 1, pageSize: 2 });
+      assert.equal(pageOne.total, 5, "q:Paged 只命中本测试的分页夹具");
+      assert.equal(pageOne.totalPages, 3);
       assert.equal(pageOne.list.length, 2);
-      assert.equal(pageOne.totalPages, Math.ceil(pageOne.total / 2));
-      assert.ok(pageOne.total >= 2, "沉睡职位总数应至少覆盖第一页");
       const pageOneIds = new Set(pageOne.list.map((job) => job.externalId));
-      const pageTwo = await listUnderServedJobs(sql, { page: 2, pageSize: 2 });
+      const pageTwo = await listUnderServedJobs(sql, { q: "Paged", page: 2, pageSize: 2 });
       assert.equal(
         pageTwo.list.some((job) => pageOneIds.has(job.externalId)),
         false,
         "第二页不应与第一页重叠",
       );
       assert.equal(pageTwo.list.length, 2);
-      assert.ok(pageTwo.list.length <= pageTwo.total, "第二页不应超过总数");
+      const pageThree = await listUnderServedJobs(sql, { q: "Paged", page: 3, pageSize: 2 });
+      assert.equal(pageThree.list.length, 1, "第三页余 1 条");
+      assert.equal(pageThree.list[0].externalId, "p-1");
 
       // 4) 字段投影：camelCase、含内部字段、绝不出现 payload_* 或 cursor
       const a1 = all.list.find((job) => job.externalId === "a-1");
@@ -190,7 +220,7 @@ test(
       );
       assert.equal("cursor" in runBView, false);
     } finally {
-      for (const sourceId of [sourceIdA, sourceIdB]) {
+      for (const sourceId of [sourceIdA, sourceIdB, pageSource]) {
         if (sourceId) {
           await sql`delete from jobs where source_connection_id = ${sourceId}`;
           await sql`delete from raw_records where source_connection_id = ${sourceId}`;

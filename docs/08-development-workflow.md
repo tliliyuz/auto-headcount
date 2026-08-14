@@ -91,6 +91,7 @@ auto-headcount/
 ### CI 实现（GitHub Actions）
 
 - `.github/workflows/ci.yml` 在 push（`main`/`dev`）与 PR 上运行，分层：静态（ESLint + 空白 + markdown 相对链接）→ 单元/契约（`test:unit`）→ 数据库迁移（`node db/migrate.mjs`，兑现 ADR-002 §44）→ 集成（`test:integration`，PostgreSQL 17 服务容器）→ 构建 + 服务端渲染 + HTTP 层。
+- `test:integration` 经 `scripts/run-integration-tests.mjs` 在独立测试库 `auto_headcount_test` 上运行（由 `DATABASE_URL` 推导库名、自动建库、清空业务表、跑迁移），测试文件顺序执行（`--test-concurrency=1`），与开发库隔离、无并行写竞争；CI 的 `DATABASE_URL` 指向服务容器，superuser 角色可自动 `CREATE DATABASE`。
 - CI 直接 `npm ci` + Node 执行，不走 docker compose 镜像（避免镜像烘焙陈旧 `package.json`/`worker`/`vite.config`）；测试仅使用脱敏 Fixture 与测试加密 key，不注入真实 MCP/加密/数据库凭据。
 - 本地用 `make ci` 跑同路径流水线：先 `docker compose build web`（重建镜像使烘焙文件新鲜）→ 迁移 → lint/unit/integration → 构建 + 渲染 + HTTP → markdown 链接检查。
 

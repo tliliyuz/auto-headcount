@@ -22,6 +22,9 @@
 .DS_Store
 *.pem
 
+# typescript incremental build info (tsconfig "incremental": true)
+*.tsbuildinfo
+
 # debug
 npm-debug.log*
 yarn-debug.log*

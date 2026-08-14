@@ -5,6 +5,16 @@ import { runScheduledTick } from "../lib/jobs/sync-scheduler.mjs";
 import { getDb } from "../lib/server/db";
 import { runWithEnv, type WorkerEnv } from "../lib/server/runtime-env";
 
+// Cloudflare Worker 绑定类型的最小结构声明。项目未安装 @cloudflare/workers-types
+// （全局类型会与 tsconfig 的 dom lib 冲突），本文件沿用 ExecutionContext/ScheduledEvent
+// 的手写结构类型风格；此处补全 ASSETS（Service/Assets 绑定）与 DB（D1 绑定）两个缺口。
+interface Fetcher {
+  fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
+}
+interface D1Database {
+  prepare(query: string): unknown;
+}
+
 interface Env extends WorkerEnv {
   ASSETS: Fetcher;
   DB: D1Database;
