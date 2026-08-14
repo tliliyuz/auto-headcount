@@ -1,6 +1,6 @@
 # 候选人采集规范（猎必得人才池 · 候选人画像）
 
-> 状态：`specified`（2026-08-14）。范围：猎必得人才池「互联网技术」分类，采集**候选人画像**；内部 `candidates` 存**真实姓名**（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），**脱敏只针对匹配 LLM 投影**（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`，不含真实姓名/联系方式）；联系方式与完整简历顺延至 ingestion ticket 阶段（见 §7）。
+> 状态：`specified` + 合同层 `implemented`（2026-08-14）。范围：猎必得人才池「互联网技术」分类，采集**候选人画像**；内部 `candidates` 存**真实姓名**（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），**脱敏只针对匹配 LLM 投影**（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`，不含真实姓名/联系方式）；联系方式与完整简历顺延至 ingestion ticket 阶段（见 §7）。合同层（§3）已实现并经虚构 Fixture 验证：Provider 两条合同（发现/画像详情，含新标签页编排）+ 参数白名单 + 回执解析（真实姓名入 `candidates`、联系方式/简历正文失败关闭）+ Provider↔Consumer Schema 对齐。**尚未完成**：真实 DOM 选择器验证、候选人仓储/差分调度（`browser_candidate_discovery/collect`）、`candidate_profiles` 补列近期工作 title/company 的数据模型迁移。
 > 唯一权威来源：本文件。职位采集见 [`runbooks/browser-collection.md`](runbooks/browser-collection.md)；数据模型见 [03-data-model](03-data-model.md)；匹配投影见 [10-matching-contracts](10-matching-contracts.md)。
 
 ## 1. 产品行为
@@ -28,6 +28,8 @@
 ## 3. 合同
 
 两条固定受限合同均经 `csdn_run_extraction_contract` 执行，白名单字段、失败关闭语义与职位合同一致（未知字段/敏感键/ID 不一致 → `PAGE_CONTRACT_CHANGED` / `BROWSER_COLLECTION_CONTRACT_INVALID`）。
+
+> 实现状态（2026-08-14）：两条合同已实现并经虚构 Fixture 验证。Provider（csdn-agent `0c66135`）：发现/详情提取表达式、参数白名单、连接状态/session 路由、详情新标签页编排（`chrome.tabs.create` → 等待 `tab.status=complete` → 提取 → 关闭回列表）。Consumer（auto-headcount `2aebe907`）：参数构造、回执解析（真实姓名入 `candidates`，联系方式/简历正文失败关闭）、Provider↔Consumer Schema 对齐。**真实 DOM 选择器尚未验证**——Fixture 选择器（`.candidate-item`、`.candidate-name` 等）为契约初始假设，需经真实页面按职位合同同流程收敛（`PAGE_CONTRACT_CHANGED` 失败关闭兜底）。
 
 ### 3.1 `liebide-talent-pool-list-v1`（发现）
 
