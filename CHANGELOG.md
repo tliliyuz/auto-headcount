@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 候选人脱敏范围确认与候选人池页面排期（文档同步）
+
+> 状态：`specified`。候选人采集脱敏范围确认为「内部 `candidates` 存真实姓名（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），脱敏只针对匹配 LLM 投影（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`）」。
+
+- 统一候选人脱敏口径：`docs/10-candidate-collection.md`（标题/头部/采集流程）、`docs/05` M2 范围、`docs/03` 数据模型（`candidates` 由「打码候选人」改为「候选人画像（真实姓名，敏感业务 RBAC+加密+审计）」）、`docs/06` 安全合规（落库授权补 2026-08-14 范围更新）、`docs/02` §5 采集任务段——旧「真实姓名打码 / 脱敏画像」表述全部改为新口径；联系方式与完整简历仍顺延 ingestion ticket 阶段。
+- 候选人池前端页面进文档与排期：`docs/FRONTEND.md` 页面清单加「候选人（规划）」行（数据源页「采集人才池候选人」入口 + 批次面板 + 候选人池列表，排期随 M2 候选人采集落地）；`docs/05` M2 范围内工作与 `docs/10` §5 同步补排期条目。
+- 顺带补 `docs/FRONTEND.md` 数据源行端点（`POST /api/browser-collections` + `GET /api/browser-batches`，浏览器职位批量采集入口此前未入页面表）。
+
 ### 2026-08-14 — 职位类别标题推断落地：源 category 为空时按标题归桶，tabs 有真实分布
 
 > 状态：`verified`（`job-category.test.mjs` 11/11（RED→GREEN）、`tsc` 零错误、eslint 变更零错误、`vinext build` 通过；本地 dev server 登录 `ops` 实测：类别 tabs 由「技术研发1/其他40」变为「技术研发15/产品设计5/市场销售1/数据智能20/其他1」，列表类别单元格与详情面板显示推断粗桶，tab 联动筛选正确（点「数据智能」筛出 20 条全为数据智能））。

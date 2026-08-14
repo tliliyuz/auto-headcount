@@ -1,6 +1,6 @@
-# 候选人采集规范（猎必得人才池 · 脱敏画像）
+# 候选人采集规范（猎必得人才池 · 候选人画像）
 
-> 状态：`specified`（2026-08-14）。范围：猎必得人才池「互联网技术」分类，采集**脱敏画像**；真实姓名打码、联系方式与完整简历顺延至 ingestion ticket 阶段（见 §7）。
+> 状态：`specified`（2026-08-14）。范围：猎必得人才池「互联网技术」分类，采集**候选人画像**；内部 `candidates` 存**真实姓名**（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），**脱敏只针对匹配 LLM 投影**（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`，不含真实姓名/联系方式）；联系方式与完整简历顺延至 ingestion ticket 阶段（见 §7）。
 > 唯一权威来源：本文件。职位采集见 [`runbooks/browser-collection.md`](runbooks/browser-collection.md)；数据模型见 [03-data-model](03-data-model.md)；匹配投影见 [10-matching-contracts](10-matching-contracts.md)。
 
 ## 1. 产品行为
@@ -9,7 +9,7 @@
 
 - 运营在猎必得人才池页（`https://portal.liebide.com/#/candidates/firmCandidate`）设好**「互联网技术」分类筛选**，随后在管理端触发「采集人才池候选人」批次。
 - 本批数量 = 本次要处理的候选人画像数（新增 + 画像变化的更新），差分语义与职位采集一致（跳过已入库未变、按断点续采凑满）。
-- **候选人详情在新标签页打开**：采集流程 = 列表 → 逐条点开详情（新标签页）→ 提取脱敏画像 → 关闭新标签页 → 回列表。多标签页处理是候选人合同的硬性要求。
+- **候选人详情在新标签页打开**：采集流程 = 列表 → 逐条点开详情（新标签页）→ 提取候选人画像（含真实姓名，落库 RBAC + 加密 + 审计保护）→ 关闭新标签页 → 回列表。多标签页处理是候选人合同的硬性要求。
 - 列表分页：20 条/页，页码断点，无滚动懒加载。
 - 人才池列表卡片显示**真实姓名**；内部 `candidates` 存**真实姓名**（候选人画像属敏感业务，受 RBAC + 应用层加密 + 审计保护，见 [06-security-compliance](06-security-compliance.md) §敏感业务）。**脱敏的对象是匹配 LLM**：`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`，不含姓名/联系方式。真实姓名不写日志、审计元数据或任务载荷。
 
@@ -54,7 +54,8 @@
 
 - 新 kind：`browser_candidate_discovery`、`browser_candidate_collect`，复用 `async_tasks` 表与突发认领/差分/退避机制（同 `browser_job_*`）。
 - 载荷白名单：来源/候选人与批次 ID、用户/设备、契约版本、数字断点、批量上限；**不含浏览器 Session、真实姓名、联系方式或简历正文**（真实姓名只经 DB 写，不落任务载荷/审计/日志）。
-- 管理端触发复用「采集当前筛选结果」的批次模式（候选人批次表 + 详情任务 + 批次面板）。
+- 管理端触发复用「采集当前筛选结果」的批次模式（数据源页「采集人才池候选人」入口 + 候选人批次表 + 详情任务 + 批次面板）。
+- **前端候选人页面（排期随采集落地，见 [FRONTEND](../apps/web/docs/FRONTEND.md)）**：数据源页加入口与批次面板后，新增「候选人」页展示采集的候选人池（白名单投影；`display_name` 真实姓名按 RBAC operations/admin + 加密 + 审计保护，前端同样不越过白名单投影）。
 
 ## 6. M3 集成
 
