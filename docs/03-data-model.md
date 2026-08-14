@@ -2,7 +2,7 @@
 
 本文件是数据库表结构、表关系、约束、保留与迁移的唯一权威来源。可执行真源为 [`apps/web/db/schema.ts`](../apps/web/db/schema.ts) 与 [`apps/web/drizzle/`](../apps/web/drizzle/) 迁移；发现冲突先修正本文件，再改 schema 与测试。
 
-> 直观速览：当前迁移 0000–0008 已落库 **20 张表** + 7 个枚举；M2–M5 仍有规划表和现有表扩展尚未落库，见 [§2 表清单](#2-表清单与实现状态) 与 [§8 规划表](#8-规划表m2m5未落库)。
+> 直观速览：当前迁移 0000–0009 已落库 **22 张表** + 7 个枚举；M2–M5 仍有规划表和现有表扩展尚未落库，见 [§2 表清单](#2-表清单与实现状态) 与 [§8 规划表](#8-规划表m2m5未落库)。
 
 ## 1. 目标与非目标
 
@@ -11,7 +11,7 @@
 
 ## 2. 表清单与实现状态
 
-### 2.1 已落库（迁移 0000–0008，共 20 张）
+### 2.1 已落库（迁移 0000–0009，共 22 张）
 
 | 域 | 表 | 一句话职责 |
 |:---|:---|:---|
@@ -25,6 +25,8 @@
 | 数据 | [`raw_records`](#63-raw_records) | AES-256-GCM 信封加密的原始载荷快照（追加写） |
 | 数据 | [`jobs`](#71-jobs) | 规范化职位；公司名/详细地址不进公开视图 |
 | 任务 | [`async_tasks`](#72-async_tasks任务调度) | 数据库任务表调度（状态/幂等键/退避重试/dead） |
+| 任务 | [`browser_collection_batches`](#75-浏览器采集批次与条目) | 筛选列表采集批次、页码/页内偏移断点与汇总状态 |
+| 任务 | [`browser_collection_items`](#75-浏览器采集批次与条目) | 批次内唯一职位发现项与详情采集终态 |
 | 匹配 | `job_requirements` | 现有本地确定性评分的职位要求快照 |
 | 匹配 | `match_rules` | 现有本地规则权重与阈值版本 |
 | 匹配 | `candidates` | 打码候选人与迁移期展示摘要 |
@@ -193,6 +195,12 @@ erDiagram
 **禁含**：MCP 凭证、原始载荷、简历正文、联系方式等敏感字段。`async_tasks_due_idx(status, scheduled_at)` 支撑调度认领（`FOR UPDATE SKIP LOCKED`）。
 
 `browser_job_collect` 只有在回执重新满足 `active + 发布满 7 天且不超过 30 天 + 有效推荐数 0` 时才写 `raw_records/jobs`。`published_at` 缺失、状态失效、推荐数未知/非零或超出天数均作为成功跳过，只在任务/运行统计中记录机器原因，不创建职位。Web 回执没有公司和类目时本地保存空字符串并在 `eligibility_evidence` 标记 `source_missing`；`portal_url` 由固定允许 origin 和已校验 external ID 确定性生成，不接受调用方 URL。
+
+### 7.5 浏览器采集批次与条目
+
+- `browser_collection_batches` 绑定 `source_connection_id + user_id + device_id + contract_id`，保存 `batch_size/max_pages` 上限、`start_page/start_offset` 输入断点、`next_page/next_offset` 输出断点、停止原因、批次状态和发现/成功/跳过/失败计数。活跃状态为 `pending|discovering|collecting`；终态为 `succeeded|completed_with_errors|failed`。
+- `browser_collection_items` 以 `(batch_id, external_id)` 唯一，保存列表合同返回的标题、页码、页内序号、详情采集状态和机器错误码。批次删除时条目级联删除；来源连接仍 `RESTRICT`。
+- 发现回执与条目/详情任务在同一事务中写入。详情任务只保存批次/条目 UUID、来源/设备路由、固定合同和 external ID；不保存 browser session、URL、选择器、页面正文或凭证。
 
 ## 7.3 匹配域表（M3 数据集成与匹配）
 

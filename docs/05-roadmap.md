@@ -167,12 +167,12 @@
 
 ### 当前状态
 
-已验证 MCP 沉睡职位同步与 JD 补全；授权 Web 职位详情已实现 `browser_job_collect` 单职位任务、规范化事务入库、同目标活跃去重和管理端触发，并完成 Fixture/PostgreSQL 验证。真实登录态只完成交互式固定合同回执，后台任务真实入库仍待受控复验。Web 候选人/完整简历的受限采集、ingestion ticket、联系方式分层与脱敏投影尚未实现。下一个交付点是先复验 2 个真实职位的后台入库，再进入每职位 5～10 个候选人的受控采集切片。
+已验证 MCP 沉睡职位同步与 JD 补全；授权 Web 职位已实现 `browser_job_batch_discover → browser_job_collect × N`：当前筛选列表有界发现、数字断点、批次拆分、详情确定性导航、规范化事务入库、同目标活跃去重和管理端批量触发均已完成 Fixture/单元验证，既有单职位路径已完成 PostgreSQL 验证。真实筛选 DOM、整批 PostgreSQL 调度和后台登录态入库仍待受控复验。Web 候选人/完整简历的受限采集、ingestion ticket、联系方式分层与脱敏投影尚未实现。下一个交付点是先在授权账号上复验一批真实职位，再进入每职位 5～10 个候选人的受控采集切片。
 
 ### 范围内工作
 
 - 统一 MCP/Web 内部输入契约：上层不依赖供应商原始字段、DOM 或选择器。
-- [x] 完成 `browser_job_collect` 单职位任务、职位规范化入库、幂等去重和字段级来源追溯（Fixture/PostgreSQL verified；真实后台入库待复验，批量发现仍后续）。
+- [x] 完成 `browser_job_batch_discover → browser_job_collect × N`、职位规范化入库、批次/条目幂等去重和字段级来源追溯（Fixture/单元 verified；既有单职位 PostgreSQL verified；真实列表与整批 PostgreSQL 待复验）。
 - 完成候选人发现、简历受限采集、短期单次 ingestion ticket 和加密原始区。
 - 将联系方式单独加密隔离，为上层生成不含姓名和联系方式的评分投影。
 - 建立 2 个职位、每职位 5～10 个候选人的受控真实数据垂直切片，验证完成后再扩大范围。

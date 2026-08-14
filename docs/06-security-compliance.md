@@ -34,7 +34,7 @@
 - 管理端采用强认证、最小权限和会话过期。
 - 生产数据库禁止开发人员日常直连；访问需审计。
 - 日志过滤请求头、手机号、邮箱、简历正文和页面令牌。
-- CSDN-Agent 浏览器采集按 `userId + deviceId + browserSessionId` 绑定；Cookie、口令、验证码和原始 Authorization 始终留在浏览器，禁止通过任务载荷、Relay 结果或 Agent 对话传输。
+- CSDN-Agent 交互式浏览器采集按 `userId + deviceId + browserSessionId` 绑定；持久化批量任务只保存 `userId + deviceId`，由 Relay 在该作用域内选择当前活跃页，禁止持久化或猜测 Session。Cookie、口令、验证码和原始 Authorization 始终留在浏览器，禁止通过任务载荷、Relay 结果或 Agent 对话传输。
 - 生产采集只运行预审核的只读提取契约；禁止由业务任务下发任意脚本、选择器、域名或写请求。默认单并发并设置小时/日预算、熔断和全局停止开关。
 - 完整简历与联系方式使用短期、单任务、单次消费的 ingestion ticket 直接提交受控入口；Relay/Agent 仅接收计数、哈希、游标和机器错误码。
 - 匹配引擎只读取通过版本化 Schema 和残留 PII 扫描的脱敏评分投影，无权读取联系方式保险箱或原始简历；真实样本生成测试数据时必须重新虚构化，而非仅打码。
