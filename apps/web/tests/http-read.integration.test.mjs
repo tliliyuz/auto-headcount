@@ -80,6 +80,52 @@ test(
       assert.equal((await res.json()).code, "unauthorized");
     }
 
+    // 1e) 落地页运营建链：无会话 401（withAudit 会话门禁）；跨源写 403（CSRF 先于会话，N4 同源）。
+    const landingCreate = await worker.fetch(
+      new Request(`${base}/api/landing-links`, { method: "POST" }),
+      env,
+      ctx,
+    );
+    assert.equal(landingCreate.status, 401, "建链无会话应 401");
+    assert.equal((await landingCreate.json()).code, "unauthorized");
+
+    const landingCreateCross = await worker.fetch(
+      new Request(`${base}/api/landing-links`, {
+        method: "POST",
+        headers: { origin: "https://evil.example" },
+        body: JSON.stringify({ jobId: "00000000-0000-0000-0000-000000000000", candidateId: "00000000-0000-0000-0000-000000000000" }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(landingCreateCross.status, 403, "建链跨源应 403");
+    assert.equal((await landingCreateCross.json()).code, "forbidden");
+
+    // 1f) 公开意向提交（独立身份域）：跨源写 403（CSRF）；同源无会话坏请求 400；无加密配置 503。
+    const intentCross = await worker.fetch(
+      new Request(`${base}/api/landing/sometoken/intent`, {
+        method: "POST",
+        headers: { origin: "https://evil.example" },
+        body: JSON.stringify({ option: "A", phone: "1" }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(intentCross.status, 403, "意向跨源应 403");
+    assert.equal((await intentCross.json()).code, "forbidden");
+
+    const intentBadBody = await worker.fetch(
+      new Request(`${base}/api/landing/sometoken/intent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: base },
+        body: "not-json",
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(intentBadBody.status, 400, "意向坏请求体应 400");
+    assert.equal((await intentBadBody.json()).code, "invalid_request");
+
     // 2) 空/畸形会话 Cookie → 401（parseSessionToken 拒绝，同样不触 DB）
     for (const cookie of ["session_token=", "session_token", "foo=bar"]) {
       const res = await worker.fetch(

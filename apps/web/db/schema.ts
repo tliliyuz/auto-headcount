@@ -791,6 +791,59 @@ export const matchFilterResults = pgTable(
 );
 
 /** M3 两阶段匹配：LLM 脱敏详情维度评分运行（docs/03 §7.4、docs/10 §6；本切片建表不消费）。 */
+/** M4 落地页意向选项：A 有兴趣请联系我 / B 暂不考虑 / C 愿意了解更多（开放查看）/ opt_out 退订不再联系（docs/01 §1.5）。 */
+export const intentOption = pgEnum("intent_option", ["A", "B", "C", "opt_out"]);
+
+/** 意向通知投递状态：尽力转发（ADR-006），pending → succeeded | failed；failed 可重试，不影响意向真源。 */
+export const notifyStatus = pgEnum("notify_status", ["pending", "succeeded", "failed"]);
+
+/** 落地页链接：候选人对特定职位的脱敏访问令牌，只存哈希、支持过期与撤销（ADR-006，docs/03 §8/§9）。 */
+export const landingLinks = pgTable(
+  "landing_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id").notNull().references(() => jobs.id, { onDelete: "restrict" }),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "restrict" }),
+    /** 高熵随机令牌的 SHA-256 哈希，永不存明文令牌（docs/06 §3 链接控制）。 */
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("landing_links_token_hash_unique").on(table.tokenHash)],
+);
+
+/** 落地页意向回复：候选人主动提交的意向 + 联系方式（应用层信封加密），同链接唯一幂等（ADR-006，docs/03 §8/§9）。 */
+export const intentResponses = pgTable(
+  "intent_responses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    landingLinkId: uuid("landing_link_id")
+      .notNull()
+      .references(() => landingLinks.id, { onDelete: "restrict" }),
+    option: intentOption("option").notNull(),
+    /** 联系方式信封：encryptJsonPayload({ phone?, email? })；明文不落日志/审计（docs/06 §高敏感）。 */
+    contactCiphertext: bytea("contact_ciphertext").notNull(),
+    contactNonce: bytea("contact_nonce").notNull(),
+    contactKeyVersion: text("contact_key_version").notNull(),
+    /** 规范化手机号/邮箱 HMAC，仅用于去重/抑制（docs/03 §11）。 */
+    contactPhoneHmac: text("contact_phone_hmac"),
+    contactEmailHmac: text("contact_email_hmac"),
+    /** 提交时同意的快照（用途说明、可拒绝后续联系），不可变记录。 */
+    consentSnapshot: jsonb("consent_snapshot")
+      .$type<{ scope: string; canRefuse: boolean; language: string }>()
+      .notNull(),
+    notifyStatus: notifyStatus("notify_status").notNull().default("pending"),
+    notifyErrorCode: text("notify_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("intent_responses_landing_link_unique").on(table.landingLinkId)],
+);
+
 export const llmScoreRuns = pgTable(
   "llm_score_runs",
   {

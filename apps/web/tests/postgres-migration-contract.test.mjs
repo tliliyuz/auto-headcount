@@ -116,3 +116,24 @@ test("迁移 0010 补候选人来源追溯/近期工作列并新增候选批次�
   assert.match(sql, /CREATE TABLE "browser_candidate_items"/);
   assert.match(sql, /CREATE UNIQUE INDEX "browser_candidate_items_batch_external_unique".*batch_id.*external_id/s);
 });
+
+test("迁移 0011 建落地页链接/意向回复表：只存令牌哈希、联系方式信封加密、同链接唯一", async () => {
+  const files = (await readdir(migrationsUrl)).filter((name) => name.endsWith(".sql"));
+  const sql = (await Promise.all(files.map((name) => readFile(new URL(name, migrationsUrl), "utf8")))).join("\n");
+  // 意向选项与通知状态枚举
+  assert.match(sql, /CREATE TYPE "public"."intent_option" AS ENUM\('A', 'B', 'C', 'opt_out'\)/);
+  assert.match(sql, /CREATE TYPE "public"."notify_status" AS ENUM\('pending', 'succeeded', 'failed'\)/);
+  // 落地页链接：job × candidate、令牌哈希唯一、过期/撤销/创建者
+  assert.match(sql, /CREATE TABLE "landing_links"/);
+  assert.match(sql, /"token_hash" text NOT NULL/);
+  assert.match(sql, /"expires_at" timestamp with time zone NOT NULL/);
+  assert.match(sql, /"revoked_at" timestamp with time zone/);
+  assert.match(sql, /CREATE UNIQUE INDEX "landing_links_token_hash_unique"/);
+  // 意向回复：联系方式信封加密（bytea 密文 + nonce + 版本 + HMAC），同链接唯一幂等
+  assert.match(sql, /CREATE TABLE "intent_responses"/);
+  assert.match(sql, /"contact_ciphertext" "bytea" NOT NULL/);
+  assert.match(sql, /"contact_nonce" "bytea" NOT NULL/);
+  assert.match(sql, /"contact_phone_hmac" text/);
+  assert.match(sql, /"consent_snapshot" jsonb NOT NULL/);
+  assert.match(sql, /CREATE UNIQUE INDEX "intent_responses_landing_link_unique"/);
+});

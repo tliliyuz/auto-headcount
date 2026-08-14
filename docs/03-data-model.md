@@ -242,7 +242,7 @@ erDiagram
 | 触达 | `campaigns` | `job_id, channel, status, approved_by` |
 | 触达 | `campaign_recipients` | `campaign_id, candidate_id, status, idempotency_key` |
 | 触达 | `landing_links` | `job_id, candidate_id, token_hash, expires_at, revoked_at, revoked_by, created_by, created_at`（不存明文令牌；2026-08-14 修订：活动/收件人流转未建前，按职位+候选人直接建链，替代原 `recipient_id` 草案） |
-| 触达 | `intent_responses` | `landing_link_id, option, contact_phone_ciphertext, contact_email_ciphertext, contact_phone_hmac, contact_email_hmac, key_version, consent_snapshot, notify_status, notify_error_code, created_at`（A/B/C/退订；联系方式自含、应用层加密；同链唯一幂等） |
+| 触达 | `intent_responses` | `landing_link_id, option, contact_ciphertext, contact_nonce, contact_key_version, contact_phone_hmac, contact_email_hmac, consent_snapshot, notify_status, notify_error_code, created_at`（A/B/C/退订；联系方式 `{phone?,email?}` 单信封 `encryptJsonPayload` 加密；同链唯一幂等；notify 尽力投递状态） |
 | 漏斗 | `funnel_events` | `event_type, job_id, candidate_id, campaign_id, occurred_at`（追加写） |
 | 漏斗 | `follow_up_tasks` | `candidate_id, job_id, owner_id, status, outcome` |
 | 推荐 | `recommendations` | `job_id, candidate_id, external_id, status`（外部幂等键） |
@@ -301,7 +301,7 @@ notify_pending → notify_succeeded | notify_failed
 
 ## 10. 候选人落地页投影
 
-落地页不得直接序列化 `jobs` 或 `job_requirements`。服务端必须生成独立的白名单 DTO，最多包含职位名称、类别、城市、薪资范围、职责摘要、要求摘要和候选人可执行操作。
+落地页不得直接序列化 `jobs` 或 `job_requirements`。服务端必须生成独立的白名单 DTO，最多包含职位名称、类别、城市、薪资范围、职责摘要、要求摘要和候选人可执行操作。**职责摘要/要求摘要当前一律省略**：原始 JD 截断可能泄漏内嵌公司/品牌名（实测岗位背景首句含品牌名），在运营侧配置去标识化摘要前不输出（2026-08-15，落地页切片）。
 
 以下字段始终禁止进入落地页响应和客户端埋点：公司名称及别名、详细地址、内部职位编号、客户联系人、招聘负责人、原始 JD 和供应商原始载荷。
 
