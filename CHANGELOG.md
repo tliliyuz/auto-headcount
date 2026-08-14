@@ -10,6 +10,41 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — bridge 会话按 tabId 去重 + 批次面板入队即时刷新
+
+> 状态：csdn-agent bridge 去重定向 RED→GREEN `verified`（bridge+合同 74/74）；auto-headcount 前端改动 `implemented`（`tsc` 零错误、浏览器单测通过；需刷新浏览器生效）。已重启 48887 bridge 清空旧注册表并加载去重代码，连接状态复验 `READY/sessionMatched:true`。
+
+- 根因（跨仓）：扩展每次刷新/重载同一标签页都生成新的 `browserSessionId`，bridge 按 sessionId 存 Map 不去重 → 同一 tab 堆积多条会话 → `selectUniqueContractSession` 永远无法唯一匹配 → 预检 `BROWSER_SESSION_MISSING`。用户"只开一个猎必得页面还报错"就是这个原因。
+- csdn-agent `BridgeHub.registerSession`：注册时按 `(tabId + userId + deviceId)` 淘汰旧 sessionId 会话（含 active 指针清理），新注册替换旧条目。新增 `bridge.test.js` 用例先 RED（两条会话）后 GREEN（一条）。
+- auto-headcount `operations-dashboard.tsx`：采集入队成功后**立即刷新**「最近采集批次」面板（不再等手动刷新/轮询），面板轮询间隔 15s→10s。
+- 运营手册：`BROWSER_SESSION_MISSING` 故障行补充根因（重复会话）与处置（重启 bridge 清注册表），批次面板说明改为即时刷新。
+- 验证：bridge 重启后 `sessionCount` 6→2（两个 tab 各一条），连接状态 `READY`；auto-headcount 浏览器/调度器单测与 `tsc` 全绿。
+
+### 2026-08-14 — 前端「最近采集批次」面板：批次活动可见，失败不再隐形
+
+> 状态：`implemented`（`listBatches` PostgreSQL 集成定向 RED→GREEN 通过；浏览器/调度器单测 34/34、`tsc` 零错误；前端面板需 web 容器热更新 + 刷新浏览器，未做渲染回归断言）。
+
+- 背景：批次入队后前端只提示「批次已入队」，此后唯一反馈是职位列表数量变化；批次失败（如 `BROWSER_SESSION_MISSING`）用户完全无感知，误以为"没动静"。
+- `browser-job-batch-repository.mjs`：新增 `listBatches({page,pageSize})` 按创建时间倒序返回批次（状态、发现/入库/跳过/失败计数、停止原因、时间）。
+- 新增 `GET /api/browser-batches`（`operations|admin` + `browser-batches.list` 审计），与 `sync-runs` 同款只读接线。
+- `ops-client.ts`：`BrowserBatchView` 类型 + `fetchBrowserBatches()`。
+- `operations-dashboard.tsx`：「数据源」页新增「最近采集批次」面板（每 15 秒轮询），显示 `BATCH-xxx`、状态标签（排队中/发现中/采集中/成功/部分失败/失败）、发现数（新增+变更）、入库/失败数与停止原因/耗时；空状态与"全部已知→无新增"均有明确文案。采集按钮入队后 6 秒复位，允许连续触发多个批次。
+- 文档：运营手册 2.4 节更新为面板指引。
+- 验证：`async-task-sync.integration.test.mjs` 新增「browser 批次列表」集成用例先 RED（`listBatches is not a function`）后 GREEN；浏览器定向 + sync-scheduler 单测 34/34、`npx tsc -p tsconfig.json` 零错误。
+
+### 2026-08-14 — 浏览器采集差分入库：本批数量 = 新增 + 标题变更职位数
+
+> 状态：`implemented`（浏览器定向单测 29/29、TS 类型检查、合同 Schema 检查通过）；尚未跑真实批次复验。真实批次验证后再补状态。
+
+- 原语义下“本批数量”是每批抓取上限：发现合同从第 1 页开始抓 `batchSize` 条，重复采集同一批职位时 `jobs` 只做 upsert 覆盖，前端数量不涨，运营只能靠把数量设大来“带出”新职位，浪费浏览器 token 重复抓已知岗位。
+- 现改为差分口径：**`batchSize` = 本批要处理的「新增 + 标题变更」职位数**。发现阶段读取该来源 `jobs` 表已入库集合，跳过已入库且标题未变的职位（不创建条目、不耗详情提取），按合同 `nextPage`/`nextOffset` 断点向后翻页直到凑满 `batchSize` 个「新增 + 标题变更」职位或列表到底；标题变化的职位按变更重新采集，详情事务 upsert 覆盖不产生重复。
+- `browser-job-collection.mjs`：`runBrowserJobBatchDiscovery` 改为差分循环（已知集合查询 + 逐页过滤 + 断点续采），新增 `normalizeTitle`（与详情合同 `expectedTitle` 校验一致的空白归一）；返回 `stats.newOrChanged/skippedKnown/pages/stopReason`。安全阀：单批最多 10 次发现调用、累计 60 页，防已知职位占满列表时无限翻页。
+- **修复差分改造引入的预检回归**：发现预检被精简成只传 `userId/deviceId/contractId`，但列表合同连接状态参数构造器（`buildFilteredJobListConnectionStatusArguments`）内部要求 `batchSize/maxPages` 存在，导致每批预检 `BROWSER_COLLECTION_ARGUMENTS_INVALID`。已恢复预检携带 `batchSize/maxPages`，并新增经真实 Relay 客户端的回归用例（先 RED 后 GREEN，RED 时整批失败、GREEN 时成功）。
+- `browser-job-batch-repository.mjs`：新增 `findKnownExternalIds({ sourceConnectionId })` 返回该来源已入库 `externalId → title`。
+- `sync-scheduler.mjs`：`sync.run` 审计白名单补 `newOrChanged`/`skippedKnown`。
+- 前端文案与权威文档同步差分语义：`operations-dashboard.tsx` 卡片描述、`docs/01-mvp-requirements.md`、`docs/02-architecture.md`、`docs/07-acceptance-criteria.md`、`docs/09-api-contract.md`、`docs/runbooks/browser-collection(.md|-ops.md)`。
+- 验证：`browser-job-collection.unit.test.mjs` 新增 4 个差分用例（跳过已知未变/标题变更重采/断点翻页续采/全已知零采集）先 RED 后 GREEN；浏览器定向 29/29、`npx tsc -p tsconfig.json` 零错误。真实批次差分复验待执行。
+
 ### 2026-08-14 — 浏览器采集“本批数量”名副其实 + 前端提示
 
 > 状态：前端 `maxPages` 常量与文案 `implemented`；需 web 容器热更新生效，未做渲染回归断言（纯常量与文案改动）。

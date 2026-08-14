@@ -69,6 +69,21 @@ export type SyncRunView = {
   createdAt: string;
 };
 
+export type BrowserBatchView = {
+  id: string;
+  sourceConnectionId: string;
+  batchSize: number;
+  maxPages: number;
+  status: string;
+  discoveredCount: number;
+  succeededCount: number;
+  skippedCount: number;
+  failedCount: number;
+  stopReason: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+};
+
 export type AuditLogView = {
   id: string;
   occurredAt: string;
@@ -192,6 +207,19 @@ export function fetchSyncRuns(input?: {
   return request<Paged<SyncRunView>>(
     withQuery("/api/sync-runs", {
       status: input?.status,
+      page: input?.page,
+      page_size: input?.pageSize,
+    }),
+    { method: "GET" },
+  );
+}
+
+export function fetchBrowserBatches(input?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<AuthResult<Paged<BrowserBatchView>>> {
+  return request<Paged<BrowserBatchView>>(
+    withQuery("/api/browser-batches", {
       page: input?.page,
       page_size: input?.pageSize,
     }),

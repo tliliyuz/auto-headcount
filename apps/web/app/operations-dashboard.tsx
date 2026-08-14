@@ -29,10 +29,12 @@ import {
   fetchMatchExceptions,
   fetchSources,
   fetchSyncRuns,
+  fetchBrowserBatches,
   triggerSync,
   triggerBrowserCollection,
   reviewMatch,
   type AuditLogView,
+  type BrowserBatchView,
   type DormantJob,
   type JobDetail,
   type MatchDetailView,
@@ -71,6 +73,15 @@ const SYNC_STATUS_VIEW: Record<string, { label: string; className: string }> = {
   running: { label: "运行中", className: "status-运行中" },
   pending: { label: "排队中", className: "status-排队中" },
   dead: { label: "失败（超限）", className: "status-失败" },
+};
+
+const BATCH_STATUS_VIEW: Record<string, { label: string; className: string }> = {
+  pending: { label: "排队中", className: "status-排队中" },
+  discovering: { label: "发现中", className: "status-运行中" },
+  collecting: { label: "采集中", className: "status-运行中" },
+  succeeded: { label: "成功", className: "status-成功" },
+  completed_with_errors: { label: "部分失败", className: "status-失败" },
+  failed: { label: "失败", className: "status-失败" },
 };
 
 /**
@@ -457,6 +468,7 @@ function SourcesPage({
   const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [browserBatches, setBrowserBatches] = useState<BrowserBatchView[]>([]);
   const [browserBatchSize, setBrowserBatchSize] = useState(20);
   const [browserCollectState, setBrowserCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
   const [browserCollectMessage, setBrowserCollectMessage] = useState<string | null>(null);
@@ -464,9 +476,10 @@ function SourcesPage({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [sourcesResult, runsResult] = await Promise.all([
+      const [sourcesResult, runsResult, batchesResult] = await Promise.all([
         fetchSources({ pageSize: 50 }),
         fetchSyncRuns({ pageSize: 20 }),
+        fetchBrowserBatches({ pageSize: 20 }),
       ]);
       if (cancelled) return;
       // 会话中途失效：退回登录页，不滞留空工作台。
@@ -488,6 +501,14 @@ function SourcesPage({
       } else {
         setSyncRuns(runsResult.data.list);
       }
+      if (!batchesResult.ok) {
+        if (batchesResult.status === 401 || batchesResult.code === "password_change_required") {
+          onAuthExpired();
+          return;
+        }
+      } else {
+        setBrowserBatches(batchesResult.data.list);
+      }
     })().finally(() => {
       if (!cancelled) setSourcesLoading(false);
     });
@@ -495,6 +516,23 @@ function SourcesPage({
       cancelled = true;
     };
   }, [onAuthExpired]);
+
+  // 「最近采集批次」面板刷新：入队成功后立即调用一次，随后每 10 秒轮询，
+  // 让批次从 pending→discovering→collecting→终态 无需手动刷新即可看到。
+  const refreshBatches = useCallback(async () => {
+    const result = await fetchBrowserBatches({ pageSize: 20 });
+    if (result.ok) setBrowserBatches(result.data.list);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setInterval(() => {
+      if (!cancelled) void refreshBatches();
+    }, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [refreshBatches]);
 
   const primarySource = sources.find((s) => s.status === "active") ?? sources[0];
 
@@ -511,6 +549,12 @@ function SourcesPage({
     if (result.ok) {
       setBrowserCollectState("queued");
       setBrowserCollectMessage(result.data.deduplicated ? "已有采集批次在执行，已返回现有批次" : `批次已入队：${result.data.batchId.slice(0, 8)}`);
+      // 入队后立即刷新「最近采集批次」面板，无需手动刷新页面即可看到新批次。
+      void refreshBatches();
+      // 入队提示保持可见，但按钮 6 秒后复位，允许连续触发多个批次；批次进度看「最近采集批次」面板。
+      window.setTimeout(() => {
+        setBrowserCollectState((current) => (current === "queued" ? "idle" : current));
+      }, 6000);
     } else if (result.status === 401 || result.code === "password_change_required") {
       setBrowserCollectState("idle");
       onAuthExpired();
@@ -563,7 +607,7 @@ function SourcesPage({
         )}
         <article className="source-card browser-source">
           <header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>筛选列表 → 批量详情复核</p></div><em><i />固定合同</em></header>
-          <p className="source-description">先在猎必得筛选“推荐 0 人、发布时间最近 30 天”，然后选择本批数量。本批数量即本次抓取上限：系统自动翻页直到凑满该数量或列表到底；详情页再复核发布已满 7 天。</p>
+          <p className="source-description">先在猎必得筛选“推荐 0 人、发布时间最近 30 天”，然后选择本批数量。本批数量 = 本批要采集的“新增 + 标题变更”职位数：已入库且未变的职位自动跳过，系统翻页直到凑满该数量或列表到底；详情页再复核发布已满 7 天。</p>
           <div className="browser-route-fields">
             <label>本批数量<select value={browserBatchSize} onChange={(event) => setBrowserBatchSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
           </div>
@@ -571,6 +615,36 @@ function SourcesPage({
           {browserCollectMessage && <p className={browserCollectState === "failed" ? "source-message error" : "source-message"}>{browserCollectMessage}</p>}
         </article>
         <button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button>
+      </section>
+
+      <section className="surface-card data-card browser-batch-card">
+        <div className="surface-header"><div><h2>最近采集批次</h2><p>浏览器「采集当前筛选结果」批次进度，每 15 秒自动刷新</p></div><button className="plain-filter">查看全部</button></div>
+        <div className="data-table browser-batch-table">
+          {browserBatches.length === 0 ? (
+            <div className="empty-state">暂无浏览器采集批次，点击「采集当前筛选结果」触发</div>
+          ) : (
+            browserBatches.map((batch) => {
+              const view = BATCH_STATUS_VIEW[batch.status] ?? { label: batch.status, className: "" };
+              return (
+                <div className="data-row" key={batch.id}>
+                  <span><strong>BATCH-{batch.id.slice(0, 8)}</strong><small>{formatDateTime(batch.createdAt)}</small></span>
+                  <span><em className={`status-tag ${view.className}`}>{view.label}</em></span>
+                  <span><strong>{batch.discoveredCount}</strong> 发现<small>（新增+变更）</small></span>
+                  <span><strong>{batch.succeededCount}</strong> 入库 / <strong>{batch.failedCount}</strong> 失败</span>
+                  <span>
+                    {batch.status === "succeeded" && batch.discoveredCount === 0
+                      ? "无新增（全部已知）"
+                      : batch.status === "pending"
+                        ? "等待调度"
+                        : batch.stopReason
+                          ? <code>{batch.stopReason}</code>
+                          : formatDuration(batch.createdAt, batch.finishedAt)}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
       </section>
 
       <section className="source-bottom">

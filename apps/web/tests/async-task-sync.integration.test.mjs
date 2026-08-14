@@ -6,6 +6,7 @@ import postgres from "postgres";
 
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
 import { createAsyncTaskRepository } from "../lib/jobs/async-task-repository.mjs";
+import { createBrowserJobBatchRepository } from "../lib/jobs/browser-job-batch-repository.mjs";
 import {
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -1147,6 +1148,49 @@ test(
       );
     } finally {
       await sql`delete from async_tasks where idempotency_key like ${`burst:${marker}%`}`;
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "browser 批次列表：按创建时间倒序返回批次、状态与计数",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const batchRepo = createBrowserJobBatchRepository(sql);
+    const [src] = await sql`
+      insert into source_connections (provider, environment, status, display_name)
+      values (${`fixture-batch-list-${marker}`}, 'test', 'active', 'Fixture Batch List Source')
+      returning id
+    `;
+    try {
+      const { batchId } = await batchRepo.createAndEnqueue({
+        payload: {
+          sourceConnectionId: src.id,
+          userId: "fixture-user",
+          deviceId: "fixture-device",
+          contractId: "liebide-filtered-job-list-v2",
+          batchSize: 20,
+          maxPages: 20,
+        },
+        scheduledAt: new Date(),
+      });
+      const result = await batchRepo.listBatches({ page: 1, pageSize: 10 });
+      const mine = result.list.find((row) => row.id === batchId);
+      assert.ok(mine, "listBatches 应返回刚创建的批次");
+      assert.equal(mine.status, "pending");
+      assert.equal(mine.discoveredCount, 0);
+      assert.equal(mine.batchSize, 20);
+      assert.equal(mine.maxPages, 20);
+      assert.equal(mine.sourceConnectionId, src.id);
+      assert.ok(mine.createdAt !== null);
+      assert.ok(result.total >= 1);
+      assert.equal(result.totalPages >= 1, true);
+    } finally {
+      await sql`delete from browser_collection_batches where source_connection_id = ${src.id}`;
+      await sql`delete from source_connections where id = ${src.id}`;
       await sql.end();
     }
   },

@@ -13,7 +13,7 @@
 | 项 | 位置 | 说明 |
 |---|---|---|
 | 服务端 relay 身份 | `apps/web/.env.local` 或 docker env | `BROWSER_RELAY_URL=http://host.docker.internal:48887/mcp/request`；`BROWSER_RELAY_USER_ID=local_ops_local`；`BROWSER_RELAY_DEVICE_ID=device-67f4301f-…`；`BROWSER_RELAY_TOKEN=dev` |
-| 本批数量上限 | 前端「采集当前筛选结果」下拉 | 10/20/50/100；**该数量即本次抓取上限**（发现合同自动翻页直到凑满该数量或列表到底，`maxPages` 已按 API 上限 20 发送）。重复采集同一批职位时 `jobs` 为 upsert 覆盖，数量不涨；只有筛选列表里出现未入库过的新职位才会插入 |
+| 本批数量 | 前端「采集当前筛选结果」下拉 | 10/20/50/100；**该数量 = 本批要采集的「新增 + 标题变更」职位数**（差分采集）。发现阶段读取该来源已入库职位集合，跳过已入库且标题未变的职位（不抓详情、不耗 token），自动按断点翻页直到凑满该数量或列表到底。只有「新增 + 标题变更」的职位才触发详情入库；标题变更是覆盖更新，不产生重复职位 |
 | 扩展身份 | 浏览器扩展 `chrome.storage.local` | `localUserId` 由 `localUserName` 派生；`deviceId` 首次生成后持久化。**必须与服务端 `BROWSER_RELAY_USER_ID / BROWSER_RELAY_DEVICE_ID` 一致**，否则批次在预检就 `BROWSER_SESSION_MISSING` |
 | 调度器 | docker compose `scheduler` 服务 | `node scripts/run-scheduled-tick.mjs --loop --interval-minutes 1`，**每 1 分钟一轮**；`browser_job_collect` 按批次**突发认领**（每轮最多 10 条、单进程串行执行），不再每轮只处理 1 条 |
 
@@ -58,11 +58,11 @@ curl -s -X POST http://127.0.0.1:48887/mcp/local-tool \
 ### 2.4 触发批次
 
 - 管理端「数据源」页 → 选择来源 → 「采集当前筛选结果」，填数量后入队。
-- 前端只回 `202 { accepted:true, batchId, taskId }` 并提示「批次已入队」，**不显示后续进度**——这是前端 UX 缺口，需核对用 2.6/2.7 的查询。
+- 前端回 `202 { accepted:true, batchId, taskId }` 并提示「批次已入队」（入队后立即刷新批次面板 + 按钮 6 秒后复位，可连续触发）；批次进度看「数据源」页新增的 **「最近采集批次」面板**（入队立即刷新 + 每 10 秒轮询）：显示批次号、状态（排队中/发现中/采集中/成功/部分失败/失败）、发现数（新增+变更）、入库/失败数与停止原因。失败不再"看不见"——入队约 1 分钟后仍 `pending` 或 `failed` 就按 2.5/故障速查排查。
 
 ### 2.5 等待调度（批次"没动静"的最常见原因）
 
-- 调度器**每 1 分钟**跑一轮 tick。批次入队后约 **1 分钟内**开始执行发现；发现成功后详情任务按批次**突发认领**（每轮最多 10 条、串行执行），20 条详情约 2~3 轮（2~3 分钟）跑完。
+- 调度器**每 1 分钟**跑一轮 tick。批次入队后约 **1 分钟内**开始执行发现；发现是**差分**的：已知未变的职位直接跳过，自动翻页凑满「新增 + 标题变更」目标数量。发现成功后详情任务按批次**突发认领**（每轮最多 10 条、串行执行），20 条详情约 2~3 轮（2~3 分钟）跑完。
 - 检查方式：
 ```bash
 docker exec auto-headcount-db-1 psql -U auto_headcount -d auto_headcount -c \
@@ -95,6 +95,7 @@ docker exec auto-headcount-db-1 psql -U auto_headcount -d auto_headcount -c \
 ```
 
 - `succeeded` = 全部入库；`completed_with_errors` = 有失败。
+- `discovered_count` = 本批入库的「新增 + 标题变更」职位数；已入库且标题未变的不计（不创建条目、不耗详情提取）。列表全部已知未变时本批 `discovered_count=0`、状态 `succeeded`，属正常结束。
 - 期望：入库条目的 `db_title` 与 `list_title` 一致、各岗位**互不相同**（曾出现"全部相同"的 bug）。
 - `skipped`（`AGE_OUT_OF_RANGE` 等）是**正常业务排除**：发布不在 7~30 天窗口的沉睡职位不写 `jobs`，不算失败。
 
@@ -103,7 +104,8 @@ docker exec auto-headcount-db-1 psql -U auto_headcount -d auto_headcount -c \
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | 批次一直 pending，tick 到了也不跑 | 未到下一轮 15 分钟 tick；或详情任务重试退避挡住队列 | 手动触发 tick；查 `async_tasks.next_attempt_at` |
-| 预检 `BROWSER_SESSION_MISSING` | 不在列表页 / 多个 liebide 标签页 / bridge 会话注册表陈旧 | 导航到列表页+设筛选+刷新；关多余标签页；重启 bridge |
+| 预检 `BROWSER_SESSION_MISSING` | 不在列表页 / 多个 liebide 标签页 / **bridge 会话注册表堆积同一 tab 的重复会话**（扩展每次刷新换新 sessionId 且 bridge 不去重） | 关多余标签页；**重启 bridge 清注册表**（`/sessions` 显示同一 tabId 多条即中招）；bridge ≥ 2026-08-14 已按 tabId 去重，无需手动干预 |
+| 预检 `BROWSER_COLLECTION_ARGUMENTS_INVALID` | 调度器仍跑旧版发现代码（预检缺 `batchSize/maxPages`） | `docker restart auto-headcount-scheduler-1` 加载新代码后重新入队 |
 | 扩展完全无响应（连快照都超时） | 扩展 background 被挂起的 `Runtime.evaluate` 堵死 | 刷新猎必得标签页；必要时重载扩展 |
 | 详情任务 `BROWSER_RELAY_UNAVAILABLE` | 提取超过 30s relay 超时，或 bridge 短暂不可达 | 确认 bridge 在跑；重试（可重试） |
 | 详情任务 `unknown job status` | 状态标签选择器命中职级标签而非招募状态 | 检查扩展是否已加载最新 `extraction-contracts.js`（重载扩展） |
