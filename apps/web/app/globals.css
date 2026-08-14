@@ -290,17 +290,34 @@ button { color: inherit; }
 .legend, .y-axis, .x-labels, .funnel-steps div { font-size: 9px; }
 .funnel-steps strong { font-size: 12px; }
 
-.source-card h2 { font-size: 14px; }
-.source-card header p, .source-card header em, .source-meta small { font-size: 9px; }
-.source-meta strong, .source-description, .text-link, .source-actions .secondary-button,
-.health-strip > p, .add-source small { font-size: 10px; line-height: 1.55; }
-.add-source strong, .health-strip .health-cols strong { font-size: 12px; }
+/* 数据源卡片：撑满容器、加大按钮与字体（2026-08-14） */
+.source-card { display: flex; min-height: 226px; flex-direction: column; padding: 22px; }
+.source-card header { grid-template-columns: 46px 1fr auto; gap: 13px; }
+.source-logo { width: 46px; height: 46px; border-radius: 12px; font-size: 16px; }
+.source-card h2 { font-size: 16px; }
+.source-card header p { margin-top: 5px; color: #7c899c; font-size: 11px; }
+.source-card header em { gap: 6px; font-size: 10px; }
+.source-card header em i { width: 7px; height: 7px; }
+.source-meta { gap: 10px; margin: 20px 0 16px; }
+.source-meta div { padding: 12px 14px; border-radius: 9px; }
+.source-meta small { color: #8a97a9; font-size: 10px; }
+.source-meta strong { margin-top: 6px; font-size: 15px; }
+.source-actions { display: flex; gap: 8px; margin-top: auto; }
+.source-actions > button { flex: 1; display: flex; align-items: center; justify-content: center; height: 42px; font-size: 12px; }
+.source-description { margin: 20px 0 14px; color: #6f7e92; font-size: 11px; line-height: 1.8; }
+.text-link { font-size: 11px; }
+.add-source { min-height: 226px; gap: 9px; }
+.add-source > span { width: 42px; height: 42px; border-radius: 12px; font-size: 19px; }
+.add-source strong { font-size: 13px; }
+.add-source small { color: #8b98a9; font-size: 10px; }
+.health-strip > p { font-size: 10px; line-height: 1.55; }
+.health-strip .health-cols strong { font-size: 12px; }
 .health-strip .health-cols span, .immutable-label { font-size: 10px; }
 .filter-panel select { height: 30px; min-width: 132px; padding: 0 8px; border: 1px solid #dfe5ee; border-radius: 6px; color: #465674; background: #fff; font-size: 10px; }
 
-.browser-route-fields { display: grid; grid-template-columns: 1fr 1fr 88px; gap: 7px; margin: 12px 0; }
-.browser-route-fields label { color: #7f8c9f; font-size: 8px; }
-.browser-route-fields input, .browser-route-fields select { display: block; width: 100%; height: 30px; margin-top: 4px; padding: 0 8px; border: 1px solid #dfe5ee; border-radius: 7px; background: #fff; color: #46556d; font-size: 8px; }
+.browser-route-fields { display: grid; grid-template-columns: 1fr 1fr 88px; gap: 7px; margin: 0 0 14px; }
+.browser-route-fields label { color: #7f8c9f; font-size: 10px; }
+.browser-route-fields input, .browser-route-fields select { display: block; width: 100%; height: 36px; margin-top: 5px; padding: 0 10px; border: 1px solid #dfe5ee; border-radius: 7px; background: #fff; color: #46556d; font-size: 11px; }
 .source-message { margin: 8px 0 0; color: #38735f; font-size: 8px; }
 .source-message.error { color: #a75151; }
 

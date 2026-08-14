@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 候选人差分采集：仓储 + 差分调度 + 数据模型（迁移 0010）
+
+> 状态：`implemented`。ESLint、`npx tsc` 0 错误、单测 201/201、集成测试 43/43（`auto_headcount_test` 全新库迁移可应用，含迁移 `0010`）、Provider↔Consumer 契约对齐通过。**注意**：本条目同时修复了「迁移 0010 重复 0009 建 `browser_collection_*` 导致全新库 42P07」的迁移基线缺陷——`drizzle/meta` 缺 `0009_snapshot.json` 使 drizzle-kit 从 0008 快照生成重复建表语句；已重建 0009 快照链并重新生成干净的 `0010_bitter_odin.sql`，集成测试库全量通过。
+
+- 数据模型（迁移 `0010_bitter_odin`）：`candidates` 补 `source_connection_id`（FK source_connections RESTRICT）+ `raw_record_id`（FK raw_records SET NULL），幂等唯一约束由 `external_id` 改为 `(source_connection_id, external_id)`（来源追溯，对齐 jobs）；`candidate_profiles` 补近期工作 `current_title`/`current_company`；新建 `browser_candidate_batches`/`browser_candidate_items`（`(batch_id, external_id)` 唯一）人才池候选人采集批次表。受影响：`upsertCandidate`（match-repository）要求 `sourceConnectionId` + 新冲突目标，四处集成测试候选人 seed 补 `source_connection_id`。
+- 候选人仓储 `apps/web/lib/jobs/browser-candidate-repository.mjs`：批次入队/`findKnownCandidates`（`current_title` 比较，回退 `seniority`）/`persistDiscovery`（条目 + `browser_candidate_collect` 任务 + 批次聚合）；画像事务入库（`raw_records` 加密 `entity_type='candidate'` → `candidates` 真实姓名 → `candidate_profiles` 画像含近期工作列）。
+- 差分调度 `apps/web/lib/jobs/browser-candidate-collection.mjs` + `sync-scheduler.mjs`：新 kind `browser_candidate_discovery`/`browser_candidate_collect`，载荷白名单、差分跳过已入库未变、断点续采、详情 ID 校验与批次/条目 outcome 守卫；`relay-client` 新增 `discoverTalentPool`/`extractCandidateDetail` 与候选人合同连接预检分支；`parseBrowserConnectionStatusResult` 白名单扩展候选人两条合同。
+- 投影生成小幅更新：`generateCandidateProjection` 的 `display_summary` 改为 `currentTitle: profile.currentTitle ?? profile.seniority`、`currentCompany: profile.currentCompany ?? profile.industry`（向后兼容无 `current_title` 的旧候选人）。
+- 测试：新增 `tests/browser-candidate-collection.unit.test.mjs`（差分循环/载荷白名单/详情闭环）、`tests/browser-candidate-contract.test.mjs`（仓储 SQL 契约：真实姓名只进 `candidates`、联系方式/简历正文键不落任何 SQL）、`async-task-sync.integration.test.mjs` 补 `browser_candidate 调度闭环`（发现→详情→候选人/画像入库→批次聚合）、`postgres-migration-contract.test.mjs` 补迁移 0010 断言。
+- 文档：`docs/10-candidate-collection.md`（仓储/调度 implemented）、`docs/03-data-model.md`（§7.3 候选域补列、§7.5 候选批次表、迁移历史 0010）。
+
 ### 2026-08-14 — 意向反馈实时通知（飞书机器人）需求决策：归入 M4 范围内工作
 
 > 状态：`specified`。决策（2026-08-14）：候选人在落地页表达意向并提交联系方式、回复入库后，异步推送「联系方式 + 意向信息」给运营——优先飞书机器人 webhook，`notifier` 适配器接口预留企微等扩展，便于运营实时跟进（不必常驻系统）。归入 M4「落地页与触达」范围内工作，随 M4 实现。
@@ -20,7 +31,7 @@
 
 ### 2026-08-14 — 数据源批次列表合并 + 审计日志分类筛选分页（列表统一为沉睡职位样式）
 
-> 状态：`implemented`。ESLint、Vinext 生产构建、`npx tsc` 0 错误、单测 189/189、rendered-html + http-read 4/4；`/api/audit-logs` 的 `q` 关键词搜索经 dev 库只读探针验证（`q=login`→20 条、按 request_id 前缀精确命中、与 `result` 组合过滤正确）。**注意**：集成测试库因迁移 `0010` 重复 `0009` 的 `browser_collection_*` 建表语句、无法在全新库上应用（42P07）而阻塞，全量集成测试待该迁移修复后补跑——`q` 的集成断言（`audit-read.integration.test.mjs` 新增）已就绪。
+> 状态：`implemented`。ESLint、Vinext 生产构建、`npx tsc` 0 错误、单测 189/189、rendered-html + http-read 4/4；`/api/audit-logs` 的 `q` 关键词搜索经 dev 库只读探针验证（`q=login`→20 条、按 request_id 前缀精确命中、与 `result` 组合过滤正确）。**注意**：`q` 集成断言（`audit-read.integration.test.mjs`）初因迁移 `0010` 建表重复（42P07）无法在全新库跑通；迁移随后已重建修复（见上「候选人差分采集」条目），断言已在全新集成库通过（全量 43/43）。
 
 - 数据源页不再两个容器平铺：原「最近采集批次」与「最近同步批次」两个面板合并为**统一批次列表**（`workspace-grid` 左列表 + 右侧 `insight-panel` 详情），复用沉睡职位样式——类型 tabs（全部/采集批次/同步批次，带计数）+ 关键词搜索（批次 ID / 来源）+ 每页 10 条 page-jump 分页；行点击后详情面板展示运行统计（采集：发现/入库/失败/跳过；同步：入库/跳过/失败/查询）与批次信息（本批数量/上限页数 或 同步类型/错误码、创建/完成时间、耗时）。数据源不变：`/api/browser-batches` + `/api/sync-runs`（各取最近 100 条，每 10 秒轮询合并刷新）；连接健康改为列表下方 `health-strip`。
 - 审计日志页改为 jobs 风格列表（`.table-wrap` 表格）：结果分类 tabs（全部/成功/失败/已拒绝，走 `result` 过滤）+ 搜索框（`q` 模糊匹配事件/操作人/关联 ID，350ms 防抖）+「≡ 筛选」下拉（事件类型 `action`、操作人 `actor_type`，即时生效回第一页）+ page-jump 分页；删除原禁用占位筛选。
@@ -28,6 +39,14 @@
 - 测试：`tests/audit-read.integration.test.mjs` 补 `q` 过滤断言（按 request_id 命中全部夹具、按 resource_id 精确命中、action 子串、与精确过滤组合）。
 - 样式：`globals.css` 清理 `source-bottom`/`sync-table`/`browser-batch-*`/`audit-filters`/`health-panel`/`audit-table` 死样式，新增 `.batches-wrap`/`.audit-wrap` 列宽覆盖、`.event-kind` 类型 chip、`.detail-meta`、`.health-strip`、`.filter-panel select`。
 - 文档：`apps/web/docs/FRONTEND.md` 数据源/审计日志行与新「统一批次列表与审计日志」UI 段落同步。
+
+### 2026-08-14 — 分页统一每页 10 条 + 数据源卡片撑满容器（跟进）
+
+> 状态：`implemented`。ESLint、`npx tsc` 0 错误、Vinext 生产构建通过、集成测试 43/43；浏览器实测审计页 10 条/页（共 2818 条 / 282 页）、数据源卡片按钮等高 42px 等分填充整行、字号放大无底部留白。
+
+- 审计日志分页从每页 50 条改为**每页 10 条**，与批次列表/沉睡职位分页统一；服务端分页包络不变，条数大时靠 page-jump 直接跳页。
+- 数据源卡片撑满容器：`.source-card` 改 flex 纵向排布（按钮 `margin-top:auto` 贴底）、`min-height` 提升，按钮等高 42px 并 `flex:1` 等分填充整行；h2/meta 值/描述/浏览器采集下拉全部放大字号；清理冗余密度覆盖。
+- 文档：`apps/web/docs/FRONTEND.md` 审计日志行补「每页 10 条」，新增「数据源卡片撑满容器」说明。
 
 ### 2026-08-14 — 候选人池页面静态原型：列表 + 状态筛选 + 搜索 + 分页
 

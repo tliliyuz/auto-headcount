@@ -1031,7 +1031,7 @@ function AuditPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [jumpValue, setJumpValue] = useState("");
-  const pageSize = 50;
+  const pageSize = 10;
 
   // 关键词搜索做 350ms 防抖：敲键不立即触发服务端查询，避免审计接口被打满；防抖后回到第一页。
   useEffect(() => {
