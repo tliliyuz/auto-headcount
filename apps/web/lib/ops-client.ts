@@ -187,3 +187,14 @@ export function triggerSync(): Promise<
     deduplicated?: boolean;
   }>("/api/sync/under-served", { method: "POST" });
 }
+
+export function triggerBrowserCollection(input: {
+  sourceConnectionId: string;
+  batchSize: number;
+  maxPages: number;
+}): Promise<AuthResult<{ accepted: boolean; batchId: string; taskId: string | null; deduplicated?: boolean }>> {
+  return request("/api/browser-collections", {
+    method: "POST",
+    body: JSON.stringify({ ...input, contractId: "liebide-filtered-job-list-v2" }),
+  });
+}

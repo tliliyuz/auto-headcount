@@ -297,4 +297,10 @@ button { color: inherit; }
 .immutable-label { font-size: 10px; }
 .audit-filters input, .audit-filters > button:not(.secondary-button) { height: 36px; }
 
+.browser-route-fields { display: grid; grid-template-columns: 1fr 1fr 88px; gap: 7px; margin: 12px 0; }
+.browser-route-fields label { color: #7f8c9f; font-size: 8px; }
+.browser-route-fields input, .browser-route-fields select { display: block; width: 100%; height: 30px; margin-top: 4px; padding: 0 8px; border: 1px solid #dfe5ee; border-radius: 7px; background: #fff; color: #46556d; font-size: 8px; }
+.source-message { margin: 8px 0 0; color: #38735f; font-size: 8px; }
+.source-message.error { color: #a75151; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }

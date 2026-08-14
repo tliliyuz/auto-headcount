@@ -27,6 +27,7 @@ import {
   fetchSources,
   fetchSyncRuns,
   triggerSync,
+  triggerBrowserCollection,
   type AuditLogView,
   type DormantJob,
   type JobDetail,
@@ -425,6 +426,9 @@ function SourcesPage({
   const [syncRuns, setSyncRuns] = useState<SyncRunView[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [browserBatchSize, setBrowserBatchSize] = useState(20);
+  const [browserCollectState, setBrowserCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
+  const [browserCollectMessage, setBrowserCollectMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -462,6 +466,26 @@ function SourcesPage({
   }, [onAuthExpired]);
 
   const primarySource = sources.find((s) => s.status === "active") ?? sources[0];
+
+  const collectFilteredJobs = async () => {
+    if (!primarySource) {
+      setBrowserCollectMessage("请先启用职位数据源");
+      return;
+    }
+    setBrowserCollectState("triggering");
+    setBrowserCollectMessage(null);
+    const result = await triggerBrowserCollection({ sourceConnectionId: primarySource.id, batchSize: browserBatchSize, maxPages: 3 });
+    if (result.ok) {
+      setBrowserCollectState("queued");
+      setBrowserCollectMessage(result.data.deduplicated ? "已有采集批次在执行，已返回现有批次" : `批次已入队：${result.data.batchId.slice(0, 8)}`);
+    } else if (result.status === 401 || result.code === "password_change_required") {
+      setBrowserCollectState("idle");
+      onAuthExpired();
+    } else {
+      setBrowserCollectState("failed");
+      setBrowserCollectMessage("采集触发失败，请检查浏览器连接与设备路由");
+    }
+  };
 
   return (
     <>
@@ -504,10 +528,14 @@ function SourcesPage({
         ) : (
           sourcesLoading && <p className="empty-state">正在加载数据源…</p>
         )}
-        <article className="source-card muted-source">
-          <header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>备用数据获取方式</p></div><em className="disabled">当前关闭</em></header>
-          <p className="source-description">当前里程碑不启用。仅在 MCP 无法满足已授权数据范围，且完成安全评审后开放。</p>
-          <button className="text-link">查看启用条件 →</button>
+        <article className="source-card browser-source">
+          <header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>筛选列表 → 批量详情复核</p></div><em><i />固定合同</em></header>
+          <p className="source-description">先在猎必得筛选“推荐 0 人、发布时间最近 30 天”，然后选择本批数量。系统自动分页；详情页再复核发布已满 7 天。</p>
+          <div className="browser-route-fields">
+            <label>本批数量<select value={browserBatchSize} onChange={(event) => setBrowserBatchSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
+          </div>
+          <button className="secondary-button" disabled={browserCollectState === "triggering" || browserCollectState === "queued"} onClick={() => void collectFilteredJobs()}>{browserCollectState === "triggering" ? "正在入队…" : browserCollectState === "queued" ? "批次已入队" : "采集当前筛选结果"}</button>
+          {browserCollectMessage && <p className={browserCollectState === "failed" ? "source-message error" : "source-message"}>{browserCollectMessage}</p>}
         </article>
         <button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button>
       </section>
