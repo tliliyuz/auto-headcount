@@ -826,7 +826,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [jobPage, setJobPage] = useState(1);
   const [jumpValue, setJumpValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [onlyWithDetail, setOnlyWithDetail] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [dormantJobs, setDormantJobs] = useState<DormantJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
@@ -1055,8 +1055,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
       `${job.title}${job.city}${job.category}`
         .toLowerCase()
         .includes(query.trim().toLowerCase());
-    const detailMatches = !onlyWithDetail || job.hasDescription;
-    return categoryMatches && queryMatches && detailMatches;
+    return categoryMatches && queryMatches;
   });
 
   const filteredTotal = filteredJobs.length;
@@ -1187,7 +1186,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               <p>系统自动同步、补全职位并增量匹配；这里用于查看数据状态和处理异常。</p>
             </div>
             <div className="heading-actions">
-              <span className="last-sync">最近同步：{formatDateTime(latestSyncAt)}</span>
+              <span className="last-sync">最近同步：<strong>{formatDateTime(latestSyncAt)}</strong></span>
               {syncState === "queued" && (
                 <span className={`sync-live ${syncResult ? "warn" : ""}`}>
                   ● {syncResult ?? "已入队，等待调度执行（最长约 15 分钟）"}
@@ -1204,23 +1203,6 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               {syncState === "failed" && (
                 <span className="sync-live fail">✕ {syncResult ?? "同步失败"}</span>
               )}
-              <button
-                className="secondary-button"
-                onClick={() => void handleSync()}
-                disabled={syncState === "triggering" || syncState === "queued" || syncState === "syncing"}
-                title="触发沉睡职位同步（入队调度任务，同一时刻至多一个活跃任务）"
-              >
-                <span>↻</span>
-                {syncState === "triggering" || syncState === "syncing"
-                  ? "同步中…"
-                  : syncState === "queued"
-                    ? "已入队"
-                    : syncState === "succeeded"
-                      ? "再次同步"
-                      : syncState === "failed"
-                        ? "重试"
-                        : "同步职位"}
-              </button>
             </div>
           </section>
 
@@ -1269,13 +1251,29 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
 
               <div className="table-tools">
                 <label className="table-search"><span>⌕</span><input value={query} onChange={(event) => { setQuery(event.target.value); setJobPage(1); }} placeholder="搜索职位名称或城市" /></label>
-                <label className="detail-filter">
-                  <input type="checkbox" checked={onlyWithDetail} onChange={(event) => { setOnlyWithDetail(event.target.checked); setJobPage(1); }} />
-                  只看有详情
-                </label>
-                <button>发布时间：7–30 天⌄</button>
-                <button>负责人：全部⌄</button>
-                <button className="filter-button">≡ 筛选</button>
+                <div className="filter-dropdown-wrap">
+                  <button
+                    className={`filter-button ${filterOpen ? "active" : ""}`}
+                    aria-expanded={filterOpen}
+                    aria-haspopup="menu"
+                    onClick={() => setFilterOpen((open) => !open)}
+                  >
+                    ≡ 筛选{filterOpen ? " ⌃" : " ⌄"}
+                  </button>
+                  {filterOpen && (
+                    <div className="filter-panel" role="menu" aria-label="职位筛选">
+                      <div className="filter-field">
+                        <span>发布时间</span>
+                        <strong>7–30 天</strong>
+                      </div>
+                      <div className="filter-field">
+                        <span>负责人</span>
+                        <strong>全部</strong>
+                      </div>
+                      <p className="filter-panel-note">发布时间与负责人筛选待数据源补齐后开放。</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="table-wrap">
@@ -1285,7 +1283,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     {pageJobs.map((job) => (
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><span className={`job-run-state ${job.hasDescription ? "queued" : "blocked"}`}><i />{job.hasDescription ? "自动排队" : "待补详情"}</span></td>
-                        <td><strong>{job.title}{job.hasDescription && <span className="detail-badge">有详情</span>}</strong><small>{job.externalId} · 更新于 {formatDateTime(job.updatedAt)}</small></td>
+                        <td><strong>{job.title}</strong><small className="job-updated"><span className="job-external-id" title={job.externalId}>{job.externalId}</span><span className="job-updated-at"> · 更新于 {formatDateTime(job.updatedAt)}</span></small></td>
                         <td><span>{job.category}</span><small>{job.city}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
                         <td><strong>{job.hasDescription ? "等待评分" : "尚未生成"}</strong><small>{job.hasDescription ? "输入变化后自动运行" : "补全 JD 后自动继续"}</small></td>

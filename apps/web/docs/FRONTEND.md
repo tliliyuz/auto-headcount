@@ -59,14 +59,21 @@
 - 页面必须具备 loading、空列表、请求失败和会话失效状态；`401` 复用全局退出登录回调，禁止回落到 Mock 数据。
 - 自动编排状态以只读摘要呈现，运营不选择职位或候选人启动任务。未来如增加“重试”，按钮只能针对后端明确标记 `retryable=true` 的失败运行。
 
-### 同步触发状态机（2026-08-13）
+### 同步触发状态机（2026-08-13，入口 2026-08-14 调整）
 
-「同步职位」按钮不再只显示「已触发」，而是跟踪真实同步状态（[`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 入队后轮询 [`GET /api/sync-runs`](../../../docs/09-api-contract.md)）：
+同步状态机跟踪真实同步状态（[`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 入队后轮询 [`GET /api/sync-runs`](../../../docs/09-api-contract.md)）。**入口在「数据源」页**（主数据源卡片的「立即同步」按钮）；沉睡职位巡检页不再放置同步按钮，仅展示「最近同步」时间与同步进行中/结果的状态提示（同一状态机驱动）。2026-08-14 UI 调整：同步时间以 `<strong>` 加粗黑色展示。
 
 - 状态：`idle → triggering → queued（已入队，等待调度 tick，最长约 15 分钟）→ syncing（执行中）→ succeeded / failed`；终态显示结果文本（`同步完成：{persisted} 个职位` / `同步失败：{errorCode}`），按钮可再次触发。
 - **去重**：活跃窗口（queued/syncing）内按钮禁用；服务端 `enqueueTaskIfIdle` 保证同 kind 至多一个活跃任务，重复触发返回 `deduplicated:true`（前端显示「已有同步任务在执行中，正在跟踪进度」）。
 - **自动刷新**：终态检测后 bump `reloadSeq` 重跑业务数据加载 effect，列表与「最近同步」时间戳自动更新。
 - 轮询仅活跃窗口内进行（`SYNC_POLL_MS`，终态即停）；基线为触发瞬间的最新 `under_served_jobs` 批次 id，新批次即本次进度（`sync_runs` 原地更新状态，running → succeeded/failed）。
+
+### 沉睡职位列表 UI（2026-08-14 调整）
+
+- 移除「只看有详情」勾选与职位名旁的「有详情」标记：当前源采集均保证有完整 JD，不再强调详情有无（`hasDescription` 仍用于列表「自动排队/待补详情」状态列）。
+- 工具栏不再放「发布时间」「负责人」两个假筛选按钮，并入右侧「≡ 筛选」下拉面板展示当前值；下拉内注明待数据源补齐后开放（发布时间/负责人非当前可筛字段）。
+- 列表固定贴合容器宽度：`.table-wrap` 移除 `overflow-x:auto`，改用 `table-layout:fixed` + 各列显式宽度 + 表头 `nowrap`，移动端 `min-width` 一并移除，不再出现横向滚动条。「职位」列「ID · 更新于 时间」行为 flex 单行：ID 过长时省略号截断（`title` 悬浮可看全量），时间始终同行；右侧洞察面板 314→296px 为表格让宽。
+- **类别 tabs 技术债**：`category` 源数据为空（MCP 同步源 `item.category` 实测空串、浏览器采集合同未定义该字段），映射表无输入导致大多数职位落「其他」。tabs 如实保留计数，待数据侧补齐后恢复分类能力。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
 
