@@ -9,7 +9,7 @@
 ## 1. 技术基线
 
 - 框架：Vinext（React Server Components），文件顶部 `"use client"`，单页应用。
-- 单文件现状：全部页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、数据源、审计日志四处已接真实 API，其余页面仍为静态原型。
+- 单文件现状：全部页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、智能匹配、数据源、审计日志五处已接真实 API；触达活动、跟进任务、转化漏斗、候选人仍为静态原型（假数据）。
 - 已建 API 层：认证 `/api/auth/*`（§2.1）与业务只读 `/api/jobs/under-served`、`/api/sources`、`/api/sync-runs`（§2.2，会话 + RBAC `operations|admin`）。
 - 样式：Tailwind 引入 + `globals.css` 自定义类 + `:root` 设计 token。
 
@@ -24,9 +24,9 @@
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
 | 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) + `POST /api/browser-collections` + `GET /api/browser-batches` | 已接真实数据（连接卡片 / 同步批次 / 浏览器职位批量采集「采集当前筛选结果」+ 最近采集批次面板 / 健康面板；「立即同步」经 [`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 手动触发） |
 | 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（最新 50 条 + 上一页/下一页；筛选控件为占位禁用态） |
-| 候选人（规划） | 待建 | 规划 `GET /api/candidates`（白名单投影，RBAC `operations\|admin`） | **未建**（排期随 M2 候选人采集落地：数据源页届时加「采集人才池候选人」入口 + 批次面板，「候选人」页展示脱敏候选人池，见 [候选人采集规范](../../../docs/10-candidate-collection.md)） |
+| 候选人 | `CandidatesPage` | `candidateRows` 数组（假数据） | 静态原型（列表 + 状态筛选 + 关键词搜索 + 分页 + 详情面板；M2 候选人采集落库后接真实 `GET /api/candidates`，见 [候选人采集规范](../../../docs/10-candidate-collection.md)） |
 
-导航当前为 7 个页面（无独立工作台页，沉睡职位巡检为默认落地页）；「候选人」页在排期中，随 M2 候选人采集一并交付。
+导航当前为 8 个页面（无独立工作台页，沉睡职位巡检为默认落地页）；「候选人」页已上线静态原型（假数据），M2 采集落库后接真实数据。
 
 ### 登录视图（已接线真实 API）
 

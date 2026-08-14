@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 候选人池页面静态原型：列表 + 状态筛选 + 搜索 + 分页
+
+> 状态：`implemented`（lint、Vinext 生产构建、tsc 0 错误、渲染/HTTP 测试通过；浏览器实测筛选/搜索/分页/详情联动）。候选人页上线为**静态原型**（完全虚构假数据），M2 候选人采集落库后接真实 `GET /api/candidates`。
+
+- `operations-dashboard.tsx` 新增 `candidates` 页（`CandidatesPage`）+ 导航「候选人」tab（计数 8）：复用沉睡职位列表的 `category-tabs`/`table-tools`/`table-wrap`/`table-footer` 结构与字号，表格列 = 候选人（头像+姓名）/ 当前职位 / 公司·城市 / 经验 / 学历·职级 / 状态；状态 tabs（全部/待匹配/已匹配/已审核，带计数）+ 关键词搜索（姓名/职位/公司/城市）+ 分页（每页 10，上一页/页码/跳页）+ 右侧详情面板（状态/摘要/采集信息/加入匹配池）联动。
+- `globals.css`：补候选状态色（`已匹配`/`已审核`）与 `.candidate-cell`（表格头像单元格）。
+- 文档：`docs/FRONTEND.md` 页面清单「候选人」行改为静态原型（此前为「未建/排期」），导航说明更新为 8 页；页面接线状态段落同步。
+- 验证：ESLint、Vinext 生产构建、`npx tsc` 0 错误、rendered-html + http-read 4/4；浏览器实测全部/待匹配/已匹配/已审核筛选、搜索「上海」、空态、分页与详情联动均正常。
+
 ### 2026-08-14 — 候选人脱敏范围确认与候选人池页面排期（文档同步）
 
 > 状态：`specified`。候选人采集脱敏范围确认为「内部 `candidates` 存真实姓名（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），脱敏只针对匹配 LLM 投影（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`）」。
