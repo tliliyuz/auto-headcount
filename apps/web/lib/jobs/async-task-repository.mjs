@@ -129,6 +129,7 @@ export function createAsyncTaskRepository(sql) {
             and not exists (
               select 1 from async_tasks earlier
               where earlier.kind = a.kind
+                and a.kind <> 'browser_job_collect'
                 and earlier.status = 'pending'
                 and (earlier.scheduled_at, earlier.id) < (a.scheduled_at, a.id)
             )

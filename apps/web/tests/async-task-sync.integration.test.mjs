@@ -1106,3 +1106,48 @@ test(
     }
   },
 );
+
+test(
+  "browser_job_collect 突发认领：同一批次到期详情任务一次认领多条，串行 kind 仍只认领一条",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const now = new Date();
+    const batchKind = "browser_job_collect";
+    const serialKind = `fixture-burst-serial:${marker}`;
+    try {
+      const taskRepo = createAsyncTaskRepository(sql);
+      const rows = [
+        { kind: batchKind, key: "c1" },
+        { kind: batchKind, key: "c2" },
+        { kind: batchKind, key: "c3" },
+        { kind: serialKind, key: "s1" },
+        { kind: serialKind, key: "s2" },
+      ];
+      for (const { kind, key } of rows) {
+        await taskRepo.enqueueTask({
+          kind,
+          idempotencyKey: `burst:${marker}:${key}`,
+          payload: {},
+          scheduledAt: new Date(0),
+        });
+      }
+      const claimed = await taskRepo.claimDueTasks({ limit: 10, now });
+      const claimedByKind = (kind) => claimed.filter((t) => t.kind === kind);
+      assert.equal(
+        claimedByKind(batchKind).length,
+        3,
+        "browser_job_collect 突发认领全部到期详情任务",
+      );
+      assert.equal(
+        claimedByKind(serialKind).length,
+        1,
+        "串行 kind 仍只认领最早一条",
+      );
+    } finally {
+      await sql`delete from async_tasks where idempotency_key like ${`burst:${marker}%`}`;
+      await sql.end();
+    }
+  },
+);

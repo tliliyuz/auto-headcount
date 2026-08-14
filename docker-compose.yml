@@ -85,7 +85,7 @@ services:
       # dev 无已批准 LLM 适配器：默认关闭自动匹配，避免共享 dev DB 每周期出现
       # LLM_ADAPTER_NOT_CONFIGURED 失败任务并干扰集成测试；需要联调自动匹配时显式设 true。
       MATCH_AUTOMATION_ENABLED: ${MATCH_AUTOMATION_ENABLED:-false}
-    command: node scripts/run-scheduled-tick.mjs --loop
+    command: node scripts/run-scheduled-tick.mjs --loop --interval-minutes 1
     depends_on:
       db:
         condition: service_healthy

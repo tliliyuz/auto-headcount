@@ -505,7 +505,9 @@ function SourcesPage({
     }
     setBrowserCollectState("triggering");
     setBrowserCollectMessage(null);
-    const result = await triggerBrowserCollection({ sourceConnectionId: primarySource.id, batchSize: browserBatchSize, maxPages: 3 });
+    // maxPages 提到 API 上限（20），让“本批数量”成为真正的数量上限：
+    // 发现合同会翻页直到凑满 batchSize 或列表到底，而不是被写死的 3 页截断。
+    const result = await triggerBrowserCollection({ sourceConnectionId: primarySource.id, batchSize: browserBatchSize, maxPages: 20 });
     if (result.ok) {
       setBrowserCollectState("queued");
       setBrowserCollectMessage(result.data.deduplicated ? "已有采集批次在执行，已返回现有批次" : `批次已入队：${result.data.batchId.slice(0, 8)}`);
@@ -561,7 +563,7 @@ function SourcesPage({
         )}
         <article className="source-card browser-source">
           <header><span className="source-logo browser">B</span><div><h2>浏览器采集</h2><p>筛选列表 → 批量详情复核</p></div><em><i />固定合同</em></header>
-          <p className="source-description">先在猎必得筛选“推荐 0 人、发布时间最近 30 天”，然后选择本批数量。系统自动分页；详情页再复核发布已满 7 天。</p>
+          <p className="source-description">先在猎必得筛选“推荐 0 人、发布时间最近 30 天”，然后选择本批数量。本批数量即本次抓取上限：系统自动翻页直到凑满该数量或列表到底；详情页再复核发布已满 7 天。</p>
           <div className="browser-route-fields">
             <label>本批数量<select value={browserBatchSize} onChange={(event) => setBrowserBatchSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
           </div>

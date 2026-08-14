@@ -1,5 +1,8 @@
 # 授权浏览器采集开发与联调 Runbook
 
+> 日常执行批次（启动 bridge、选页面、验证连接、等调度、核对结果、故障速查）见
+> [`browser-collection-ops.md`](browser-collection-ops.md) 运营操作手册。
+
 本文定义 CSDN-Agent 浏览器执行端与 auto-headcount 受限提取契约的开发、连接、验证、故障恢复和证据留存流程。架构与信任边界以 [`ADR-005`](../decisions/ADR-005-authorized-web-collection-and-local-matching.md) 为准；本文不扩大已批准的数据范围。
 
 ## 1. 适用范围
@@ -13,7 +16,7 @@
 - 不包含候选人、简历、联系方式采集，不创建推荐或其他写操作；
 - 不得将本流程扩展为任意脚本、选择器、URL 或跨域浏览器控制。
 
-生产批次固定为 `browser_job_batch_discover → browser_job_collect × N`。运营人工登录并在列表选择“推荐 0 人、发布时间最近 30 天”，然后在管理端选择本批数量。发现合同最多处理 `batchSize<=100`、`maxPages<=20`，保存 page/offset 数字断点；详情合同按固定地址自动导航并重新校验职位 ID、active、发布 7～30 天和零推荐。最近 30 天中发布不足 7 天的职位只记跳过，不写 `jobs`。不得要求运营逐个打开详情，也不得用自然语言提示词驱动生产翻页循环。
+生产批次固定为 `browser_job_batch_discover → browser_job_collect × N`。运营人工登录并在列表选择“推荐 0 人、发布时间最近 30 天”，然后在管理端选择本批数量。发现合同最多处理 `batchSize<=100`、`maxPages<=20`，保存 page/offset 数字断点；详情合同按固定地址自动导航（每次强制跨文档整页加载，避免 SPA 同文档 hash 切换残留上一岗位 DOM）并重新校验职位 ID、标题（与发现阶段列表标题比对，不一致失败关闭）、active、发布 7～30 天和零推荐。最近 30 天中发布不足 7 天的职位只记跳过，不写 `jobs`。不得要求运营逐个打开详情，也不得用自然语言提示词驱动生产翻页循环。
 
 候选人或完整简历采集必须先完成 ingestion ticket、独立加密分层、保留/删除和日志门禁，不得复用职位回执通道传输。
 

@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 浏览器采集“本批数量”名副其实 + 前端提示
+
+> 状态：前端 `maxPages` 常量与文案 `implemented`；需 web 容器热更新生效，未做渲染回归断言（纯常量与文案改动）。
+
+- 前端「采集当前筛选结果」原先把 `maxPages` 写死为 3，导致即使选“本批数量 100”也只翻 3 页（约 60 条），筛选列表第 2 页起的职位从未被抓取。
+- `operations-dashboard.tsx`：`maxPages` 提到 API 上限 20，让“本批数量”成为真正的数量上限（发现合同自动翻页直到凑满或列表到底）；卡片文案补充“本批数量即本次抓取上限”。`triggerBrowserCollection` 透传、API 校验上限 20 均确认。
+- 补充说明：重复采集同一批职位时 `jobs` 为 `(source, external_id)` upsert 覆盖，总量不涨；只有筛选列表出现未入库过的新职位才会插入。同步 [`docs/runbooks/browser-collection-ops.md`](docs/runbooks/browser-collection-ops.md)。
+
+### 2026-08-14 — 浏览器采集调度提速：详情突发认领 + 1 分钟 tick
+
+> 状态：Consumer 集成定向（突发认领 RED→GREEN）与既有串行化测试 `verified`；真实批次 `065b0843…` 自动闭环：点击采集 → 调度器自动发现 20 条并突发跑完 20 条详情 → 入库 18（标题全部与列表一致、10 个不同岗位）、2 条按规则跳过、0 失败，批次 `succeeded`，全程无需人工触发 tick。
+
+- 原 `claimDueTasks` 按 kind 串行、每轮只认领最早一条，配合 15 分钟 tick，批次要等 ≤15 分钟才开始、详情任务每轮 1 条（20 条约 5 小时），无法支撑"点击采集→浏览器抓取入库→前端显示"的交互闭环。
+- `async-task-repository.mjs`：`claimDueTasks` 对 `browser_job_collect` 放开"每 kind 只认领最早 pending"限制（`a.kind <> 'browser_job_collect'`），一轮 tick 可突发认领最多 10 条详情任务，单进程串行执行（详情任务本就该串行，避免单浏览器标签页导航冲突）；其余 kind 保持原串行语义。新增集成测试 `browser_job_collect 突发认领`（先 RED 后 GREEN），既有"同 kind 至多认领一个"串行测试保持通过。
+- `docker-compose.yml` scheduler 命令改为 `--interval-minutes 1`：批次入队后约 1 分钟内开始，20 条详情约 2~3 分钟跑完。
+- 同步更新 [`docs/runbooks/browser-collection-ops.md`](docs/runbooks/browser-collection-ops.md) 运营手册的调度节奏描述。
+
 ### 2026-08-14 — 集成测试独立数据库（auto_headcount_test）技术债落地
 
 > 状态：`verified`（单元 179/179、PostgreSQL 集成 37/37 连续三次、ESLint、Vinext 生产构建；rendered-html + http-read 4/4）。消除 `docs/02 §6` 标记的"测试独立数据库"技术债：集成测试不再与 dev 库共享 PostgreSQL。
@@ -29,6 +46,17 @@
 - `ops-client.ts` `MatchView` 补 `filterResult`（`{passed, reasonCodes[]}`）及 `ruleVersion/inputHash/externalScore/externalTier/externalScoreStatus`，前端类型与匹配 API 载荷对齐。
 - 集成测试稳定性：`reclaimRunningSyncTasks` 回收清单加 `match_pipeline_v2`（pending+running），消除真实 scheduler 遗留任务被 tick 测试认领导致的偶发失败；新增 `match_pipeline_v2` 调度分发测试（注入 spy adapter 断言空跑 succeeded + 审计统计键）；`ops-read` 分页/关键词断言改为共享 DB 并发容忍（来源限定 + 单查询自洽，不再假设跨查询 total 恒定）。
 - 验证：单元 176/176、PostgreSQL 集成 38/38、ESLint、Vinext 生产构建通过；`docker compose up -d scheduler` 后共享 dev DB 连续整批集成跑通过。
+
+### 2026-08-14 — 猎必得详情采集修复：强制整页加载 + 标题内容校验 + 状态标签选择器
+
+> 状态：契约与 Schema `implemented`；Provider 定向 14/14、Provider 全量 80/80、Consumer 浏览器定向 22/22、Consumer 全量单测 179/179、双仓 Schema 规范化哈希一致均 `verified`；真实整批 `40d1f367…` 已按 Runbook 复验：发现 20 条，详情入库 18 条（全部标题与列表一致、10 个不同岗位），2 条按业务规则跳过（发布超龄 `AGE_OUT_OF_RANGE`），0 失败，批次 `succeeded`。
+
+- 修复真实批次 20 条详情任务全部写入同一岗位内容的问题。根因：详情任务从上一个详情页切换到下一详情页时，`chrome.tabs.update` 只改变 URL fragment，被 Chrome 当作同文档 hash 导航，SPA 保留上一个岗位已渲染的 DOM；而扩展导航"就绪"只校验 `tab.url` 包含目标职位 ID，详情合同从 URL 取 externalId（恒匹配）而从残留 DOM 取内容，于是每条任务都把「新职位 ID + 旧岗位内容」当作成功回执返回，auto-headcount 的 externalId 守卫无法识别内容错误，20 条不同 externalId 的 `jobs` 全部指向同一岗位。
+- Provider 扩展侧：`navigateToLiebideJobDetailIfNeeded` 为目标详情地址追加每次不同的 cache-busting 查询参数，强制跨文档整页加载，并把就绪条件收紧为 `URL 含目标职位 ID 且 tab.status=complete`；`runLiebideJobDetailContract` 新增可选 `expectedTitle` 内容校验，渲染标题与期望标题去空白归一化比较，不一致即 `PAGE_CONTRACT_CHANGED: job title mismatch` 失败关闭。
+- 真实整批复验新暴露并修复状态标签选择器顺序：`.name_tags_wrap .tags` 承载招募状态（如"招聘中"），而 `.tags .job-tag-primary` 可能是职级标签（如"资深级"）；旧选择器先取 `job-tag-primary` 导致 `unknown job status` 失败关闭。已把权威位置 `.name_tags_wrap .tags` 提到最前，新增"两种标签并存"虚构 Fixture（先 RED 后 GREEN）。
+- Consumer 侧：`liebide-job-detail` 请求参数、连接预检与 `browser_job_collect` 任务载荷新增可选 `expectedTitle`；批量发现持久化详情任务时把列表卡片标题写入 `expectedTitle`；请求 Schema、双仓校验白名单与 MCP 工具入参 Schema 同步加 `expectedTitle`。
+- 验证：Provider 合同与 Schema 定向 14/14、Provider Node 全量 80/80、`npm run check` 静态检查；Consumer 浏览器采集定向 22/22、Consumer 全量单测 179/179、`check-browser-contracts --provider-repo` 双仓 Schema 哈希一致。真实整批 `40d1f367…` 复验通过（见状态行）。
+- 新增 [`docs/runbooks/browser-collection-ops.md`](docs/runbooks/browser-collection-ops.md) 运营操作手册：固化 bridge 启动、浏览器选页/筛选/刷新、deviceId 一致性校验、15 分钟 tick 调度等待、执行中勿动标签页、完成后核对与故障速查；并记录 DB/日志统一 UTC 时区。前端「批次已入队」仅返回 `202`、无后续进度提示，UX 缺口留待后续补齐。
 
 ### 2026-08-14 — 猎必得最近 30 天列表合同 v2
 
