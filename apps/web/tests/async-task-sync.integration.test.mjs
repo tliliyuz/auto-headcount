@@ -169,14 +169,18 @@ function fixtureEnv(source, { withKey = true } = {}) {
  * 测试槽位重置：串行化后（fix3）同 kind 同时只跑一个，共享开发库里 docker scheduler
  * 正在跑的 under_served_sync/job_details_sync 会挡住测试新入队的同 kind 任务。
  * tick 类测试开始时先回收这些真实在途任务（标 failed + TEST_SLATE_RESET），使测试可确定执行。
+ *
+ * `match_pipeline_v2` 由真实 docker scheduler 周期入队并执行（dev 默认 MATCH_AUTOMATION_ENABLED
+ * 未关闭）：既可能是 running（正在执行），也可能刚入队仍是 pending——若测试 tick 的 claimDueTasks
+ * 认领到它，会因测试环境无 scoringAdapter 失败并污染 failed 计数。因此 pending 和 running 都回收。
  */
 async function reclaimRunningSyncTasks(sql) {
   await sql`
     update async_tasks
     set status = 'failed', last_error_code = 'TEST_SLATE_RESET',
         finished_at = now(), updated_at = now()
-    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync', 'browser_job_collect')
-      and status = 'running'
+    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync', 'browser_job_collect', 'match_pipeline_v2')
+      and status in ('pending', 'running')
   `;
 }
 
@@ -1025,6 +1029,79 @@ test(
     } finally {
       // cleanupFixture 按 FK 顺序清理 matches/candidates/job_requirements/jobs/source
       await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "调度分发：match_pipeline_v2 任务被认领执行，scoringAdapter 注入并空跑成功",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(marker);
+    const env = fixtureEnv(source);
+    const now = new Date();
+    await reclaimRunningSyncTasks(sql);
+
+    const taskRepo = createAsyncTaskRepository(sql);
+    const idempotencyKey = `match-pipeline-v2:${marker}`;
+    const taskId = await taskRepo.enqueueTask({
+      kind: "match_pipeline_v2",
+      idempotencyKey,
+      payload: { source: "automatic" },
+      scheduledAt: now,
+    });
+
+    // spy 适配器：记录是否被调度器注入并调用；空候选池时管线应空跑成功。
+    let adapterCalls = 0;
+    const spyAdapter = {
+      metadata: {
+        adapterId: "spy-test",
+        adapterVersion: "1",
+        modelId: "spy-model",
+        modelRevision: "fixture",
+        promptVersion: "prompt/v1",
+        schemaVersion: "llm-detail-score/v1",
+      },
+      async score() {
+        adapterCalls += 1;
+        throw new Error("should not be called with empty pool");
+      },
+    };
+
+    try {
+      const counts = await processDueTasks(sql, {
+        env,
+        now,
+        mcp: undefined,
+        scoringAdapter: spyAdapter,
+      });
+      assert.equal(counts.claimed, 1);
+      assert.equal(counts.succeeded, 1, "match_pipeline_v2 空跑应 succeeded");
+      assert.equal(counts.failed, 0);
+
+      const [task] = await sql`
+        select status from async_tasks where id = ${taskId}
+      `;
+      assert.equal(task.status, "succeeded");
+      assert.equal(adapterCalls, 0, "空候选池不调用 adapter.score（无 LLM 成本）");
+
+      // 审计应记录 match 管线 stats（含 pending/selected/scored 白名单键）
+      const [audit] = await sql`
+        select metadata from audit_logs
+        where action = 'sync.run' and request_id = ${taskId}
+      `;
+      assert.ok(audit, "调度应写 sync.run 审计");
+      assert.ok("pending" in audit.metadata, "审计应含 pending 统计键");
+      assert.ok("selected" in audit.metadata, "审计应含 selected 统计键");
+    } finally {
+      await sql`delete from async_tasks where id = ${taskId}`;
+      await sql.begin(async (t) => {
+        await t`set local app.audit_retention = 'on'`;
+        await t`delete from audit_logs where action = 'sync.run' and request_id = ${taskId}`;
+      });
       await sql.end();
     }
   },

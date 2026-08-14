@@ -94,12 +94,27 @@ export type MatchDimensionView = {
   outputHash: string | null;
 };
 
+export type MatchFilterReasonView = {
+  code: string;
+  jobValue: string;
+  candidateValue: string;
+  explanation: string;
+};
+
+export type MatchFilterResultView = {
+  passed: boolean;
+  reasonCodes: MatchFilterReasonView[];
+};
+
 export type MatchView = {
   id: string; jobId: string; jobTitle: string; jobExternalId: string;
   candidateId: string; candidateName: string; candidateSummary: string | null;
   score: number | null; band: string | null; status: string; scoreStatus: string;
+  ruleVersion: number | null; inputHash: string | null;
+  externalScore: number | null; externalTier: string | null; externalScoreStatus: string | null;
   evidence: string[]; missing: string[]; risk: string[];
   jobProjectionId: string | null; candidateProjectionId: string | null;
+  filterResult: MatchFilterResultView | null;
   llmScoreRunId: string | null; aggregationRuleVersion: string | null;
   modelId: string | null; modelRevision: string | null; promptVersion: string | null;
   schemaVersion: string | null; outputHash: string | null;

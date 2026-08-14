@@ -120,30 +120,37 @@ test(
       const engIds = engineering.list.map((job) => job.externalId);
       assert.equal(engIds.includes("a-1"), true);
       assert.equal(engIds.includes("a-3"), false);
+      // q 过滤：夹具来源限定（共享 DB 可能有真实职位命中同一关键词，不能用全库唯一断言）
       const byQuery = await listUnderServedJobs(sql, { q: "beta", pageSize: 5000 });
       assert.equal(byQuery.list.length >= 1, true);
-      assert.equal(
-        byQuery.list.every((job) => job.externalId === "a-2"),
-        true,
+      const byQueryFixture = byQuery.list.filter(
+        (job) => job.sourceConnectionId === sourceIdA,
       );
+      assert.equal(byQueryFixture.length, 1, "夹具来源仅 a-2 命中关键词 beta");
+      assert.equal(byQueryFixture[0].externalId, "a-2");
       const byCity = await listUnderServedJobs(sql, { q: "beijing", pageSize: 5000 });
       assert.equal(byCity.list.length >= 1, true);
-      assert.equal(
-        byCity.list.every((job) => job.externalId === "a-2"),
-        true,
+      const byCityFixture = byCity.list.filter(
+        (job) => job.sourceConnectionId === sourceIdA,
       );
+      assert.equal(byCityFixture.length, 1, "夹具来源仅 a-2 命中关键词 beijing");
+      assert.equal(byCityFixture[0].externalId, "a-2");
 
-      // 3) 分页一致性（并发容忍：total 恒定、页间不重叠、totalPages 公式正确）
+      // 3) 分页一致性（并发容忍：共享 DB 上真实 scheduler 可能在两次查询间写入新职位，
+      //    因此不做跨查询 total 相等；改为单次查询内自洽 + 页间不重叠）
       const pageOne = await listUnderServedJobs(sql, { page: 1, pageSize: 2 });
-      const pageTwo = await listUnderServedJobs(sql, { page: 2, pageSize: 2 });
-      assert.equal(pageOne.total, pageTwo.total);
+      assert.equal(pageOne.list.length, 2);
       assert.equal(pageOne.totalPages, Math.ceil(pageOne.total / 2));
+      assert.ok(pageOne.total >= 2, "沉睡职位总数应至少覆盖第一页");
       const pageOneIds = new Set(pageOne.list.map((job) => job.externalId));
+      const pageTwo = await listUnderServedJobs(sql, { page: 2, pageSize: 2 });
       assert.equal(
         pageTwo.list.some((job) => pageOneIds.has(job.externalId)),
         false,
+        "第二页不应与第一页重叠",
       );
-      assert.equal(pageOne.list.length + pageTwo.list.length <= pageOne.total, true);
+      assert.equal(pageTwo.list.length, 2);
+      assert.ok(pageTwo.list.length <= pageTwo.total, "第二页不应超过总数");
 
       // 4) 字段投影：camelCase、含内部字段、绝不出现 payload_* 或 cursor
       const a1 = all.list.find((job) => job.externalId === "a-1");

@@ -267,6 +267,10 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "extracted",
       "discovered",
       "enqueued",
+      "pending",
+      "selected",
+      "scored",
+      "deferred",
     ]) {
       if (key in outcome.stats) metadata[key] = outcome.stats[key];
     }

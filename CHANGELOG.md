@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 匹配自动化修复：成本上界配置、审计白名单、测试稳定性
+
+> 状态：`verified`（单元 176/176、PostgreSQL 集成 38/38、ESLint、生产构建）。修复 `3c27b50d` 引入的自动匹配编排在开发/测试环境的行为与可观测性缺口。
+
+- 开发/测试默认关闭自动匹配：`docker-compose.yml` scheduler 显式 `MATCH_AUTOMATION_ENABLED=false`（`${VAR:-false}` 可覆盖），避免共享 dev DB 每周期出现 `LLM_ADAPTER_NOT_CONFIGURED` 失败任务并干扰集成测试；`.env.example` 与 `.env.production.example` 补 `MATCH_AUTOMATION_ENABLED/MATCH_SCORING_ADAPTER/MATCH_TOP_K/MATCH_RUN_BUDGET/MATCH_SCORE_MAX_ATTEMPTS` 说明，生产默认关闭（未接入批准适配器前不入队）。
+- `writeSyncAudit` stats 白名单补 `pending/selected/scored/deferred`，自动匹配运行明细进入 `sync.run` 审计（此前仅 `failed` 落库）。
+- `ops-client.ts` `MatchView` 补 `filterResult`（`{passed, reasonCodes[]}`）及 `ruleVersion/inputHash/externalScore/externalTier/externalScoreStatus`，前端类型与匹配 API 载荷对齐。
+- 集成测试稳定性：`reclaimRunningSyncTasks` 回收清单加 `match_pipeline_v2`（pending+running），消除真实 scheduler 遗留任务被 tick 测试认领导致的偶发失败；新增 `match_pipeline_v2` 调度分发测试（注入 spy adapter 断言空跑 succeeded + 审计统计键）；`ops-read` 分页/关键词断言改为共享 DB 并发容忍（来源限定 + 单查询自洽，不再假设跨查询 total 恒定）。
+- 验证：单元 176/176、PostgreSQL 集成 38/38、ESLint、Vinext 生产构建通过；`docker compose up -d scheduler` 后共享 dev DB 连续整批集成跑通过。
+
 ### 2026-08-14 — 猎必得最近 30 天列表合同 v2
 
 > 状态：真实筛选口径 `specified`；Consumer/Provider 与 Schema `implemented`；Consumer 定向 22/22、Provider 全量 73/73、双仓 Schema 哈希、ESLint 与生产构建 `verified`；真实整批成功路径仍待复验。
