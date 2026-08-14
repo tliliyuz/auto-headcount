@@ -10,6 +10,28 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — M3 阶段一接入调度：match_projection_filter 周期任务
+
+> 状态：`verified`（单元 185/185、PostgreSQL 集成 42/42、ESLint、Vinext 生产构建、tsc 0 错误）。真实数据验证：dev 库 42 条可操作沉睡职位自动生成投影（`job_match_projections` 0 → 42），0 候选人 → 0 候选投影/0 filter 结果（符合预期）。
+
+- 新增任务 kind `match_projection_filter`（阶段一投影生成 + 硬过滤），与 `match_pipeline_v2` 同受 `MATCH_AUTOMATION_ENABLED` 门禁、同周期幂等入队；`runSyncForTask` 显式分发到 `runProjectionFilterSync`（加密配置缺失 `ENCRYPTION_CONFIG_REQUIRED`），审计源与职位同步源分离（provider `auto-match`）。
+- `selectJobsNeedingProjection`：增量选择需（重新）投影的可操作沉睡职位（沉睡口径 + 无「generator_version 匹配且 created_at ≥ job.updated_at」的 consumable 投影），内容变化触发重投影、未变跳过；投影/过滤写入幂等，避免每周期全量重算。
+- `writeSyncAudit` 统计白名单补 `jobsProjected/candidatesProjected/piiRejected/filterPassed/filterRejected`。
+- 测试：单元补投影任务独立幂等键；集成补 `match_projection_filter` 调度分发（职位投影落库、无脱敏详情候选人计 piiRejected、0 filter）、入队幂等、`MATCH_AUTOMATION_ENABLED` 门禁（false 不入队 / true 入队）。
+- 效果：真实职位经调度自动生成投影，阶段二 `match_pipeline_v2` 在候选人/脱敏详情就绪前继续空跑（消费 `match_filter_results`，收敛后自动进入评分）。
+
+### 2026-08-14 — 沉睡职位页 UI 精简：同步入口归位、列表固定、假筛选并入「筛选」下拉
+
+> 状态：`verified`（`npx tsc -p tsconfig.json` 零错误、`vinext build` 通过、`rendered-html.test.mjs` 3/3、eslint 变更文件零错误；本地 dev server 登录 `ops` 实测浏览器 DOM：无「同步职位」按钮、筛选下拉含「发布时间 7–30 天 / 负责人 全部」、950/1280/1440px 视口列表 `scrollWidth===clientWidth` 无横向滚动、列头与「ID · 更新于 时间」行均单行不折行、同步时间 `rgb(22,33,59)` 加粗）。
+
+- 沉睡职位巡检页移除「同步职位」按钮，保留「最近同步」时间与同步状态提示；同步入口统一到「数据源」页「立即同步」（同一状态机驱动）。
+- 「最近同步」时间改为 `<strong>` 加粗黑色展示（原浅灰小字），更清晰。
+- 移除「只看有详情」勾选与职位名旁「有详情」标记：源采集均保证完整 JD，不再强调详情有无（`hasDescription` 仍驱动列表「自动排队/待补详情」状态列）。
+- 「发布时间」「负责人」两个看似可筛的假按钮并入右侧「≡ 筛选」下拉面板展示当前值，下拉注明「待数据源补齐后开放」，搜索框旁不再摆放伪筛选。
+- 列表固定贴合容器宽度：`.table-wrap` 去掉 `overflow-x:auto`，改用 `table-layout:fixed` + 各列显式宽度 + 表头 `nowrap`，移除移动端 `min-width:690px`，不再出现横向滚动条。跟进修复两处折行问题：「职位」列「ID · 更新于 时间」行改为 flex（ID 长则省略号截断、`title` 悬浮可看全量，时间始终同行不折行），「沉睡时长」等列头强制单行；右侧洞察面板 314→296px，给表格让出宽度。
+- 类别 tabs 技术债（待数据侧补齐）：`category` 源数据为空——MCP 同步源 `item.category` 实测空串（`mcp-under-served-contract.mjs:439`）、浏览器采集合同 `RECORD_KEYS` 未定义该字段（`browser-collection-contract.mjs:36-46`），映射表无输入导致多数职位落「其他」；tabs 如实保留计数。
+- 文档：`apps/web/docs/FRONTEND.md` 同步更新同步入口、列表 UI 与类别技术债说明；技术债另记入项目 memory。
+
 ### 2026-08-14 — bridge 会话按 tabId 去重 + 批次面板入队即时刷新
 
 > 状态：csdn-agent bridge 去重定向 RED→GREEN `verified`（bridge+合同 74/74）；auto-headcount 前端改动 `implemented`（`tsc` 零错误、浏览器单测通过；需刷新浏览器生效）。已重启 48887 bridge 清空旧注册表并加载去重代码，连接状态复验 `READY/sessionMatched:true`。
