@@ -73,7 +73,7 @@
 - 移除「只看有详情」勾选与职位名旁的「有详情」标记：当前源采集均保证有完整 JD，不再强调详情有无（`hasDescription` 仍用于列表「自动排队/待补详情」状态列）。
 - 工具栏不再放「发布时间」「负责人」两个假筛选按钮，并入右侧「≡ 筛选」下拉面板展示当前值；下拉内注明待数据源补齐后开放（发布时间/负责人非当前可筛字段）。
 - 列表固定贴合容器宽度：`.table-wrap` 移除 `overflow-x:auto`，改用 `table-layout:fixed` + 各列显式宽度 + 表头 `nowrap`，移动端 `min-width` 一并移除，不再出现横向滚动条。「职位」列「ID · 更新于 时间」行为 flex 单行：ID 过长时省略号截断（`title` 悬浮可看全量），时间始终同行；右侧洞察面板 314→296px 为表格让宽。
-- **类别 tabs 技术债**：`category` 源数据为空（MCP 同步源 `item.category` 实测空串、浏览器采集合同未定义该字段），映射表无输入导致大多数职位落「其他」。tabs 如实保留计数，待数据侧补齐后恢复分类能力。
+- **类别 tabs 与标题推断**：源 `category` 为空（MCP 同步源 `item.category` 实测空串、浏览器采集合同未定义该字段）时，按职位标题关键词推断粗桶（`lib/job-category.mjs` 的 `inferCoarseBucketFromTitle` / `jobCoarseBucket`，源有真实细分类时优先权威映射）。推断为启发式非权威，若后续数据侧提供权威 category，`jobCoarseBucket` 自动切回权威值。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
 

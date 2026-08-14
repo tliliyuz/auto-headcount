@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { JOB_CATEGORY_BUCKETS, mapJobCategory } from "../lib/job-category.mjs";
+import {
+  JOB_CATEGORY_BUCKETS,
+  inferCoarseBucketFromTitle,
+  jobCoarseBucket,
+  mapJobCategory,
+} from "../lib/job-category.mjs";
 
 test("分类桶为 4 粗桶 + 其他", () => {
   assert.deepEqual(JOB_CATEGORY_BUCKETS, [
@@ -87,4 +92,50 @@ test("空值 / null / 未映射类别一律归其他", () => {
   assert.equal(mapJobCategory(""), "其他");
   assert.equal(mapJobCategory(null), "其他");
   assert.equal(mapJobCategory("不存在的类别"), "其他");
+});
+
+test("标题推断：真实沉睡职位标题归桶", () => {
+  const cases = [
+    // 与当前 dev 库 40 条沉睡职位标题同源
+    ["AI Agent智能体开发工程师(LangGraph/编排)", "技术研发"],
+    ["知识图谱/Text2SQL数据智能工程师", "数据智能"],
+    ["AI应用创业者/技术合伙人(0→1产品)", "技术研发"],
+    ["资深产品经理（财务方向）", "产品设计"],
+    ["媒介负责人", "市场销售"],
+    ["架构组负责人（系统架构师）", "技术研发"],
+    ["小红书-HRBP（产研方向）-北京上海", "其他"],
+    ["技术专家/资深研发工程师-核身", "技术研发"],
+    ["供应链算法资深经理/专家", "数据智能"],
+    ["商业分析专家/资深商业分析（经营分析）", "数据智能"],
+    ["资深产品经理（供应链）", "产品设计"],
+  ];
+  for (const [title, bucket] of cases) {
+    assert.equal(inferCoarseBucketFromTitle(title), bucket, title);
+  }
+});
+
+test("标题推断：强角色词覆盖领域词", () => {
+  // 「产品经理」是角色，「财务/供应链/搜索」只是领域，不能被领域词带偏
+  assert.equal(inferCoarseBucketFromTitle("数据产品经理"), "产品设计");
+  assert.equal(inferCoarseBucketFromTitle("AI 产品经理"), "产品设计");
+  // HRBP 是角色，「产研」只是领域，不能归技术研发
+  assert.equal(inferCoarseBucketFromTitle("HRBP（产研方向）"), "其他");
+  // 视觉设计师是设计岗，机器视觉工程师是数据岗，同词不同桶
+  assert.equal(inferCoarseBucketFromTitle("视觉设计师"), "产品设计");
+  assert.equal(inferCoarseBucketFromTitle("机器视觉工程师"), "数据智能");
+});
+
+test("标题推断：空值 / 无关键词归其他", () => {
+  assert.equal(inferCoarseBucketFromTitle(""), "其他");
+  assert.equal(inferCoarseBucketFromTitle(null), "其他");
+  assert.equal(inferCoarseBucketFromTitle("行政前台"), "其他");
+});
+
+test("jobCoarseBucket：源 category 优先，空时回退标题推断", () => {
+  assert.equal(jobCoarseBucket("深度学习", ""), "数据智能");
+  assert.equal(jobCoarseBucket("", "JAVA 开发工程师"), "技术研发");
+  assert.equal(jobCoarseBucket("", "资深产品经理"), "产品设计");
+  assert.equal(jobCoarseBucket("", ""), "其他");
+  assert.equal(jobCoarseBucket(null, "数据科学家"), "数据智能");
+  assert.equal(jobCoarseBucket("算法工程师", "开发工程师"), "数据智能");
 });

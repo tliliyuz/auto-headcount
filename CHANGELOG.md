@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 职位类别标题推断落地：源 category 为空时按标题归桶，tabs 有真实分布
+
+> 状态：`verified`（`job-category.test.mjs` 11/11（RED→GREEN）、`tsc` 零错误、eslint 变更零错误、`vinext build` 通过；本地 dev server 登录 `ops` 实测：类别 tabs 由「技术研发1/其他40」变为「技术研发15/产品设计5/市场销售1/数据智能20/其他1」，列表类别单元格与详情面板显示推断粗桶，tab 联动筛选正确（点「数据智能」筛出 20 条全为数据智能））。
+
+- 技术债闭环：源 `category` 为空（MCP 同步源 `item.category` 实测空串、浏览器采集合同 `RECORD_KEYS` 未定义该字段，见上条「类别 tabs 技术债」），细分类映射表无输入。
+- `lib/job-category.mjs` 新增 `inferCoarseBucketFromTitle(title)`：按标题关键词层级推断粗桶（强职能角色如 HRBP → 其他但覆盖领域词；产品经理/总监/运营/设计覆盖领域词；数据/算法/AI 领域词归数据智能；市场销售词；技术研发词；设计词），先命中生效。新增 `jobCoarseBucket(category, title)`：源细分类可映射时优先（权威），否则回退标题推断。
+- 接线：`operations-dashboard.tsx` 类别 tabs 计数、列表「类别」单元格、筛选匹配、搜索关键词、详情面板副标题全部改用 `jobCoarseBucket`；`mapJobCategory` 仍保留供权威映射（测试与既有契约）。
+- 测试：`tests/job-category.test.mjs` 新增 4 组用例——真实 40 条沉睡职位标题归桶、强角色词覆盖领域词（数据产品经理→产品设计、HRBP（产研）→其他、视觉设计师/机器视觉工程师区分）、空值/无关键词归其他、`jobCoarseBucket` 权威优先+回退。先 RED（`inferCoarseBucketFromTitle` 未导出）后 GREEN。
+- 文档：`apps/web/docs/FRONTEND.md` 类别说明改为标题推断方案；技术债 memory 标记已解决。
+
 ### 2026-08-14 — M3 阶段一接入调度：match_projection_filter 周期任务
 
 > 状态：`verified`（单元 185/185、PostgreSQL 集成 42/42、ESLint、Vinext 生产构建、tsc 0 错误）。真实数据验证：dev 库 42 条可操作沉睡职位自动生成投影（`job_match_projections` 0 → 42），0 候选人 → 0 候选投影/0 filter 结果（符合预期）。

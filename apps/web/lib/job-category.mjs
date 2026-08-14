@@ -138,3 +138,49 @@ export function mapJobCategory(category) {
   if (!category) return "其他";
   return CATEGORY_BUCKET[category] ?? "其他";
 }
+
+/**
+ * 源数据不提供 category 时的回退方案：按职位标题关键词推断运营粗桶。
+ *
+ * 源侧现实：MCP 同步源 `item.category` 实测为空串、浏览器采集合同未定义该字段，
+ * 细分类映射表 `CATEGORY_BUCKET` 无输入可用。此处用标题关键词做启发式归类（非权威），
+ * 源提供真实细分类时以 `mapJobCategory` 为准（见 `jobCoarseBucket`）。
+ *
+ * 优先级从强到弱，先命中的生效：
+ *   1. 强职能角色（HRBP/人力资源/法务/证券…）——覆盖领域词：「HRBP（产研方向）」是 HR 而非研发；
+ *   2. 产品经理/总监/运营/设计、用户研究——覆盖领域词：「数据产品经理」「产品经理（财务方向）」都是产品；
+ *   3. 数据 / 算法 / AI 领域词——「算法工程师」归数据智能而非技术研发；
+ *   4. 市场销售词（销售/市场/营销/运营/商务/品牌/公关/渠道/媒介/客户/内容/电商）；
+ *   5. 技术研发词（工程师/开发/架构/研发/技术/运维/测试/前端/后端/系统/硬件…）；
+ *   6. 设计词（设计/UX/UI/交互）。
+ * 其余归「其他」。英文关键词按大写归一匹配。
+ */
+const TITLE_BUCKET_PATTERNS = [
+  { bucket: "其他", pattern: /HRBP|人力资源|招聘|猎头|人事|法务|律师|合规|审计|CFO|会计|出纳|证券|银行|保险|投行|行政/ },
+  { bucket: "产品设计", pattern: /产品(经理|总监|运营|设计)|用户研究/ },
+  { bucket: "数据智能", pattern: /算法|机器学习|深度学习|大模型|NLP|自然语言|知识图谱|TEXT2SQL|数据(科学|分析|挖掘|开发|仓库|中台|平台|智能|建模|科学家)|商业分析|经营分析|推荐|搜索|图像|机器视觉|语音|大数据|BI|风控/ },
+  { bucket: "市场销售", pattern: /销售|市场|营销|运营|商务|\bBD\b|品牌|公关|渠道|媒介|推广|客户|内容|新媒体|电商/ },
+  { bucket: "技术研发", pattern: /工程师|开发|架构|研发|技术|运维|测试|前端|后端|全栈|中间件|分布式|嵌入式|硬件|电路|芯片|系统|平台|安全|售前|内核|编译|JAVA|GOLANG|PYTHON|C\+\+|ANDROID|IOS|WEB|HTML5|FLUTTER|REACT NATIVE|DEVOPS/ },
+  { bucket: "产品设计", pattern: /设计|UX|UI|交互/ },
+];
+
+export function inferCoarseBucketFromTitle(title) {
+  if (!title) return "其他";
+  const normalized = String(title).toUpperCase();
+  for (const { bucket, pattern } of TITLE_BUCKET_PATTERNS) {
+    if (pattern.test(normalized)) return bucket;
+  }
+  return "其他";
+}
+
+/**
+ * 取职位运营粗桶：源细分类非空且可映射时用 `mapJobCategory`（权威优先）；
+ * 为空或未映射时回退标题推断，title 为空则归「其他」。
+ */
+export function jobCoarseBucket(category, title) {
+  if (category) {
+    const mapped = CATEGORY_BUCKET[category];
+    if (mapped) return mapped;
+  }
+  return inferCoarseBucketFromTitle(title);
+}

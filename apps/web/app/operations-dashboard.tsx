@@ -11,7 +11,7 @@ import {
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
 import {
   JOB_CATEGORY_BUCKETS,
-  mapJobCategory,
+  jobCoarseBucket,
 } from "@/lib/job-category.mjs";
 import {
   changePasswordRequest,
@@ -1041,18 +1041,19 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const job of sleepingJobs) {
-      const bucket = mapJobCategory(job.category);
+      const bucket = jobCoarseBucket(job.category, job.title);
       counts[bucket] = (counts[bucket] ?? 0) + 1;
     }
     return counts;
   }, [sleepingJobs]);
 
   const filteredJobs = sleepingJobs.filter((job) => {
+    const bucket = jobCoarseBucket(job.category, job.title);
     const categoryMatches =
-      activeCategory === "全部" || mapJobCategory(job.category) === activeCategory;
+      activeCategory === "全部" || bucket === activeCategory;
     const queryMatches =
       query.trim() === "" ||
-      `${job.title}${job.city}${job.category}`
+      `${job.title}${job.city}${job.category}${bucket}`
         .toLowerCase()
         .includes(query.trim().toLowerCase());
     return categoryMatches && queryMatches;
@@ -1284,7 +1285,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><span className={`job-run-state ${job.hasDescription ? "queued" : "blocked"}`}><i />{job.hasDescription ? "自动排队" : "待补详情"}</span></td>
                         <td><strong>{job.title}</strong><small className="job-updated"><span className="job-external-id" title={job.externalId}>{job.externalId}</span><span className="job-updated-at"> · 更新于 {formatDateTime(job.updatedAt)}</span></small></td>
-                        <td><span>{job.category}</span><small>{job.city}</small></td>
+                        <td><span>{jobCoarseBucket(job.category, job.title)}</span><small>{job.city}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
                         <td><strong>{job.hasDescription ? "等待评分" : "尚未生成"}</strong><small>{job.hasDescription ? "输入变化后自动运行" : "补全 JD 后自动继续"}</small></td>
                         <td><span>{job.hasDescription ? "排队中" : "—"}</span><small>{job.hasDescription ? "无需人工触发" : "等待数据"}</small></td>
@@ -1336,7 +1337,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                 <>
                   <div className="panel-heading">
                     <span className="role-icon">{selectedJob.title.slice(0, 1)}</span>
-                    <div><span className="status-pill"><i />待激活</span><h2>{selectedJob.title}</h2><p>{selectedJob.category} · {selectedJob.city}</p></div>
+                    <div><span className="status-pill"><i />待激活</span><h2>{selectedJob.title}</h2><p>{jobCoarseBucket(selectedJob.category, selectedJob.title)} · {selectedJob.city}</p></div>
                   </div>
 
                   <div className="sleeping-alert"><span>!</span><div><strong>已沉睡 {selectedJob.ageDays} 天</strong><p>距 30 天观察上限还有 {30 - selectedJob.ageDays} 天</p></div></div>
