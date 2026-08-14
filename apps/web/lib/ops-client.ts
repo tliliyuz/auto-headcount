@@ -231,6 +231,7 @@ export function fetchAuditLogs(input?: {
   action?: string;
   actorType?: string;
   result?: string;
+  q?: string;
   page?: number;
   pageSize?: number;
 }): Promise<AuthResult<Paged<AuditLogView>>> {
@@ -239,6 +240,7 @@ export function fetchAuditLogs(input?: {
       action: input?.action,
       actor_type: input?.actorType,
       result: input?.result,
+      q: input?.q,
       page: input?.page,
       page_size: input?.pageSize,
     }),

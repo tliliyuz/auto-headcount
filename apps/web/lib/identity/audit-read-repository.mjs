@@ -7,13 +7,23 @@
  */
 export async function listAuditLogs(
   sql,
-  { action, actorType, result, page = 1, pageSize = 50 } = {},
+  { action, actorType, result, q, page = 1, pageSize = 50 } = {},
 ) {
   const where = sql`
     1 = 1
     ${action ? sql` and action = ${action}` : sql``}
     ${actorType ? sql` and actor_type = ${actorType}` : sql``}
     ${result ? sql` and result = ${result}` : sql``}
+    ${
+      q
+        ? sql` and (
+            action ilike ${`%${q}%`}
+            or actor_id::text ilike ${`%${q}%`}
+            or request_id ilike ${`%${q}%`}
+            or resource_id::text ilike ${`%${q}%`}
+          )`
+        : sql``
+    }
   `;
 
   const [{ total }] = await sql`

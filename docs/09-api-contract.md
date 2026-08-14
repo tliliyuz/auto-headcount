@@ -62,7 +62,7 @@
 
 | 接口 | 方法 | 鉴权 | 请求 Query | 响应 |
 |---|---|---|---|---|
-| `/api/audit-logs` | GET | 会话 + `operations\|admin` | `action?`（精确）、`actor_type?`（`user`/`system`）、`result?`（`success`/`failure`/`denied`）、`page`、`page_size` | `200` 分页包络，`list[]` 为审计投影 |
+| `/api/audit-logs` | GET | 会话 + `operations\|admin` | `action?`（精确）、`actor_type?`（`user`/`system`）、`result?`（`success`/`failure`/`denied`）、`q?`（模糊：匹配 `action`/`actor_id`/`request_id`/`resource_id` 子串）、`page`、`page_size` | `200` 分页包络，`list[]` 为审计投影 |
 
 **审计投影（`/api/audit-logs` `list[]`）**：`id`、`occurredAt`、`actorType`、`actorId`（对 `users` 为无外键语义引用）、`action`、`resourceType`、`resourceId`、`result`、`requestId`、`metadata`、`ipAddress`。
 

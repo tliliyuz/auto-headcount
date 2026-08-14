@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 数据源批次列表合并 + 审计日志分类筛选分页（列表统一为沉睡职位样式）
+
+> 状态：`implemented`。ESLint、Vinext 生产构建、`npx tsc` 0 错误、单测 189/189、rendered-html + http-read 4/4；`/api/audit-logs` 的 `q` 关键词搜索经 dev 库只读探针验证（`q=login`→20 条、按 request_id 前缀精确命中、与 `result` 组合过滤正确）。**注意**：集成测试库因迁移 `0010` 重复 `0009` 的 `browser_collection_*` 建表语句、无法在全新库上应用（42P07）而阻塞，全量集成测试待该迁移修复后补跑——`q` 的集成断言（`audit-read.integration.test.mjs` 新增）已就绪。
+
+- 数据源页不再两个容器平铺：原「最近采集批次」与「最近同步批次」两个面板合并为**统一批次列表**（`workspace-grid` 左列表 + 右侧 `insight-panel` 详情），复用沉睡职位样式——类型 tabs（全部/采集批次/同步批次，带计数）+ 关键词搜索（批次 ID / 来源）+ 每页 10 条 page-jump 分页；行点击后详情面板展示运行统计（采集：发现/入库/失败/跳过；同步：入库/跳过/失败/查询）与批次信息（本批数量/上限页数 或 同步类型/错误码、创建/完成时间、耗时）。数据源不变：`/api/browser-batches` + `/api/sync-runs`（各取最近 100 条，每 10 秒轮询合并刷新）；连接健康改为列表下方 `health-strip`。
+- 审计日志页改为 jobs 风格列表（`.table-wrap` 表格）：结果分类 tabs（全部/成功/失败/已拒绝，走 `result` 过滤）+ 搜索框（`q` 模糊匹配事件/操作人/关联 ID，350ms 防抖）+「≡ 筛选」下拉（事件类型 `action`、操作人 `actor_type`，即时生效回第一页）+ page-jump 分页；删除原禁用占位筛选。
+- 审计 API 新增 `q` 参数（匹配 `action`/`actor_id`/`request_id`/`resource_id` 子串）：`lib/identity/audit-read-repository.mjs`（含 `.d.mts`）、`app/api/audit-logs/route.ts`、`lib/ops-client.ts` `fetchAuditLogs`、契约 `docs/09-api-contract.md` §2.3。
+- 测试：`tests/audit-read.integration.test.mjs` 补 `q` 过滤断言（按 request_id 命中全部夹具、按 resource_id 精确命中、action 子串、与精确过滤组合）。
+- 样式：`globals.css` 清理 `source-bottom`/`sync-table`/`browser-batch-*`/`audit-filters`/`health-panel`/`audit-table` 死样式，新增 `.batches-wrap`/`.audit-wrap` 列宽覆盖、`.event-kind` 类型 chip、`.detail-meta`、`.health-strip`、`.filter-panel select`。
+- 文档：`apps/web/docs/FRONTEND.md` 数据源/审计日志行与新「统一批次列表与审计日志」UI 段落同步。
+
 ### 2026-08-14 — 候选人池页面静态原型：列表 + 状态筛选 + 搜索 + 分页
 
 > 状态：`implemented`（lint、Vinext 生产构建、tsc 0 错误、渲染/HTTP 测试通过；浏览器实测筛选/搜索/分页/详情联动）。候选人页上线为**静态原型**（完全虚构假数据），M2 候选人采集落库后接真实 `GET /api/candidates`。

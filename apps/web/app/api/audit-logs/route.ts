@@ -31,6 +31,7 @@ export const GET = withAudit(
     const action = url.searchParams.get("action") ?? undefined;
     const actorType = url.searchParams.get("actor_type") ?? undefined;
     const result = url.searchParams.get("result") ?? undefined;
+    const q = url.searchParams.get("q") ?? undefined;
     if (
       (actorType !== undefined && !ACTOR_TYPES.has(actorType)) ||
       (result !== undefined && !RESULTS.has(result))
@@ -48,6 +49,7 @@ export const GET = withAudit(
       action,
       actorType,
       result,
+      q,
       page: parsed.page,
       pageSize: parsed.pageSize,
     });

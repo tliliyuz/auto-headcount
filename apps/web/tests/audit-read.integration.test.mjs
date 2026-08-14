@@ -83,6 +83,30 @@ test(
       assert.equal(row.requestId, marker);
       assert.deepEqual(row.metadata, { marker });
       assert.equal(row.ipAddress, null);
+
+      // q 关键词搜索：匹配 request_id / resource_id / action 子串
+      const byRequest = await listAuditLogs(sql, { q: marker });
+      assert.ok(
+        byRequest.total >= 3 && byRequest.list.length >= 3,
+        `q=${marker} 应命中全部 3 条夹具（request_id）；实际 total=${byRequest.total}`,
+      );
+      const byResource = await listAuditLogs(sql, { q: "job-1" });
+      assert.equal(
+        byResource.list.length,
+        1,
+        `q=job-1 应只命中 resource_id 夹具 ok 行；实际 ${byResource.list.length}`,
+      );
+      assert.equal(byResource.list[0].action, actions.ok);
+      const byAction = await listAuditLogs(sql, { q: actions.ok });
+      assert.equal(
+        byAction.list.length,
+        1,
+        `q=${actions.ok} 应命中 action 子串夹具 ok 行；实际 ${byAction.list.length}`,
+      );
+      // q 与精确过滤可组合
+      const combined = await listAuditLogs(sql, { q: marker, action: actions.denied });
+      assert.equal(combined.list.length, 1);
+      assert.equal(combined.list[0].result, "denied");
     } finally {
       await sql.begin(async (t) => {
         await t`set local app.audit_retention = 'on'`;

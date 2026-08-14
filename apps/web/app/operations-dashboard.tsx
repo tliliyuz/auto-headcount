@@ -84,6 +84,17 @@ const BATCH_STATUS_VIEW: Record<string, { label: string; className: string }> = 
   failed: { label: "失败", className: "status-失败" },
 };
 
+/** 数据源页统一批次列表：浏览器采集批次（collection）与 MCP 同步批次（sync）合并为一种事件。 */
+type BatchEvent =
+  | (BrowserBatchView & { kind: "collection"; key: string; shortId: string })
+  | (SyncRunView & { kind: "sync"; key: string; shortId: string });
+
+/** 按批次种类取状态视图：采集批次与同步批次状态机不同。 */
+function batchEventStatusView(ev: BatchEvent): { label: string; className: string } {
+  const map = ev.kind === "collection" ? BATCH_STATUS_VIEW : SYNC_STATUS_VIEW;
+  return map[ev.status] ?? { label: ev.status, className: "" };
+}
+
 /**
  * 同步触发状态机：idle 空闲 → triggering 请求中 → queued 已入队（等待调度 tick 认领）
  * → syncing 执行中 → succeeded/failed 终态。终态显示结果文本（含计数/错误码），可再次触发。
@@ -616,14 +627,20 @@ function SourcesPage({
   const [browserBatchSize, setBrowserBatchSize] = useState(20);
   const [browserCollectState, setBrowserCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
   const [browserCollectMessage, setBrowserCollectMessage] = useState<string | null>(null);
+  // 统一批次列表：类型 tabs + 关键词 + 客户端分页 + 详情选中（采集批次与同步批次合并）
+  const [batchType, setBatchType] = useState<"all" | "collection" | "sync">("all");
+  const [batchQuery, setBatchQuery] = useState("");
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchJumpValue, setBatchJumpValue] = useState("");
+  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const [sourcesResult, runsResult, batchesResult] = await Promise.all([
         fetchSources({ pageSize: 50 }),
-        fetchSyncRuns({ pageSize: 20 }),
-        fetchBrowserBatches({ pageSize: 20 }),
+        fetchSyncRuns({ pageSize: 100 }),
+        fetchBrowserBatches({ pageSize: 100 }),
       ]);
       if (cancelled) return;
       // 会话中途失效：退回登录页，不滞留空工作台。
@@ -650,6 +667,7 @@ function SourcesPage({
           onAuthExpired();
           return;
         }
+        setSourcesError((current) => current ?? "采集批次加载失败，请稍后重试");
       } else {
         setBrowserBatches(batchesResult.data.list);
       }
@@ -661,11 +679,15 @@ function SourcesPage({
     };
   }, [onAuthExpired]);
 
-  // 「最近采集批次」面板刷新：入队成功后立即调用一次，随后每 10 秒轮询，
-  // 让批次从 pending→discovering→collecting→终态 无需手动刷新即可看到。
+  // 统一批次列表刷新：入队成功后立即调用一次，随后每 10 秒轮询，让采集批次
+  // pending→discovering→collecting→终态、同步批次 running→终态无需手动刷新即可看到。
   const refreshBatches = useCallback(async () => {
-    const result = await fetchBrowserBatches({ pageSize: 20 });
-    if (result.ok) setBrowserBatches(result.data.list);
+    const [runsResult, batchesResult] = await Promise.all([
+      fetchSyncRuns({ pageSize: 100 }),
+      fetchBrowserBatches({ pageSize: 100 }),
+    ]);
+    if (runsResult.ok) setSyncRuns(runsResult.data.list);
+    if (batchesResult.ok) setBrowserBatches(batchesResult.data.list);
   }, []);
   useEffect(() => {
     let cancelled = false;
@@ -707,6 +729,47 @@ function SourcesPage({
       setBrowserCollectMessage("采集触发失败，请检查浏览器连接与设备路由");
     }
   };
+
+  // —— 统一批次列表（采集 + 同步）数据派生 ——
+  const allEvents = useMemo<BatchEvent[]>(() => {
+    const collections: BatchEvent[] = browserBatches.map((b) => ({
+      ...b,
+      kind: "collection",
+      key: `collection:${b.id}`,
+      shortId: `BATCH-${b.id.slice(0, 8)}`,
+    }));
+    const syncs: BatchEvent[] = syncRuns.map((r) => ({
+      ...r,
+      kind: "sync",
+      key: `sync:${r.id}`,
+      shortId: `SYNC-${r.id.slice(0, 8)}`,
+    }));
+    return [...collections, ...syncs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [browserBatches, syncRuns]);
+
+  const filteredEvents = allEvents.filter((ev) => {
+    if (batchType === "collection" && ev.kind !== "collection") return false;
+    if (batchType === "sync" && ev.kind !== "sync") return false;
+    const q = batchQuery.trim().toLowerCase();
+    if (!q) return true;
+    if (ev.id.toLowerCase().includes(q) || ev.shortId.toLowerCase().includes(q)) return true;
+    return ev.kind === "sync" && (ev.sourceDisplayName ?? "").toLowerCase().includes(q);
+  });
+
+  const BATCH_PAGE_SIZE = 10;
+  const batchTotalPages = Math.max(1, Math.ceil(filteredEvents.length / BATCH_PAGE_SIZE));
+  const currentBatchPage = Math.min(batchPage, batchTotalPages);
+  const pageEvents = filteredEvents.slice((currentBatchPage - 1) * BATCH_PAGE_SIZE, currentBatchPage * BATCH_PAGE_SIZE);
+  const displayedEvent =
+    (selectedEventKey ? filteredEvents.find((e) => e.key === selectedEventKey) : null) ??
+    pageEvents[0] ??
+    null;
+
+  function jumpToBatchPage() {
+    const page = Number.parseInt(batchJumpValue, 10);
+    if (Number.isFinite(page) && page >= 1 && page <= batchTotalPages) setBatchPage(page);
+    setBatchJumpValue("");
+  }
 
   return (
     <>
@@ -761,65 +824,150 @@ function SourcesPage({
         <button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button>
       </section>
 
-      <section className="surface-card data-card browser-batch-card">
-        <div className="surface-header"><div><h2>最近采集批次</h2><p>浏览器「采集当前筛选结果」批次进度，每 15 秒自动刷新</p></div><button className="plain-filter">查看全部</button></div>
-        <div className="data-table browser-batch-table">
-          {browserBatches.length === 0 ? (
-            <div className="empty-state">暂无浏览器采集批次，点击「采集当前筛选结果」触发</div>
-          ) : (
-            browserBatches.map((batch) => {
-              const view = BATCH_STATUS_VIEW[batch.status] ?? { label: batch.status, className: "" };
-              return (
-                <div className="data-row" key={batch.id}>
-                  <span><strong>BATCH-{batch.id.slice(0, 8)}</strong><small>{formatDateTime(batch.createdAt)}</small></span>
-                  <span><em className={`status-tag ${view.className}`}>{view.label}</em></span>
-                  <span><strong>{batch.discoveredCount}</strong> 发现<small>（新增+变更）</small></span>
-                  <span><strong>{batch.succeededCount}</strong> 入库 / <strong>{batch.failedCount}</strong> 失败</span>
-                  <span>
-                    {batch.status === "succeeded" && batch.discoveredCount === 0
-                      ? "无新增（全部已知）"
-                      : batch.status === "pending"
-                        ? "等待调度"
-                        : batch.stopReason
-                          ? <code>{batch.stopReason}</code>
-                          : formatDuration(batch.createdAt, batch.finishedAt)}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
-
-      <section className="source-bottom">
-        <div className="surface-card data-card">
-          <div className="surface-header"><div><h2>最近同步批次</h2><p>原始快照与规范化结果</p></div><button className="plain-filter">查看全部</button></div>
-          <div className="data-table sync-table">
-            {syncRuns.length === 0 ? (
-              <div className="empty-state">暂无同步批次，运行 npm run sync:under-served 触发同步</div>
+      <section className="workspace-grid">
+        <div className="jobs-card">
+          <div className="card-header">
+            <div><h2>采集与同步批次</h2><span>浏览器职位采集批次与 MCP 同步批次统一查看，最近记录优先</span></div>
+            <button className="more-button" aria-label="更多操作">•••</button>
+          </div>
+          <div className="category-tabs" role="tablist" aria-label="批次类型">
+            <button role="tab" aria-selected={batchType === "all"} className={batchType === "all" ? "active" : ""} onClick={() => { setBatchType("all"); setBatchPage(1); }}>全部<span>{allEvents.length}</span></button>
+            <button role="tab" aria-selected={batchType === "collection"} className={batchType === "collection" ? "active" : ""} onClick={() => { setBatchType("collection"); setBatchPage(1); }}>采集批次<span>{browserBatches.length}</span></button>
+            <button role="tab" aria-selected={batchType === "sync"} className={batchType === "sync" ? "active" : ""} onClick={() => { setBatchType("sync"); setBatchPage(1); }}>同步批次<span>{syncRuns.length}</span></button>
+          </div>
+          <div className="table-tools">
+            <label className="table-search"><span>⌕</span><input value={batchQuery} onChange={(event) => { setBatchQuery(event.target.value); setBatchPage(1); }} placeholder="搜索批次 ID 或来源" /></label>
+          </div>
+          <div className="table-wrap batches-wrap">
+            <table>
+              <thead><tr><th>类型</th><th>批次</th><th>状态</th><th>进度</th><th>结果</th><th>耗时</th><th /></tr></thead>
+              <tbody>
+                {pageEvents.map((ev) => {
+                  const statusView = batchEventStatusView(ev);
+                  return (
+                    <tr key={ev.key} className={displayedEvent?.key === ev.key ? "selected" : ""} onClick={() => setSelectedEventKey(ev.key)}>
+                      <td><span className={`event-kind ${ev.kind}`}><i />{ev.kind === "collection" ? "采集" : "同步"}</span></td>
+                      <td><strong>{ev.shortId}</strong><small className="job-updated"><span className="job-external-id" title={ev.id}>{ev.id}</span><span className="job-updated-at"> · {formatDateTime(ev.createdAt)}</span></small></td>
+                      <td><em className={`status-tag ${statusView.className}`}>{statusView.label}</em></td>
+                      <td>{ev.kind === "collection"
+                        ? <><strong>{ev.discoveredCount} 发现</strong><small>{ev.succeededCount} 入库 / {ev.failedCount} 失败</small></>
+                        : <><strong>{ev.stats?.persisted ?? 0} 入库</strong><small>{ev.stats?.skipped ?? 0} 跳过 · {ev.stats?.failed ?? 0} 失败</small></>}</td>
+                      <td>{ev.kind === "collection"
+                        ? ev.status === "succeeded" && ev.discoveredCount === 0
+                          ? "无新增（全部已知）"
+                          : ev.status === "pending"
+                            ? "等待调度"
+                            : ev.stopReason
+                              ? <code>{ev.stopReason}</code>
+                              : formatDuration(ev.createdAt, ev.finishedAt)
+                        : ev.errorCode ? <code>{ev.errorCode}</code> : `${ev.stats?.skipped ?? 0} 异常`}</td>
+                      <td>{formatDuration(ev.kind === "collection" ? ev.createdAt : ev.startedAt, ev.finishedAt)}</td>
+                      <td><button aria-label={`查看 ${ev.shortId}`} onClick={() => setSelectedEventKey(ev.key)}>›</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {sourcesLoading ? (
+              <div className="empty-state">正在加载批次…</div>
             ) : (
-              syncRuns.map((run) => {
-                const view = SYNC_STATUS_VIEW[run.status] ?? { label: run.status, className: "" };
-                return (
-                  <div className="data-row" key={run.id}>
-                    <span><strong>SYNC-{run.id.slice(0, 8)}</strong><small>{formatDateTime(run.createdAt)}</small></span>
-                    <span><em className={`status-tag ${view.className}`}>{view.label}</em></span>
-                    <span>{run.stats?.persisted ?? 0} 条</span>
-                    <span>{run.errorCode ? <code>{run.errorCode}</code> : `${run.stats?.skipped ?? 0} 异常`}</span>
-                    <span>{formatDuration(run.startedAt, run.finishedAt)}</span>
-                  </div>
-                );
-              })
+              filteredEvents.length === 0 && <div className="empty-state">没有符合当前条件的批次</div>
             )}
           </div>
+          <div className="table-footer">
+            <span>{filteredEvents.length === 0 ? "显示 0 条" : `显示 ${(currentBatchPage - 1) * BATCH_PAGE_SIZE + 1}–${Math.min(currentBatchPage * BATCH_PAGE_SIZE, filteredEvents.length)} 条，共 ${filteredEvents.length} 条`}</span>
+            <div>
+              <button disabled={currentBatchPage <= 1} onClick={() => setBatchPage(currentBatchPage - 1)} aria-label="上一页">‹</button>
+              {pageItems(currentBatchPage, batchTotalPages).map((item, index) =>
+                item === "…" ? (
+                  <span key={`gap-${index}`} className="page-gap">…</span>
+                ) : (
+                  <button key={item} className={item === currentBatchPage ? "active" : ""} onClick={() => setBatchPage(item)}>{item}</button>
+                ),
+              )}
+              <button disabled={currentBatchPage >= batchTotalPages} onClick={() => setBatchPage(currentBatchPage + 1)} aria-label="下一页">›</button>
+              <div className="page-jump">
+                <input type="text" inputMode="numeric" value={batchJumpValue} onChange={(event) => setBatchJumpValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") jumpToBatchPage(); }} aria-label="跳转到指定页" placeholder="页码" />
+                <span>/ {batchTotalPages} 页</span>
+                <button type="button" onClick={jumpToBatchPage} disabled={!batchJumpValue}>GO</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <aside className="surface-card health-panel">
-          <h2>连接健康</h2>
+
+        <aside className="insight-panel" aria-label="批次详情">
+          {displayedEvent ? (
+            <>
+              <div className="panel-heading">
+                <span className="role-icon">{displayedEvent.kind === "collection" ? "B" : "M"}</span>
+                <div>
+                  <span className="status-pill"><i />{displayedEvent.kind === "collection" ? "浏览器采集" : "MCP 同步"}</span>
+                  <h2>{displayedEvent.shortId}</h2>
+                  <p>{displayedEvent.kind === "collection" ? "筛选列表 → 批量详情复核" : `${displayedEvent.sourceDisplayName} · ${displayedEvent.sourceProvider}`}</p>
+                </div>
+              </div>
+              <div className="panel-section">
+                <div className="section-title"><h3>运行统计</h3><em className={`status-tag ${batchEventStatusView(displayedEvent).className}`}>{batchEventStatusView(displayedEvent).label}</em></div>
+                <div className="campaign-stats">
+                  {displayedEvent.kind === "collection" ? (
+                    <>
+                      <div><strong>{displayedEvent.discoveredCount}</strong><small>发现（新增+变更）</small></div>
+                      <div><strong>{displayedEvent.succeededCount}</strong><small>入库</small></div>
+                      <div><strong>{displayedEvent.failedCount}</strong><small>失败</small></div>
+                      <div><strong>{displayedEvent.skippedCount}</strong><small>跳过</small></div>
+                    </>
+                  ) : (
+                    <>
+                      <div><strong>{displayedEvent.stats?.persisted ?? 0}</strong><small>入库</small></div>
+                      <div><strong>{displayedEvent.stats?.skipped ?? 0}</strong><small>跳过</small></div>
+                      <div><strong>{displayedEvent.stats?.failed ?? 0}</strong><small>失败</small></div>
+                      <div><strong>{displayedEvent.stats?.jobsQueried ?? 0}</strong><small>查询</small></div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="panel-section">
+                <div className="section-title"><h3>批次信息</h3></div>
+                <div className="detail-meta">
+                  {displayedEvent.kind === "collection" ? (
+                    <>
+                      <div><span>本批数量</span><b>{displayedEvent.batchSize}</b></div>
+                      <div><span>上限页数</span><b>{displayedEvent.maxPages}</b></div>
+                    </>
+                  ) : (
+                    <>
+                      <div><span>同步类型</span><b>{displayedEvent.syncType}</b></div>
+                      <div><span>错误码</span><b>{displayedEvent.errorCode ?? "—"}</b></div>
+                    </>
+                  )}
+                  <div><span>创建时间</span><b>{formatDateTime(displayedEvent.createdAt)}</b></div>
+                  <div><span>完成时间</span><b>{formatDateTime(displayedEvent.finishedAt)}</b></div>
+                  <div><span>耗时</span><b>{formatDuration(displayedEvent.kind === "collection" ? displayedEvent.createdAt : displayedEvent.startedAt, displayedEvent.finishedAt)}</b></div>
+                </div>
+              </div>
+              <div className="panel-note"><span>i</span><p>{displayedEvent.kind === "collection" ? "采集批次按断点续采：已入库未变的职位自动跳过，翻页直到凑满本批数量或列表到底。" : "同步任务由调度 tick 异步认领执行；同步完成会自动刷新职位列表。"}</p></div>
+            </>
+          ) : (
+            <>
+              <div className="panel-heading">
+                <span className="role-icon">—</span>
+                <div><span className="status-pill"><i />批次</span><h2>未选择批次</h2><p>点击左侧批次查看运行详情</p></div>
+              </div>
+              <div className="panel-section">
+                <div className="section-title"><h3>批次详情</h3></div>
+              </div>
+            </>
+          )}
+        </aside>
+      </section>
+
+      <section className="surface-card health-strip">
+        <div className="health-cols">
           <div><span><i className={primarySource?.status === "active" ? "green" : "amber"} />连接状态</span><strong>{primarySource ? (primarySource.status === "active" ? "有效" : primarySource.status === "error" ? "异常" : "未启用") : "—"}</strong></div>
           <div><span><i className="green" />运行环境</span><strong>{primarySource?.environment ?? "—"}</strong></div>
           <div><span><i className="green" />数据源数量</span><strong>{sources.length}</strong></div>
-          <p>系统仅启用了职位只读白名单工具；短信、邮件和候选人详情调用保持关闭。</p>
-        </aside>
+        </div>
+        <p>系统仅启用了职位只读白名单工具；短信、邮件和候选人详情调用保持关闭。</p>
       </section>
     </>
   );
@@ -836,17 +984,31 @@ const AUDIT_ACTION_VIEW: Record<string, string> = {
   "auth.logout": "登出",
   "auth.password_change": "改密",
   "jobs.list": "沉睡职位访问",
+  "jobs.detail": "职位详情访问",
   "sources.list": "数据源访问",
   "sync-runs.list": "同步批次访问",
+  "browser-batches.list": "采集批次访问",
+  "sync.run": "同步执行",
+  "sync.trigger": "触发同步",
+  "browser.collection.trigger": "触发浏览器采集",
   "audit-logs.list": "审计日志访问",
+  "match-exceptions.list": "匹配异常访问",
+  "matches.list": "匹配列表访问",
+  "matches.detail": "匹配详情访问",
+  "matches.review": "匹配审核",
+  "match-tasks.deprecated": "匹配任务（已停用）",
   "retention.run": "保留清理",
 };
+
+/** 审计「事件类型」筛选下拉选项：全部 + 已知动作白名单。 */
+const AUDIT_ACTION_OPTIONS = Object.entries(AUDIT_ACTION_VIEW).map(([value, label]) => ({ value, label }));
 
 const AUDIT_RESOURCE_VIEW: Record<string, string> = {
   user: "用户",
   job: "职位",
   source_connection: "数据源",
   sync_run: "同步批次",
+  browser_collection: "采集批次",
   audit_log: "审计日志",
 };
 
@@ -862,12 +1024,36 @@ function AuditPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [auditPage, setAuditPage] = useState(1);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditTotalPages, setAuditTotalPages] = useState(0);
+  const [auditResult, setAuditResult] = useState<"all" | "success" | "failure" | "denied">("all");
+  const [auditAction, setAuditAction] = useState("all");
+  const [auditActor, setAuditActor] = useState<"all" | "user" | "system">("all");
+  const [auditQuery, setAuditQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [jumpValue, setJumpValue] = useState("");
   const pageSize = 50;
+
+  // 关键词搜索做 350ms 防抖：敲键不立即触发服务端查询，避免审计接口被打满；防抖后回到第一页。
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(auditQuery.trim());
+      setAuditPage(1);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [auditQuery]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const result = await fetchAuditLogs({ page: auditPage, pageSize });
+      setAuditLoading(true);
+      const result = await fetchAuditLogs({
+        action: auditAction === "all" ? undefined : auditAction,
+        actorType: auditActor === "all" ? undefined : auditActor,
+        result: auditResult === "all" ? undefined : auditResult,
+        q: debouncedQuery || undefined,
+        page: auditPage,
+        pageSize,
+      });
       if (cancelled) return;
       if (result.ok) {
         setLogs(result.data.list);
@@ -887,52 +1073,89 @@ function AuditPage({ onAuthExpired }: { onAuthExpired: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, [auditPage, onAuthExpired]);
+  }, [auditPage, auditResult, auditAction, auditActor, debouncedQuery, onAuthExpired]);
 
   const firstShown = logs.length === 0 ? 0 : (auditPage - 1) * pageSize + 1;
   const lastShown = logs.length === 0 ? 0 : (auditPage - 1) * pageSize + logs.length;
 
+  function jumpToAuditPage() {
+    const page = Number.parseInt(jumpValue, 10);
+    if (Number.isFinite(page) && page >= 1 && page <= auditTotalPages) setAuditPage(page);
+    setJumpValue("");
+  }
+
   return (
     <>
       <PageIntro eyebrow="安全与可追踪性" title="操作审计记录" description="查看管理操作、审批、同步和数据访问记录；现有记录不可修改，仅保留任务按策略清理。" action="导出审计记录" />
-      <section className="audit-filters surface-card">
-        <label><span>搜索操作人或关联 ID</span><input placeholder="输入关键词" disabled /></label>
-        <button disabled>事件类型：全部⌄</button>
-        <button disabled>结果：全部⌄</button>
-        <button className="secondary-button" disabled>筛选</button>
-      </section>
-      <section className="surface-card data-card audit-card">
-        <div className="surface-header">
-          <div><h2>审计事件</h2><p>{auditLoading ? "加载中…" : `共 ${auditTotal} 条 · 写入时已按动作白名单收敛，不含敏感正文`}</p></div>
+      <section className="jobs-card">
+        <div className="card-header">
+          <div><h2>审计事件</h2><span>{auditLoading ? "加载中…" : `共 ${auditTotal} 条 · 写入时已按动作白名单收敛，不含敏感正文`}</span></div>
           <span className="immutable-label">▣ 追加写保护</span>
         </div>
-        <div className="data-table audit-table">
-          <div className="data-row data-head"><span>时间 / 事件</span><span>操作人</span><span>对象</span><span>结果</span><span>关联 ID</span><span>来源 IP</span></div>
+        <div className="category-tabs" role="tablist" aria-label="审计结果">
+          {([
+            ["all", "全部"],
+            ["success", "成功"],
+            ["failure", "失败"],
+            ["denied", "已拒绝"],
+          ] as Array<["all" | "success" | "failure" | "denied", string]>).map(([value, label]) => (
+            <button key={value} role="tab" aria-selected={auditResult === value} className={auditResult === value ? "active" : ""} onClick={() => { setAuditResult(value); setAuditPage(1); }}>{label}</button>
+          ))}
+        </div>
+        <div className="table-tools">
+          <label className="table-search"><span>⌕</span><input value={auditQuery} onChange={(event) => setAuditQuery(event.target.value)} placeholder="搜索操作人 / 关联 ID / 事件" /></label>
+          <div className="filter-dropdown-wrap">
+            <button className={`filter-button ${filterOpen ? "active" : ""}`} aria-expanded={filterOpen} aria-haspopup="menu" onClick={() => setFilterOpen((open) => !open)}>≡ 筛选{filterOpen ? " ⌃" : " ⌄"}</button>
+            {filterOpen && (
+              <div className="filter-panel" role="menu" aria-label="审计筛选">
+                <div className="filter-field"><span>事件类型</span><select value={auditAction} onChange={(event) => { setAuditAction(event.target.value); setAuditPage(1); }}><option value="all">全部</option>{AUDIT_ACTION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+                <div className="filter-field"><span>操作人</span><select value={auditActor} onChange={(event) => { setAuditActor(event.target.value as "all" | "user" | "system"); setAuditPage(1); }}><option value="all">全部</option><option value="user">运营用户</option><option value="system">系统任务</option></select></div>
+                <p className="filter-panel-note">筛选即时生效并回到第一页；关键词匹配事件、操作人或关联 ID。</p>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="table-wrap audit-wrap">
+          <table>
+            <thead><tr><th>时间 / 事件</th><th>操作人</th><th>对象</th><th>结果</th><th>关联 ID</th><th>来源 IP</th></tr></thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id}>
+                  <td><strong>{AUDIT_ACTION_VIEW[log.action] ?? log.action}</strong><small>{formatDateTime(log.occurredAt)}</small></td>
+                  <td><span>{AUDIT_ACTOR_VIEW[log.actorType] ?? log.actorType}</span></td>
+                  <td><span>{log.resourceType ? `${AUDIT_RESOURCE_VIEW[log.resourceType] ?? log.resourceType}${log.resourceId ? " · " + log.resourceId.slice(0, 8) : ""}` : "—"}</span></td>
+                  <td><em className={`status-tag ${AUDIT_RESULT_VIEW[log.result]?.className ?? ""}`}>{AUDIT_RESULT_VIEW[log.result]?.label ?? log.result}</em></td>
+                  <td><code>{log.requestId ? log.requestId.slice(0, 8) : "—"}</code></td>
+                  <td><code>{log.ipAddress ?? "—"}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {auditLoading ? (
             <div className="empty-state">正在加载审计记录…</div>
           ) : auditError ? (
             <div className="empty-state">{auditError}</div>
-          ) : logs.length === 0 ? (
-            <div className="empty-state">暂无审计记录</div>
           ) : (
-            logs.map((log) => (
-              <div className="data-row" key={log.id}>
-                <span><strong>{AUDIT_ACTION_VIEW[log.action] ?? log.action}</strong><small>{formatDateTime(log.occurredAt)}</small></span>
-                <span>{AUDIT_ACTOR_VIEW[log.actorType] ?? log.actorType}</span>
-                <span>{log.resourceType ? `${AUDIT_RESOURCE_VIEW[log.resourceType] ?? log.resourceType}${log.resourceId ? " · " + log.resourceId.slice(0, 8) : ""}` : "—"}</span>
-                <span><em className={`status-tag ${AUDIT_RESULT_VIEW[log.result]?.className ?? ""}`}>{AUDIT_RESULT_VIEW[log.result]?.label ?? log.result}</em></span>
-                <span><code>{log.requestId ? log.requestId.slice(0, 8) : "—"}</code></span>
-                <span><code>{log.ipAddress ?? "—"}</code></span>
-              </div>
-            ))
+            logs.length === 0 && <div className="empty-state">没有符合当前筛选条件的审计记录</div>
           )}
         </div>
         <div className="table-footer">
-          <span>{auditLoading ? "加载中…" : `显示 ${firstShown}–${lastShown} 条，共 ${auditTotal} 条`}</span>
+          <span>{auditLoading ? "加载中…" : logs.length === 0 ? "显示 0 条" : `显示 ${firstShown}–${lastShown} 条，共 ${auditTotal} 条`}</span>
           <div>
-            <button disabled={auditPage <= 1} onClick={() => setAuditPage((p) => Math.max(1, p - 1))}>‹</button>
-            <button className="active">{auditPage}</button>
-            <button disabled={auditTotalPages <= auditPage} onClick={() => setAuditPage((p) => p + 1)}>›</button>
+            <button disabled={auditPage <= 1} onClick={() => setAuditPage(Math.max(1, auditPage - 1))} aria-label="上一页">‹</button>
+            {pageItems(auditPage, auditTotalPages).map((item, index) =>
+              item === "…" ? (
+                <span key={`gap-${index}`} className="page-gap">…</span>
+              ) : (
+                <button key={item} className={item === auditPage ? "active" : ""} onClick={() => setAuditPage(item)}>{item}</button>
+              ),
+            )}
+            <button disabled={auditTotalPages <= auditPage} onClick={() => setAuditPage(auditPage + 1)} aria-label="下一页">›</button>
+            <div className="page-jump">
+              <input type="text" inputMode="numeric" value={jumpValue} onChange={(event) => setJumpValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") jumpToAuditPage(); }} aria-label="跳转到指定页" placeholder="页码" />
+              <span>/ {auditTotalPages} 页</span>
+              <button type="button" onClick={jumpToAuditPage} disabled={!jumpValue}>GO</button>
+            </div>
           </div>
         </div>
       </section>

@@ -28,6 +28,7 @@ export declare function listAuditLogs(
     action?: string;
     actorType?: string;
     result?: string;
+    q?: string;
     page?: number;
     pageSize?: number;
   },

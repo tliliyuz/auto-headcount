@@ -22,8 +22,8 @@
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
-| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) + `POST /api/browser-collections` + `GET /api/browser-batches` | 已接真实数据（连接卡片 / 同步批次 / 浏览器职位批量采集「采集当前筛选结果」+ 最近采集批次面板 / 健康面板；「立即同步」经 [`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 手动触发） |
-| 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（最新 50 条 + 上一页/下一页；筛选控件为占位禁用态） |
+| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) + `POST /api/browser-collections` + `GET /api/browser-batches` | 已接真实数据（连接卡片 / 浏览器职位批量采集「采集当前筛选结果」/ **统一批次列表**：采集批次与同步批次合并，类型 tabs + 搜索 + 分页 + 右侧详情面板 / 健康条；「立即同步」经 [`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 手动触发） |
+| 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（结果 tabs 全部/成功/失败/已拒绝 + 事件类型/操作人筛选下拉 + 关键词搜索（`q`）+ page-jump 分页；写入已按动作白名单收敛，不含敏感正文） |
 | 候选人 | `CandidatesPage` | `candidateRows` 数组（假数据） | 静态原型（列表 + 状态筛选 + 关键词搜索 + 分页 + 详情面板；M2 候选人采集落库后接真实 `GET /api/candidates`，见 [候选人采集规范](../../../docs/10-candidate-collection.md)） |
 
 导航当前为 8 个页面（无独立工作台页，沉睡职位巡检为默认落地页）；「候选人」页已上线静态原型（假数据），M2 采集落库后接真实数据。
@@ -75,6 +75,11 @@
 - 工具栏不再放「发布时间」「负责人」两个假筛选按钮，并入右侧「≡ 筛选」下拉面板展示当前值；下拉内注明待数据源补齐后开放（发布时间/负责人非当前可筛字段）。
 - 列表固定贴合容器宽度：`.table-wrap` 移除 `overflow-x:auto`，改用 `table-layout:fixed` + 各列显式宽度 + 表头 `nowrap`，移动端 `min-width` 一并移除，不再出现横向滚动条。「职位」列「ID · 更新于 时间」行为 flex 单行：ID 过长时省略号截断（`title` 悬浮可看全量），时间始终同行；右侧洞察面板 314→296px 为表格让宽。
 - **类别 tabs 与标题推断**：源 `category` 为空（MCP 同步源 `item.category` 实测空串、浏览器采集合同未定义该字段）时，按职位标题关键词推断粗桶（`lib/job-category.mjs` 的 `inferCoarseBucketFromTitle` / `jobCoarseBucket`，源有真实细分类时优先权威映射）。推断为启发式非权威，若后续数据侧提供权威 category，`jobCoarseBucket` 自动切回权威值。
+
+### 数据源页：统一批次列表与审计日志（2026-08-14）
+
+- **批次列表不再两个容器平铺**：原「最近采集批次」与「最近同步批次」两个面板合并为一个列表（`workspace-grid` 左列表 + 右侧详情面板，复用沉睡职位样式）。类型 tabs（全部/采集批次/同步批次，带计数）+ 关键词搜索（批次 ID / 来源）+ 每页 10 条 page-jump 分页；行点击后右侧 `insight-panel` 展示该批次的运行统计（采集：发现/入库/失败/跳过；同步：入库/跳过/失败/查询）与批次信息（本批数量/上限页数 或 同步类型/错误码、创建/完成时间、耗时）。列表数据来源不变：`/api/browser-batches` + `/api/sync-runs`（各取最近 100 条，每 10 秒轮询合并刷新）；连接健康改为列表下方的 `health-strip`。
+- **审计日志改为 jobs 风格列表**：原 `data-table` 网格改为 `.table-wrap` 表格 + 结果分类 tabs（全部/成功/失败/已拒绝，走 `result` 过滤）+ 搜索框（`q` 模糊匹配事件/操作人/关联 ID，350ms 防抖）+ 「≡ 筛选」下拉（事件类型 `action`、操作人 `actor_type`）+ page-jump 分页。`q` 为 [`/api/audit-logs`](../../../docs/09-api-contract.md) 新增参数（匹配 `action`/`actor_id`/`request_id`/`resource_id` 子串）。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
 
