@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/liebide-candidate-detail.request.v1.schema.json",
+  "title": "Liebide Candidate Detail Extraction Request v1",
+  "description": "auto-headcount 发送给 CSDN-Agent 受限提取工具的固定参数。browserSessionId 仅用于交互式显式路由，持久化任务省略并由 userId + deviceId 限定 active page。生产任务不得增加脚本、选择器、URL、Cookie 或页面正文。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["userId", "deviceId", "contractId", "expectedCandidateId"],
+  "properties": {
+    "userId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "browserSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "contractId": {
+      "const": "liebide-candidate-detail-v1"
+    },
+    "expectedCandidateId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "expectedTitle": {
+      "description": "发现阶段人才池列表卡片上的近期职位标题，用于详情合同校验当前渲染内容确为目标候选人，防止同文档 hash 导航残留上一个候选人的 DOM。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    }
+  }
+}

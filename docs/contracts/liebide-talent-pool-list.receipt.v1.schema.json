@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/liebide-talent-pool-list.receipt.v1.schema.json",
+  "title": "Liebide Talent Pool List Extraction Receipt v1",
+  "description": "CSDN-Agent 返回给 auto-headcount 的人才池发现白名单回执。未知字段和敏感键由 Consumer 失败关闭。真实姓名属候选人画像（敏感业务，RBAC + 加密 + 审计），只经本回执进入内部 candidates，不落日志/审计/任务载荷，也不进入匹配 LLM 投影。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractId", "contractVersion", "status", "source", "filterEvidence", "items", "page", "contentHash"],
+  "properties": {
+    "contractId": {
+      "const": "liebide-talent-pool-list-v1"
+    },
+    "contractVersion": {
+      "const": 1
+    },
+    "status": {
+      "const": "extracted"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "capturedAt"],
+      "properties": {
+        "origin": {
+          "const": "https://portal.liebide.com"
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "filterEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {
+        "category": {
+          "const": "互联网技术"
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidateId",
+          "realName",
+          "title",
+          "company",
+          "yearOfExperience",
+          "age",
+          "gender",
+          "city",
+          "education",
+          "pageNumber",
+          "position"
+        ],
+        "properties": {
+          "candidateId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9._:@/-]+$"
+          },
+          "realName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 200000
+          },
+          "yearOfExperience": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "age": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "gender": {
+            "type": "string",
+            "maxLength": 200000
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 200000
+          },
+          "education": {
+            "type": "string",
+            "maxLength": 200000
+          },
+          "pageNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startPage", "startOffset", "endPage", "pagesVisited", "nextPage", "nextOffset", "stopReason"],
+      "properties": {
+        "startPage": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "startOffset": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "endPage": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "pagesVisited": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "nextPage": { "type": ["integer", "null"], "minimum": 1, "maximum": 10000 },
+        "nextOffset": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 },
+        "stopReason": { "enum": ["batch_size", "max_pages", "end_of_results"] }
+      }
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

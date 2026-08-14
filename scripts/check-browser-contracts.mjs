@@ -5,9 +5,13 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID,
+  LIEBIDE_CANDIDATE_DETAIL_CONTRACT_VERSION,
   LIEBIDE_JOB_DETAIL_CONTRACT_ID,
   LIEBIDE_JOB_DETAIL_CONTRACT_VERSION,
   LIEBIDE_PLATFORM_ORIGIN,
+  LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID,
+  LIEBIDE_TALENT_POOL_LIST_CONTRACT_VERSION,
 } from "../apps/web/lib/adapters/csdn-browser/browser-collection-contract.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,6 +27,14 @@ const LIST_REQUEST_SCHEMA_RELATIVE = "docs/contracts/liebide-filtered-job-list.r
 const LIST_RECEIPT_SCHEMA_RELATIVE = "docs/contracts/liebide-filtered-job-list.receipt.v2.schema.json";
 const PROVIDER_LIST_REQUEST_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-filtered-job-list.request.v2.schema.json";
 const PROVIDER_LIST_RECEIPT_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-filtered-job-list.receipt.v2.schema.json";
+const TALENT_POOL_REQUEST_SCHEMA_RELATIVE = "docs/contracts/liebide-talent-pool-list.request.v1.schema.json";
+const TALENT_POOL_RECEIPT_SCHEMA_RELATIVE = "docs/contracts/liebide-talent-pool-list.receipt.v1.schema.json";
+const PROVIDER_TALENT_POOL_REQUEST_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-talent-pool-list.request.v1.schema.json";
+const PROVIDER_TALENT_POOL_RECEIPT_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-talent-pool-list.receipt.v1.schema.json";
+const CANDIDATE_DETAIL_REQUEST_SCHEMA_RELATIVE = "docs/contracts/liebide-candidate-detail.request.v1.schema.json";
+const CANDIDATE_DETAIL_RECEIPT_SCHEMA_RELATIVE = "docs/contracts/liebide-candidate-detail.receipt.v1.schema.json";
+const PROVIDER_CANDIDATE_DETAIL_REQUEST_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-candidate-detail.request.v1.schema.json";
+const PROVIDER_CANDIDATE_DETAIL_RECEIPT_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-candidate-detail.receipt.v1.schema.json";
 
 const REQUEST_KEYS = [
   "userId",
@@ -152,6 +164,20 @@ async function main() {
     requestSchema: await readSchema(ROOT, LIST_REQUEST_SCHEMA_RELATIVE),
     receiptSchema: await readSchema(ROOT, LIST_RECEIPT_SCHEMA_RELATIVE),
   };
+  const talentPoolConsumer = {
+    requestSchema: await readSchema(ROOT, TALENT_POOL_REQUEST_SCHEMA_RELATIVE),
+    receiptSchema: await readSchema(ROOT, TALENT_POOL_RECEIPT_SCHEMA_RELATIVE),
+  };
+  const candidateDetailConsumer = {
+    requestSchema: await readSchema(ROOT, CANDIDATE_DETAIL_REQUEST_SCHEMA_RELATIVE),
+    receiptSchema: await readSchema(ROOT, CANDIDATE_DETAIL_RECEIPT_SCHEMA_RELATIVE),
+  };
+  verifyCandidateSchemas({
+    poolRequestSchema: talentPoolConsumer.requestSchema,
+    poolReceiptSchema: talentPoolConsumer.receiptSchema,
+    detailRequestSchema: candidateDetailConsumer.requestSchema,
+    detailReceiptSchema: candidateDetailConsumer.receiptSchema,
+  });
 
   if (providerRoot) {
     const provider = {
@@ -163,6 +189,14 @@ async function main() {
       requestSchema: await readSchema(providerRoot, PROVIDER_LIST_REQUEST_RELATIVE),
       receiptSchema: await readSchema(providerRoot, PROVIDER_LIST_RECEIPT_RELATIVE),
     });
+    compareProviderSchemas(talentPoolConsumer, {
+      requestSchema: await readSchema(providerRoot, PROVIDER_TALENT_POOL_REQUEST_RELATIVE),
+      receiptSchema: await readSchema(providerRoot, PROVIDER_TALENT_POOL_RECEIPT_RELATIVE),
+    });
+    compareProviderSchemas(candidateDetailConsumer, {
+      requestSchema: await readSchema(providerRoot, PROVIDER_CANDIDATE_DETAIL_REQUEST_RELATIVE),
+      receiptSchema: await readSchema(providerRoot, PROVIDER_CANDIDATE_DETAIL_RECEIPT_RELATIVE),
+    });
   }
 
   console.log(
@@ -170,9 +204,69 @@ async function main() {
       ...manifest,
       listRequestSchemaSha256: schemaSha256(listConsumer.requestSchema),
       listReceiptSchemaSha256: schemaSha256(listConsumer.receiptSchema),
+      talentPoolRequestSchemaSha256: schemaSha256(talentPoolConsumer.requestSchema),
+      talentPoolReceiptSchemaSha256: schemaSha256(talentPoolConsumer.receiptSchema),
+      candidateDetailRequestSchemaSha256: schemaSha256(candidateDetailConsumer.requestSchema),
+      candidateDetailReceiptSchemaSha256: schemaSha256(candidateDetailConsumer.receiptSchema),
       providerCompared: Boolean(providerRoot),
     }),
   );
+}
+
+/** 候选人两条合同：人才池发现与画像详情。真实姓名只在回执中（进入内部 candidates），详情回执不含联系方式/简历正文。 */
+function verifyCandidateSchemas({
+  poolRequestSchema,
+  poolReceiptSchema,
+  detailRequestSchema,
+  detailReceiptSchema,
+}) {
+  assert.equal(
+    poolRequestSchema.properties.contractId?.const,
+    LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID,
+    "talent pool request contractId must match Consumer implementation",
+  );
+  assert.equal(
+    poolReceiptSchema.properties.contractId?.const,
+    LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID,
+    "talent pool receipt contractId must match Consumer implementation",
+  );
+  assert.equal(
+    poolReceiptSchema.properties.contractVersion?.const,
+    LIEBIDE_TALENT_POOL_LIST_CONTRACT_VERSION,
+    "talent pool receipt contractVersion must match Consumer implementation",
+  );
+  assert.equal(
+    poolReceiptSchema.properties.filterEvidence?.properties?.category?.const,
+    "互联网技术",
+    "talent pool receipt must pin the internet-tech category evidence",
+  );
+  assert.equal(poolRequestSchema.additionalProperties, false);
+  assert.equal(poolReceiptSchema.additionalProperties, false);
+
+  assert.equal(
+    detailRequestSchema.properties.contractId?.const,
+    LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID,
+    "candidate detail request contractId must match Consumer implementation",
+  );
+  assert.equal(
+    detailReceiptSchema.properties.contractId?.const,
+    LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID,
+    "candidate detail receipt contractId must match Consumer implementation",
+  );
+  assert.equal(
+    detailReceiptSchema.properties.contractVersion?.const,
+    LIEBIDE_CANDIDATE_DETAIL_CONTRACT_VERSION,
+    "candidate detail receipt contractVersion must match Consumer implementation",
+  );
+  for (const forbidden of ["mobile", "email", "wechat", "content", "selfEvaluation", "projectExperiences"]) {
+    assert.equal(
+      forbidden in detailReceiptSchema.properties.record.properties,
+      false,
+      `candidate detail receipt must not expose ${forbidden}`,
+    );
+  }
+  assert.equal(detailRequestSchema.additionalProperties, false);
+  assert.equal(detailReceiptSchema.additionalProperties, false);
 }
 
 function verifyClosedObject(schema, expectedKeys, label, requiredKeys = expectedKeys) {
