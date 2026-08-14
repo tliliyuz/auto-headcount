@@ -5,6 +5,7 @@ type SqlClient = postgres.Sql;
 export function upsertCandidate(
   sql: SqlClient,
   input: {
+    sourceConnectionId: string;
     externalId: string;
     displayName: string;
     summary: string | null;

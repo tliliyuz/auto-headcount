@@ -2,14 +2,22 @@ import {
   BrowserCollectionContractError,
   CSDN_CONNECTION_STATUS_TOOL,
   CSDN_EXTRACTION_TOOL,
+  LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID,
+  LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
+  LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID,
   buildBrowserConnectionStatusArguments,
+  buildCandidateDetailConnectionStatusArguments,
+  buildCandidateDetailExtractionArguments,
   buildFilteredJobListConnectionStatusArguments,
   buildFilteredJobListExtractionArguments,
   buildJobDetailExtractionArguments,
-  parseJobDetailExtractionResult,
+  buildTalentPoolListConnectionStatusArguments,
+  buildTalentPoolListExtractionArguments,
   parseBrowserConnectionStatusResult,
+  parseCandidateDetailExtractionResult,
   parseFilteredJobListExtractionResult,
-  LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
+  parseJobDetailExtractionResult,
+  parseTalentPoolListExtractionResult,
 } from "./browser-collection-contract.mjs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -50,6 +58,22 @@ export function createCsdnBrowserRelayClient({
           localToolEndpoint,
         );
       }
+      if (input.contractId === LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID) {
+        return callRelayTool(
+          CSDN_CONNECTION_STATUS_TOOL,
+          buildTalentPoolListConnectionStatusArguments(stripContractId(input)),
+          parseBrowserConnectionStatusResult,
+          localToolEndpoint,
+        );
+      }
+      if (input.contractId === LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID) {
+        return callRelayTool(
+          CSDN_CONNECTION_STATUS_TOOL,
+          buildCandidateDetailConnectionStatusArguments(stripContractId(input)),
+          parseBrowserConnectionStatusResult,
+          localToolEndpoint,
+        );
+      }
       return callRelayTool(
         CSDN_CONNECTION_STATUS_TOOL,
         buildBrowserConnectionStatusArguments(stripContractId(input)),
@@ -63,6 +87,13 @@ export function createCsdnBrowserRelayClient({
     async discoverFilteredJobs(input) {
       const args = buildFilteredJobListExtractionArguments(stripContractId(input));
       return callRelayTool(CSDN_EXTRACTION_TOOL, args, (result) => parseFilteredJobListExtractionResult(result, args));
+    },
+    async discoverTalentPool(input) {
+      const args = buildTalentPoolListExtractionArguments(stripContractId(input));
+      return callRelayTool(CSDN_EXTRACTION_TOOL, args, (result) => parseTalentPoolListExtractionResult(result, args));
+    },
+    async extractCandidateDetail(input) {
+      return callRelayTool(CSDN_EXTRACTION_TOOL, buildCandidateDetailExtractionArguments(input), parseCandidateDetailExtractionResult);
     },
   };
 

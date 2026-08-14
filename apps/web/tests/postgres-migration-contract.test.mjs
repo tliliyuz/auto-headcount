@@ -99,3 +99,20 @@ test("迁移 0009 持久化浏览器采集批次、断点和唯一发现条目",
   assert.match(sql, /CREATE TABLE "browser_collection_items"/);
   assert.match(sql, /CREATE UNIQUE INDEX "browser_collection_items_batch_external_unique".*batch_id.*external_id/s);
 });
+
+test("迁移 0010 补候选人来源追溯/近期工作列并新增候选批次表", async () => {
+  const files = (await readdir(migrationsUrl)).filter((name) => name.endsWith(".sql"));
+  const sql = (await Promise.all(files.map((name) => readFile(new URL(name, migrationsUrl), "utf8")))).join("\n");
+  // candidates 补来源追溯（对齐 jobs）
+  assert.match(sql, /ALTER TABLE "candidates" ADD COLUMN "source_connection_id"/);
+  assert.match(sql, /ALTER TABLE "candidates" ADD COLUMN "raw_record_id"/);
+  // 幂等冲突目标改为 (source_connection_id, external_id)
+  assert.match(sql, /CREATE UNIQUE INDEX "candidates_source_external_unique".*source_connection_id.*external_id/s);
+  // 近期工作列（投影 current_title ?? seniority 回退来源）
+  assert.match(sql, /ALTER TABLE "candidate_profiles" ADD COLUMN "current_title"/);
+  assert.match(sql, /ALTER TABLE "candidate_profiles" ADD COLUMN "current_company"/);
+  // 候选批次表 + 唯一发现条目
+  assert.match(sql, /CREATE TABLE "browser_candidate_batches"/);
+  assert.match(sql, /CREATE TABLE "browser_candidate_items"/);
+  assert.match(sql, /CREATE UNIQUE INDEX "browser_candidate_items_batch_external_unique".*batch_id.*external_id/s);
+});

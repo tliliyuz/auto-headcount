@@ -93,8 +93,8 @@ export async function generateCandidateProjection({
     source_snapshot_refs: normalizeSnapshotRefs(sourceSnapshotRefs),
     display_summary: summarizeCandidate({
       displayName: candidate.display_name ?? candidate.displayName,
-      currentTitle: profile.seniority,
-      currentCompany: profile.industry,
+      currentTitle: profile.currentTitle ?? profile.seniority,
+      currentCompany: profile.currentCompany ?? profile.industry,
       city: profile.location,
       experienceYears: profile.experienceYears,
     }),

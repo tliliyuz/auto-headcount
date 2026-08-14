@@ -63,11 +63,11 @@ async function seedJob(sql, sourceId, externalId, requirements) {
   return jobId;
 }
 
-/** seed 候选人 + 画像。 */
-async function seedCandidate(sql, { externalId, displayName, profile }) {
+/** seed 候选人 + 画像（candidates.source_connection_id NOT NULL，迁移 0010）。 */
+async function seedCandidate(sql, { sourceConnectionId, externalId, displayName, profile }) {
   const [cand] = await sql`
-    insert into candidates (external_id, display_name, summary)
-    values (${externalId}, ${displayName}, ${profile.summary ?? null})
+    insert into candidates (source_connection_id, external_id, display_name, summary)
+    values (${sourceConnectionId}, ${externalId}, ${displayName}, ${profile.summary ?? null})
     returning id
   `;
   await sql`
@@ -156,6 +156,7 @@ test(
 
       // 合格候选人（全匹配）+ 残留 PII 候选人（应被投影层拒绝）
       const goodId = await seedCandidate(sql, {
+        sourceConnectionId: sourceId,
         externalId: ext("pf-cand-good"),
         displayName: "张**",
         profile: {
@@ -173,6 +174,7 @@ test(
       });
       candidateIds.push(goodId);
       const piiId = await seedCandidate(sql, {
+        sourceConnectionId: sourceId,
         externalId: ext("pf-cand-pii"),
         displayName: "李**",
         profile: {
@@ -327,6 +329,7 @@ test(
       const jobId = await seedJob(sql, sourceId, `pf2-j1-${marker}`, REQUIREMENTS);
       jobIds.push(jobId);
       const candId = await seedCandidate(sql, {
+        sourceConnectionId: sourceId,
         externalId: ext("pf2-cand"),
         displayName: "王**",
         profile: {

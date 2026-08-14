@@ -66,11 +66,11 @@ async function seedJob(sql, sourceId, externalId, requirements) {
   return jobId;
 }
 
-/** seed 候选人 + 画像。 */
-async function seedCandidate(sql, { externalId, displayName, profile }) {
+/** seed 候选人 + 画像（candidates.source_connection_id NOT NULL，迁移 0010）。 */
+async function seedCandidate(sql, { sourceConnectionId, externalId, displayName, profile }) {
   const [cand] = await sql`
-    insert into candidates (external_id, display_name, summary)
-    values (${externalId}, ${displayName}, ${profile.summary ?? null})
+    insert into candidates (source_connection_id, external_id, display_name, summary)
+    values (${sourceConnectionId}, ${externalId}, ${displayName}, ${profile.summary ?? null})
     returning id
   `;
   await sql`
@@ -134,6 +134,7 @@ test(
       // 候选人：合格（全匹配）+ 不合格（缺技能、年限不足）
       candidateIds.push(
         await seedCandidate(sql, {
+          sourceConnectionId: sourceId,
           externalId: ext("cand-good"),
           displayName: "张**",
           profile: {
@@ -152,6 +153,7 @@ test(
       );
       candidateIds.push(
         await seedCandidate(sql, {
+          sourceConnectionId: sourceId,
           externalId: ext("cand-noskill"),
           displayName: "李**",
           profile: {
@@ -170,6 +172,7 @@ test(
       );
       candidateIds.push(
         await seedCandidate(sql, {
+          sourceConnectionId: sourceId,
           externalId: ext("cand-lowyears"),
           displayName: "王**",
           profile: {
@@ -243,6 +246,7 @@ test(
       const jobId = await seedJob(sql, sourceId, jobExtId, REQUIREMENTS);
       candidateIds.push(
         await seedCandidate(sql, {
+          sourceConnectionId: sourceId,
           externalId: ext("cand-ext"),
           displayName: "赵**",
           profile: {

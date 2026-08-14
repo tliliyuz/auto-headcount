@@ -1,6 +1,6 @@
 # 候选人采集规范（猎必得人才池 · 候选人画像）
 
-> 状态：`specified` + 合同层 `implemented`（2026-08-14）。范围：猎必得人才池「互联网技术」分类，采集**候选人画像**；内部 `candidates` 存**真实姓名**（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），**脱敏只针对匹配 LLM 投影**（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`，不含真实姓名/联系方式）；联系方式与完整简历顺延至 ingestion ticket 阶段（见 §7）。合同层（§3）已实现并经虚构 Fixture 验证：Provider 两条合同（发现/画像详情，含新标签页编排）+ 参数白名单 + 回执解析（真实姓名入 `candidates`、联系方式/简历正文失败关闭）+ Provider↔Consumer Schema 对齐。**尚未完成**：真实 DOM 选择器验证、候选人仓储/差分调度（`browser_candidate_discovery/collect`）、`candidate_profiles` 补列近期工作 title/company 的数据模型迁移。
+> 状态：`specified` + 合同层 + 仓储/差分调度 `implemented`（2026-08-14）。范围：猎必得人才池「互联网技术」分类，采集**候选人画像**；内部 `candidates` 存**真实姓名**（候选人画像属敏感业务：RBAC + 应用层加密 + 审计保护），**脱敏只针对匹配 LLM 投影**（`candidate-match-projection.v1` 必须 `residual_pii_scan=passed`，不含真实姓名/联系方式）；联系方式与完整简历顺延至 ingestion ticket 阶段（见 §7）。合同层（§3）已实现并经虚构 Fixture 验证：Provider 两条合同（发现/画像详情，含新标签页编排）+ 参数白名单 + 回执解析（真实姓名入 `candidates`、联系方式/简历正文失败关闭）+ Provider↔Consumer Schema 对齐。仓储/差分调度（§5）已实现并经单测 + 集成验证：`browser_candidate_batches/items` 批次表（迁移 0010）、候选人仓储（真实姓名入 `candidates`、画像入 `candidate_profiles`、`raw_records` 加密）、`browser_candidate_discovery/collect` 差分调度（跳过已入库未变、详情事务 upsert 覆盖画像变化、断点续采凑满本批）。**尚未完成**：真实 DOM 选择器验证（Fixture 选择器为契约初始假设，待浏览器就绪后按职位合同同流程收敛）、管理端触发 API/前端入口。
 > 唯一权威来源：本文件。职位采集见 [`runbooks/browser-collection.md`](runbooks/browser-collection.md)；数据模型见 [03-data-model](03-data-model.md)；匹配投影见 [10-matching-contracts](10-matching-contracts.md)。
 
 ## 1. 产品行为
@@ -47,12 +47,13 @@
 
 ## 4. 数据模型映射
 
-- `candidates`：`external_id`=人才池 candidateId（唯一）；`display_name`=**真实姓名**（候选人画像属敏感业务：RBAC operations/admin + 应用层加密 + 审计，不写日志/审计/任务载荷）；`summary`=派生摘要（≤150 字，用于展示，不含联系方式）。
-- `candidate_profiles`：`experience_years`、`location`（city）、`education`（最高学历枚举映射）、`seniority`（由 title 或年限派生）、`industry`（分类来源，本阶段可空）、`activity_updated_at`（简历 `updated`）。
-- 当前 `title`/`company`（近期工作）未落在 `candidate_profiles` 现有列 → 数据模型需补列或在 `redacted_detail` 中承载（实现时定，属 M2 范围内）。
-- 原始快照：候选人画像按职位同款「加密原始区 → 内容哈希去重 → 幂等 upsert」入库 `raw_records`，存候选人画像（含姓名，加密 + RBAC）；**不落联系方式/简历正文**。
+- `candidates`：`external_id`=人才池 candidateId（唯一 `(source_connection_id, external_id)`，迁移 0010）；`source_connection_id`=来源追溯（对齐 jobs），`raw_record_id`=加密原始快照引用；`display_name`=**真实姓名**（候选人画像属敏感业务：RBAC operations/admin + 应用层加密 + 审计，不写日志/审计/任务载荷）；`summary`=派生摘要（≤150 字，用于展示，不含联系方式）。
+- `candidate_profiles`：`experience_years`、`location`（city）、`education`（最高学历枚举映射）、`seniority`（由 title 或年限派生）、`industry`（分类来源，本阶段可空）、`activity_updated_at`（简历 `updated`）+ 近期工作 `current_title`/`current_company`（迁移 0010；匹配投影 `display_summary` 取 `currentTitle ?? seniority` 回退）。
+- 原始快照：候选人画像按职位同款「加密原始区 → 内容哈希去重 → 幂等 upsert」入库 `raw_records`（`entity_type='candidate'`），存候选人画像（含姓名，加密 + RBAC）；**不落联系方式/简历正文**。
 
 ## 5. 任务与调度
+
+> 实现状态（2026-08-14）：新 kind `browser_candidate_discovery`/`browser_candidate_collect` 已接入调度器（`sync-scheduler.mjs` 分发 + 批次/条目 outcome 守卫），差分语义与职位一致：跳过已入库未变（`current_title` 比较）、标题/画像变化详情事务 upsert 覆盖、断点续采凑满本批数量。仓储层（`browser-candidate-repository.mjs`）负责批次入队/`findKnownCandidates`/`persistDiscovery`/画像事务入库。
 
 - 新 kind：`browser_candidate_discovery`、`browser_candidate_collect`，复用 `async_tasks` 表与突发认领/差分/退避机制（同 `browser_job_*`）。
 - 载荷白名单：来源/候选人与批次 ID、用户/设备、契约版本、数字断点、批量上限；**不含浏览器 Session、真实姓名、联系方式或简历正文**（真实姓名只经 DB 写，不落任务载荷/审计/日志）。

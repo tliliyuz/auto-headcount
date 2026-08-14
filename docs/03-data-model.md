@@ -27,6 +27,8 @@
 | 任务 | [`async_tasks`](#72-async_tasks任务调度) | 数据库任务表调度（状态/幂等键/退避重试/dead） |
 | 任务 | [`browser_collection_batches`](#75-浏览器采集批次与条目) | 筛选列表采集批次、页码/页内偏移断点与汇总状态 |
 | 任务 | [`browser_collection_items`](#75-浏览器采集批次与条目) | 批次内唯一职位发现项与详情采集终态 |
+| 任务 | [`browser_candidate_batches`](#75-浏览器采集批次与条目) | 人才池候选人采集批次、页码/页内偏移断点与汇总状态（迁移 0010） |
+| 任务 | [`browser_candidate_items`](#75-浏览器采集批次与条目) | 批次内唯一候选人发现项与画像详情采集终态（迁移 0010） |
 | 匹配 | `job_requirements` | 现有本地确定性评分的职位要求快照 |
 | 匹配 | `match_rules` | 现有本地规则权重与阈值版本 |
 | 匹配 | `candidates` | 候选人画像（真实姓名，敏感业务：RBAC + 应用层加密 + 审计保护）+ 迁移期展示摘要 |
@@ -201,6 +203,7 @@ erDiagram
 - `browser_collection_batches` 绑定 `source_connection_id + user_id + device_id + contract_id`，保存 `batch_size/max_pages` 上限、`start_page/start_offset` 输入断点、`next_page/next_offset` 输出断点、停止原因、批次状态和发现/成功/跳过/失败计数。活跃状态为 `pending|discovering|collecting`；终态为 `succeeded|completed_with_errors|failed`。
 - `browser_collection_items` 以 `(batch_id, external_id)` 唯一，保存列表合同返回的标题、页码、页内序号、详情采集状态和机器错误码。批次删除时条目级联删除；来源连接仍 `RESTRICT`。
 - 发现回执与条目/详情任务在同一事务中写入。详情任务只保存批次/条目 UUID、来源/设备路由、固定合同和 external ID；不保存 browser session、URL、选择器、页面正文或凭证。
+- 候选人采集（迁移 0010）：`browser_candidate_batches`/`browser_candidate_items` 与职位版同构，`contract_id` 固定为人才池列表/候选人详情合同；`browser_candidate_items` 以 `(batch_id, external_id)` 唯一保存发现的候选人与详情采集终态。
 
 ## 7.3 匹配域表（M3 数据集成与匹配）
 
@@ -210,8 +213,8 @@ erDiagram
 |:---|:---|
 | `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入；两阶段流程降为迁移期查询快照 |
 | `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
-| `candidates` | `external_id`(unique), `display_name`, `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
-| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存 |
+| `candidates` | `source_connection_id`(FK source_connections RESTRICT) + `raw_record_id`(FK raw_records SET NULL) + `external_id`(unique `(source_connection_id, external_id)`，迁移 0010)，`display_name`(真实姓名，敏感业务 RBAC+加密+审计，不写日志/审计/任务载荷), `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
+| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `current_title`, `current_company`(迁移 0010，近期工作；投影生成 `currentTitle ?? seniority` 回退), `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存 |
 | `matches` | `job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk` + 迁移 0008：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`(FK SET NULL), `aggregation_rule_version`。新权威分只能由已验证 LLM 结果经本地汇总产生 |
 | `match_dimensions` | `match_id`, `dimension`, `score`, `evidence`, `risk` + 迁移 0008：`assessable`, `confidence`, `llm_score_run_id`(FK SET NULL), `output_hash`，用于追溯已接受的 LLM 结构化输出 |
 
@@ -347,6 +350,7 @@ unknown → permitted → opted_out
 8. **`0007_huge_clea`**：建本地匹配基础表与职位—候选人结果表。
 9. **`0008_furry_princess_powerful`**：建两阶段匹配投影、硬过滤和 LLM 运行表，并扩展匹配追溯列。
 10. **`0009_browser_collection_batches`**：建 `browser_collection_batches`/`browser_collection_items`，保存有界发现批次、page/offset 断点、唯一条目与详情终态计数。
+11. **`0010_bitter_odin`**：`candidates` 补 `source_connection_id`/`raw_record_id` 并把幂等唯一约束改为 `(source_connection_id, external_id)`（来源追溯，对齐 jobs）；`candidate_profiles` 补近期工作 `current_title`/`current_company`；建 `browser_candidate_batches`/`browser_candidate_items` 人才池候选人采集批次表。
 
 迁移由 Drizzle journal（`__drizzle_migrations`）保证幂等，重复执行安全跳过。新增表必须在迁移前回写本文件 §2/§8。
 

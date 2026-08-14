@@ -7,6 +7,7 @@ import postgres from "postgres";
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
 import { createAsyncTaskRepository } from "../lib/jobs/async-task-repository.mjs";
 import { createBrowserJobBatchRepository } from "../lib/jobs/browser-job-batch-repository.mjs";
+import { createBrowserCandidateBatchRepository } from "../lib/jobs/browser-candidate-repository.mjs";
 import {
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -181,7 +182,7 @@ async function reclaimRunningSyncTasks(sql) {
     update async_tasks
     set status = 'failed', last_error_code = 'TEST_SLATE_RESET',
         finished_at = now(), updated_at = now()
-    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync', 'browser_job_collect', 'match_pipeline_v2')
+    where kind in ('under_served_sync', 'job_details_sync', 'match_candidates_sync', 'browser_job_collect', 'browser_job_batch_discover', 'browser_candidate_collect', 'browser_candidate_discovery', 'match_pipeline_v2')
       and status in ('pending', 'running')
   `;
 }
@@ -975,8 +976,8 @@ test(
       // seed 一个候选人 + 画像（本地评分候选池）
       const candExt = `m-cand-${marker}`;
       const [candRow] = await sql`
-        insert into candidates (external_id, display_name, summary)
-        values (${candExt}, '王**', '示例工程师')
+        insert into candidates (source_connection_id, external_id, display_name, summary)
+        values (${sourceId}, ${candExt}, '王**', '示例工程师')
         returning id
       `;
       await sql`
@@ -1162,8 +1163,8 @@ test(
       // seed 一个候选人 + 画像（无脱敏详情来源 → 调度侧应计 piiRejected 并跳过）
       const candExt = `pf-cand-${marker}`;
       [candRow] = await sql`
-        insert into candidates (external_id, display_name, summary)
-        values (${candExt}, '王**', '示例工程师')
+        insert into candidates (source_connection_id, external_id, display_name, summary)
+        values (${sourceId}, ${candExt}, '王**', '示例工程师')
         returning id
       `;
       await sql`
@@ -1431,6 +1432,121 @@ test(
     } finally {
       await sql`delete from browser_collection_batches where source_connection_id = ${src.id}`;
       await sql`delete from source_connections where id = ${src.id}`;
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "browser_candidate 调度闭环：批次发现 → 详情采集 → 候选人/画像入库 → 批次聚合",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(`cand-${marker}`);
+    // 详情任务在发现事务内以 DB now() 排程；后续 processDueTasks 用真实的递进时间保证到期
+    const capturedAt = "2026-08-14T09:00:00.000Z";
+    const taskIds = [];
+    let sourceId;
+    const relay = {
+      async getConnectionStatus() {
+        return { status: "READY", ready: true };
+      },
+      async discoverTalentPool() {
+        return {
+          items: [
+            { candidateId: `cand-a-${marker}`, title: "数据工程师", realName: "示例甲", pageNumber: 1, position: 1 },
+            { candidateId: `cand-b-${marker}`, title: "算法工程师", realName: "示例乙", pageNumber: 1, position: 2 },
+          ],
+          nextPage: null, nextOffset: null, stopReason: "end_of_results", pagesVisited: 1,
+        };
+      },
+      async extractCandidateDetail({ expectedCandidateId }) {
+        const isA = expectedCandidateId === `cand-a-${marker}`;
+        return {
+          contractId: "liebide-candidate-detail-v1", contractVersion: 1,
+          sourceOrigin: "https://portal.liebide.com", capturedAt,
+          contentHash: "c".repeat(64),
+          candidateId: expectedCandidateId,
+          realName: isA ? "示例甲" : "示例乙",
+          title: isA ? "数据工程师" : "算法工程师",
+          company: "虚构科技", yearOfExperience: isA ? 8 : 6,
+          cityName: "北京", school: null, major: null, degree: "本科",
+          completion: 80, recommendationCount: 3,
+          workExperiences: [{ company: "虚构科技", title: "数据工程师" }],
+        };
+      },
+    };
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      const batchRepo = createBrowserCandidateBatchRepository(sql);
+      const { batchId, taskId } = await batchRepo.createAndEnqueue({
+        payload: {
+          sourceConnectionId: sourceId,
+          userId: "fixture-user",
+          deviceId: "fixture-device",
+          contractId: "liebide-talent-pool-list-v1",
+          batchSize: 20,
+          maxPages: 20,
+        },
+        scheduledAt: new Date(),
+      });
+      assert.ok(batchId && taskId);
+      taskIds.push(taskId);
+
+      // 发现阶段：认领发现任务 → 差分发现 → 建详情任务
+      const env = { APP_ENCRYPTION_KEY: ENC_KEY, APP_ENCRYPTION_KEY_VERSION: "test-v1" };
+      // 详情任务在发现事务内以 DB now() 排程；逐次递进 tick 时间保证其到期
+      let tickNow = new Date();
+      const discoverySummary = await processDueTasks(sql, { env, now: tickNow, browserRelay: relay });
+      assert.equal(discoverySummary.succeeded, 1, "发现任务应 succeeded");
+
+      // 详情采集：两个详情任务逐次认领执行（同 kind 串行）
+      tickNow = new Date(tickNow.getTime() + 60_000);
+      const c1 = await processDueTasks(sql, { env, now: tickNow, browserRelay: relay });
+      tickNow = new Date(tickNow.getTime() + 60_000);
+      const c2 = await processDueTasks(sql, { env, now: tickNow, browserRelay: relay });
+      assert.equal(c1.succeeded + c2.succeeded, 2, "两个详情任务应 succeeded");
+
+      const [candCount] = await sql`
+        select count(*)::int as n from candidates where source_connection_id = ${sourceId}
+      `;
+      assert.equal(candCount.n, 2, "两个候选人画像应落库");
+      const profiles = await sql`
+        select c.external_id, p.current_title, p.current_company, p.experience_years
+        from candidates c left join candidate_profiles p on p.candidate_id = c.id
+        where c.source_connection_id = ${sourceId} order by c.external_id
+      `;
+      assert.equal(profiles.length, 2);
+      assert.equal(profiles[0].current_title, "数据工程师");
+      assert.equal(profiles[0].current_company, "虚构科技");
+      assert.equal(profiles[1].current_title, "算法工程师");
+
+      const [rawCount] = await sql`
+        select count(*)::int as n from raw_records
+        where source_connection_id = ${sourceId} and entity_type = 'candidate'
+      `;
+      assert.equal(rawCount.n, 2, "候选人详情应加密存 raw_records");
+
+      const [batch] = await sql`
+        select status, discovered_count, succeeded_count, failed_count
+        from browser_candidate_batches where id = ${batchId}
+      `;
+      assert.equal(batch.discovered_count, 2);
+      assert.equal(batch.succeeded_count, 2);
+      assert.equal(batch.failed_count, 0);
+      assert.equal(batch.status, "succeeded");
+    } finally {
+      const rows = await sql`select id from source_connections where provider = ${source.provider}`;
+      for (const row of rows) {
+        // 发现阶段持久化的 collect 任务也要清掉，否则残留 pending 任务会污染后续 tick 测试
+        await sql`delete from async_tasks where kind in ('browser_candidate_discovery', 'browser_candidate_collect') and payload->>'sourceConnectionId' = ${row.id}`;
+        await sql`delete from browser_candidate_batches where source_connection_id = ${row.id}`;
+        await sql`delete from candidate_profiles where candidate_id in (select id from candidates where source_connection_id = ${row.id})`;
+        await sql`delete from candidates where source_connection_id = ${row.id}`;
+      }
+      await sql`delete from async_tasks where id = any(${taskIds.filter(Boolean)})`;
+      await cleanupFixture(sql, { source, taskIds });
       await sql.end();
     }
   },

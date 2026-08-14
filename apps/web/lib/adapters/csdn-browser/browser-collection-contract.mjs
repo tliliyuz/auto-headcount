@@ -170,13 +170,18 @@ export function buildCandidateDetailExtractionArguments(input) {
   return output;
 }
 
+/** 候选人画像详情连接预检参数（与详情提取同参；含身份路由 expectedCandidateId，无持久化 session）。 */
+export function buildCandidateDetailConnectionStatusArguments(input) {
+  return buildCandidateDetailExtractionArguments(input);
+}
+
 export function parseBrowserConnectionStatusResult(input) {
   requirePlainObject(input, "connectionStatus");
   requireOnlyKeys(input, CONNECTION_RESULT_KEYS, "connectionStatus");
   if (!CONNECTION_STATUSES.has(input.status)) throw invalid("connection status is unsupported");
   if (typeof input.ready !== "boolean") throw invalid("connection ready must be boolean");
   if ((input.status === "READY") !== input.ready) throw invalid("connection ready conflicts with status");
-  if (![LIEBIDE_JOB_DETAIL_CONTRACT_ID, LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID].includes(input.contractId)) throw invalid("connection contract is unsupported");
+  if (![LIEBIDE_JOB_DETAIL_CONTRACT_ID, LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID, LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID].includes(input.contractId)) throw invalid("connection contract is unsupported");
   if (!Number.isInteger(input.registeredPageCount) || input.registeredPageCount < 0) throw invalid("connection page count is invalid");
   for (const key of ["sessionMatched", "entityMatched"]) {
     if (typeof input[key] !== "boolean") throw invalid(`connection ${key} must be boolean`);

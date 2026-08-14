@@ -5,6 +5,8 @@ import { createAsyncTaskRepository } from "./async-task-repository.mjs";
 import { runBrowserJobBatchDiscovery, runBrowserJobCollection } from "./browser-job-collection.mjs";
 import { createBrowserJobCollectionRepository } from "./browser-job-collection-repository.mjs";
 import { createBrowserJobBatchRepository, updateBrowserCollectionBatchDiscoveryOutcome, updateBrowserCollectionItemOutcome } from "./browser-job-batch-repository.mjs";
+import { runBrowserCandidateBatchDiscovery, runBrowserCandidateCollection } from "./browser-candidate-collection.mjs";
+import { createBrowserCandidateBatchRepository, createBrowserCandidateCollectionRepository, updateBrowserCandidateBatchDiscoveryOutcome, updateBrowserCandidateItemOutcome } from "./browser-candidate-repository.mjs";
 import {
   JOBS_GET_TOOL,
   runJobDetailsSync,
@@ -37,6 +39,8 @@ const TASK_KIND_JOB_DETAILS = "job_details_sync";
 const TASK_KIND_MATCH = "match_candidates_sync";
 export const TASK_KIND_BROWSER_JOB_COLLECT = "browser_job_collect";
 export const TASK_KIND_BROWSER_JOB_BATCH_DISCOVER = "browser_job_batch_discover";
+export const TASK_KIND_BROWSER_CANDIDATE_COLLECT = "browser_candidate_collect";
+export const TASK_KIND_BROWSER_CANDIDATE_DISCOVERY = "browser_candidate_discovery";
 
 /** 周期槽位键：now 所在的 interval 序号（纯函数，可单测）。 */
 export function syncPeriodKey(now, intervalMs) {
@@ -214,6 +218,36 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
         task: task.payload,
         relayClient,
         repository: createBrowserJobBatchRepository(sql),
+      });
+    }
+    if (task.kind === TASK_KIND_BROWSER_CANDIDATE_COLLECT) {
+      const encryption = {
+        key: env.APP_ENCRYPTION_KEY,
+        keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
+      };
+      if (!encryption.key || !encryption.keyVersion) {
+        return { status: "failed", errorCode: "ENCRYPTION_CONFIG_REQUIRED", retryable: false, stats: null };
+      }
+      const relayClient = browserRelay ?? createCsdnBrowserRelayClient({
+        requestUrl: env.BROWSER_RELAY_URL,
+        token: env.BROWSER_RELAY_TOKEN,
+      });
+      return runBrowserCandidateCollection({
+        task: task.payload,
+        now,
+        relayClient,
+        repository: createBrowserCandidateCollectionRepository(sql, { encryption }),
+      });
+    }
+    if (task.kind === TASK_KIND_BROWSER_CANDIDATE_DISCOVERY) {
+      const relayClient = browserRelay ?? createCsdnBrowserRelayClient({
+        requestUrl: env.BROWSER_RELAY_URL,
+        token: env.BROWSER_RELAY_TOKEN,
+      });
+      return runBrowserCandidateBatchDiscovery({
+        task: task.payload,
+        relayClient,
+        repository: createBrowserCandidateBatchRepository(sql),
       });
     }
     // job_details 同步独立运行（白名单收紧到 [wb.jobs.get]）：其失败不毒化 dormant 同步。
@@ -407,6 +441,8 @@ export async function processDueTasks(
     });
     await updateBrowserCollectionItemOutcome(sql, task.payload, outcome, decision, now);
     await updateBrowserCollectionBatchDiscoveryOutcome(sql, task.payload, outcome, decision, now);
+    await updateBrowserCandidateItemOutcome(sql, task.payload, outcome, decision, now);
+    await updateBrowserCandidateBatchDiscoveryOutcome(sql, task.payload, outcome, decision, now);
     await writeSyncAudit(authRepo, {
       outcome,
       decision,

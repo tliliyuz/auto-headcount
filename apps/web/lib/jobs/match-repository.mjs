@@ -8,12 +8,12 @@
  * - 不投影/不落 portal_url 与任何联系方式。
  */
 
-/** 候选人幂等 upsert（external_id 唯一）；新摘要为 null 时不抹既有摘要。 */
-export async function upsertCandidate(sql, { externalId, displayName, summary }) {
+/** 候选人幂等 upsert（source_connection_id + external_id 唯一，docs/03 §7.3）；新摘要为 null 时不抹既有摘要。 */
+export async function upsertCandidate(sql, { sourceConnectionId, externalId, displayName, summary }) {
   const rows = await sql`
-    insert into candidates (external_id, display_name, summary)
-    values (${externalId}, ${displayName}, ${summary})
-    on conflict (external_id) do update set
+    insert into candidates (source_connection_id, external_id, display_name, summary)
+    values (${sourceConnectionId}, ${externalId}, ${displayName}, ${summary})
+    on conflict (source_connection_id, external_id) do update set
       display_name = excluded.display_name,
       summary = coalesce(excluded.summary, candidates.summary),
       updated_at = now()

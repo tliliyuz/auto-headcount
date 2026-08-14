@@ -411,6 +411,56 @@ export const browserCollectionItems = pgTable(
   ],
 );
 
+/** 候选人采集批次（docs/10 §5）：人才池发现批次，contract_id 固定为人才池列表合同。 */
+export const browserCandidateBatches = pgTable(
+  "browser_candidate_batches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceConnectionId: uuid("source_connection_id").notNull().references(() => sourceConnections.id, { onDelete: "restrict" }),
+    userId: text("user_id").notNull(),
+    deviceId: text("device_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    batchSize: integer("batch_size").notNull(),
+    maxPages: integer("max_pages").notNull(),
+    startPage: integer("start_page"),
+    startOffset: integer("start_offset"),
+    nextPage: integer("next_page"),
+    nextOffset: integer("next_offset"),
+    stopReason: text("stop_reason"),
+    status: text("status").default("pending").notNull(),
+    discoveredCount: integer("discovered_count").default(0).notNull(),
+    succeededCount: integer("succeeded_count").default(0).notNull(),
+    skippedCount: integer("skipped_count").default(0).notNull(),
+    failedCount: integer("failed_count").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [index("browser_candidate_batches_route_status_idx").on(table.sourceConnectionId, table.userId, table.deviceId, table.status)],
+);
+
+/** 候选人采集条目：人才池发现的唯一候选人与详情任务状态。 */
+export const browserCandidateItems = pgTable(
+  "browser_candidate_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    batchId: uuid("batch_id").notNull().references(() => browserCandidateBatches.id, { onDelete: "cascade" }),
+    externalId: text("external_id").notNull(),
+    title: text("title").notNull(),
+    pageNumber: integer("page_number").notNull(),
+    position: integer("position").notNull(),
+    status: text("status").default("pending").notNull(),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("browser_candidate_items_batch_external_unique").on(table.batchId, table.externalId),
+    index("browser_candidate_items_batch_status_idx").on(table.batchId, table.status),
+  ],
+);
+
 /** M2 本地匹配：职位要求（本地硬过滤/加权评分的职位输入，docs/03 §8；真实来源 JD 派生或 Web 采集）。 */
 export const jobRequirements = pgTable(
   "job_requirements",
@@ -458,12 +508,19 @@ export const matchRules = pgTable(
   (table) => [uniqueIndex("match_rules_version_unique").on(table.version)],
 );
 
-/** M2 匹配：候选人（打码名 + 摘要，无联系方式——docs/06）。 */
+/** M2 匹配：候选人（真实姓名 + 摘要，无联系方式——docs/06；候选人画像属敏感业务：RBAC + 加密 + 审计）。 */
 export const candidates = pgTable(
   "candidates",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    sourceConnectionId: uuid("source_connection_id")
+      .notNull()
+      .references(() => sourceConnections.id, { onDelete: "restrict" }),
+    rawRecordId: uuid("raw_record_id").references(() => rawRecords.id, {
+      onDelete: "set null",
+    }),
     externalId: text("external_id").notNull(),
+    /** 真实姓名（候选人画像属敏感业务；真实姓名不写日志、审计元数据或任务载荷，docs/06 §敏感业务）。 */
     displayName: text("display_name").notNull(),
     summary: text("summary"),
     /** 触达许可：unknown → permitted → opted_out（M3 写入；docs/03 §9）。 */
@@ -475,7 +532,13 @@ export const candidates = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [uniqueIndex("candidates_external_id_unique").on(table.externalId)],
+  (table) => [
+    uniqueIndex("candidates_source_external_unique").on(
+      table.sourceConnectionId,
+      table.externalId,
+    ),
+    index("candidates_raw_record_idx").on(table.rawRecordId),
+  ],
 );
 
 /** M2 匹配：候选人画像（本地评分输入：技能/经历/地点/学历/职级/行业/薪资/活跃度，docs/03 §8）。 */
@@ -492,6 +555,9 @@ export const candidateProfiles = pgTable(
     education: text("education"),
     seniority: text("seniority"),
     industry: text("industry"),
+    /** 近期工作（候选人画像采集，docs/10 §2）：投影生成回退用（current_title ?? seniority）。 */
+    currentTitle: text("current_title"),
+    currentCompany: text("current_company"),
     expectedSalaryMin: integer("expected_salary_min"),
     expectedSalaryMax: integer("expected_salary_max"),
     /** 活跃度：画像/简历最近更新时间（越近越高分）。 */

@@ -102,6 +102,7 @@ test(
       const jobId = await seedJob(sql, sourceId, "read-j1", 9);
 
       const cand1 = await upsertCandidate(sql, {
+        sourceConnectionId: sourceId,
         externalId: "read-c1",
         displayName: "张**",
         summary: "示例公司-算法工程师",
@@ -178,6 +179,7 @@ test(
       sourceId = await getOrCreateSourceConnection(sql, source);
       const jobId = await seedJob(sql, sourceId, "review-j1", 9);
       const cand1 = await upsertCandidate(sql, {
+        sourceConnectionId: sourceId,
         externalId: "review-c1",
         displayName: "李**",
         summary: "示例公司-产品经理",
