@@ -16,6 +16,7 @@ export interface JobDetailExtractionRoute {
   deviceId: string;
   browserSessionId?: string;
   expectedExternalId: string;
+  expectedTitle?: string;
 }
 
 export interface JobDetailExtractionArguments extends JobDetailExtractionRoute {

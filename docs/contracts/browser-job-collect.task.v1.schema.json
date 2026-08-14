@@ -36,6 +36,12 @@
       "minLength": 1,
       "maxLength": 200,
       "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "expectedTitle": {
+      "description": "发现阶段列表卡片上的职位标题，作为详情合同的内容校验期望值，仅用于批量发现后创建的详情任务。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
     }
   }
 }

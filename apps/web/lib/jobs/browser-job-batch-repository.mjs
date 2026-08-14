@@ -65,6 +65,7 @@ export function createBrowserJobBatchRepository(sql) {
             deviceId: batch.deviceId,
             contractId: detailContractId,
             externalId: item.externalId,
+            expectedTitle: item.title,
           };
           const tasks = await tx`
             insert into async_tasks (kind, idempotency_key, payload, scheduled_at)

@@ -11,6 +11,7 @@ const ROUTED_ARGUMENT_KEYS = new Set([
   "deviceId",
   "browserSessionId",
   "expectedExternalId",
+  "expectedTitle",
 ]);
 const LIST_ARGUMENT_KEYS = new Set([
   "userId", "deviceId", "browserSessionId", "batchSize", "maxPages", "startPage", "startOffset",
@@ -82,6 +83,11 @@ export function buildJobDetailExtractionArguments(input) {
   if (input.browserSessionId !== undefined) {
     output.browserSessionId = requireIdentifier(
       input.browserSessionId, "browserSessionId", "BROWSER_COLLECTION_ARGUMENTS_INVALID",
+    );
+  }
+  if (input.expectedTitle !== undefined) {
+    output.expectedTitle = requireTitle(
+      input.expectedTitle, "expectedTitle", "BROWSER_COLLECTION_ARGUMENTS_INVALID",
     );
   }
   return output;
@@ -280,6 +286,20 @@ function isPlainObject(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function requireTitle(value, path, code) {
+  if (typeof value !== "string") {
+    throw new BrowserCollectionContractError(`${path} must be a string`, code);
+  }
+  const normalized = value.trim();
+  if (normalized === "") {
+    throw new BrowserCollectionContractError(`${path} must not be empty`, code);
+  }
+  if (normalized.length > 500) {
+    throw new BrowserCollectionContractError(`${path} is too long`, code);
+  }
+  return normalized;
 }
 
 function requireIdentifier(value, path, code) {

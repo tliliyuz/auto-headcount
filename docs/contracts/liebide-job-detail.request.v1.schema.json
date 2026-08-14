@@ -33,6 +33,12 @@
       "minLength": 1,
       "maxLength": 200,
       "pattern": "^[A-Za-z0-9._:@/-]+$"
+    },
+    "expectedTitle": {
+      "description": "发现阶段列表卡片上的职位标题，用于详情合同校验当前渲染内容确为目标岗位，防止同文档 hash 导航残留上一个岗位的 DOM。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
     }
   }
 }

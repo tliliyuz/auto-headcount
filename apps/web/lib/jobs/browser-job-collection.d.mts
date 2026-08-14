@@ -11,6 +11,7 @@ export interface BrowserJobCollectTaskPayload {
   deviceId: string;
   contractId: "liebide-job-detail-v1";
   externalId: string;
+  expectedTitle?: string;
 }
 
 export interface BrowserJobBatchDiscoverTaskPayload {

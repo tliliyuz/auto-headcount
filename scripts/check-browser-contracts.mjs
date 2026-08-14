@@ -30,6 +30,7 @@ const REQUEST_KEYS = [
   "browserSessionId",
   "contractId",
   "expectedExternalId",
+  "expectedTitle",
 ];
 const REQUEST_REQUIRED_KEYS = [
   "userId",

@@ -16,6 +16,7 @@ const task = {
   deviceId: "fixture-device",
   contractId: "liebide-job-detail-v1",
   externalId: "fixture-job-001",
+  expectedTitle: "虚构数据工程师",
 };
 
 function record(overrides = {}) {
@@ -39,6 +40,16 @@ test("browser_job_collect 任务载荷关闭字段且禁止持久化 browser ses
     { script: "document.body.innerText" },
   ]) {
     assert.throws(() => parseBrowserJobCollectTaskPayload({ ...task, ...extra }), BrowserJobCollectionError);
+  }
+});
+
+test("browser_job_collect 任务载荷携带发现阶段的期望标题并拒绝非法标题", () => {
+  assert.deepEqual(parseBrowserJobCollectTaskPayload(task), task);
+  for (const expectedTitle of ["", "   ", "x".repeat(501)]) {
+    assert.throws(
+      () => parseBrowserJobCollectTaskPayload({ ...task, expectedTitle }),
+      BrowserJobCollectionError,
+    );
   }
 });
 
@@ -77,6 +88,7 @@ test("单职位闭环允许同源 WRONG_ENTITY 进入固定导航且规则合格
   assert.equal(calls[1][1].browserSessionId, undefined);
   assert.equal(calls[1][1].contractId, "liebide-job-detail-v1");
   assert.equal(calls[1][1].expectedExternalId, task.externalId);
+  assert.equal(calls[2][1].expectedTitle, task.expectedTitle);
   assert.equal(calls[3][1].job.ageDays, 9);
 });
 

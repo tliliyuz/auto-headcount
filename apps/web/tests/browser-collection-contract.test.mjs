@@ -100,6 +100,35 @@ test("职位详情提取参数固定契约与身份路由，不接受脚本/选�
   }
 });
 
+test("详情提取参数支持可选期望标题用于内容校验", () => {
+  assert.deepEqual(
+    buildJobDetailExtractionArguments({
+      ...route,
+      expectedExternalId: "fixture-job-001",
+      expectedTitle: "示例数据工程师",
+    }),
+    {
+      ...route,
+      contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+      expectedExternalId: "fixture-job-001",
+      expectedTitle: "示例数据工程师",
+    },
+  );
+  for (const expectedTitle of [null, "", "   ", "x".repeat(501)]) {
+    assert.throws(
+      () =>
+        buildJobDetailExtractionArguments({
+          ...route,
+          expectedExternalId: "fixture-job-001",
+          expectedTitle,
+        }),
+      (error) =>
+        error instanceof BrowserCollectionContractError &&
+        error.code === "BROWSER_COLLECTION_ARGUMENTS_INVALID",
+    );
+  }
+});
+
 test("连接预检使用固定合同和目标职位，严格解析最小化状态", () => {
   assert.deepEqual(
     buildBrowserConnectionStatusArguments({
@@ -217,6 +246,27 @@ test("Relay 客户端调用只读连接预检且不要求持久化 browserSessio
   assert.equal(calls[0].tool, CSDN_CONNECTION_STATUS_TOOL);
   assert.equal(calls[0].arguments.contractId, LIEBIDE_JOB_DETAIL_CONTRACT_ID);
   assert.equal("browserSessionId" in calls[0].arguments, false);
+});
+
+test("Relay 转发详情提取时保留期望标题", async () => {
+  const calls = [];
+  const client = createCsdnBrowserRelayClient({
+    requestUrl: "http://127.0.0.1:48887/mcp/request",
+    token: "fixture-relay-token",
+    fetchImpl: async (url, init) => {
+      calls.push(JSON.parse(init.body));
+      return new Response(
+        JSON.stringify({ ok: true, result: validExtractionResult() }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  await client.extractJobDetail({
+    ...route,
+    expectedExternalId: "fixture-job-001",
+    expectedTitle: "示例数据工程师",
+  });
+  assert.equal(calls[0].arguments.expectedTitle, "示例数据工程师");
 });
 
 test("Relay 网络/HTTP/包络错误映射为机器码且不回显正文", async () => {

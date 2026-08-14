@@ -1,7 +1,7 @@
 import { BrowserCollectionContractError, LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, LIEBIDE_JOB_DETAIL_CONTRACT_ID, LIEBIDE_PLATFORM_ORIGIN } from "../adapters/csdn-browser/browser-collection-contract.mjs";
 import { BrowserRelayError } from "../adapters/csdn-browser/relay-client.mjs";
 
-const TASK_KEYS = new Set(["collectionBatchId", "collectionItemId", "sourceConnectionId", "userId", "deviceId", "contractId", "externalId"]);
+const TASK_KEYS = new Set(["collectionBatchId", "collectionItemId", "sourceConnectionId", "userId", "deviceId", "contractId", "externalId", "expectedTitle"]);
 const BATCH_TASK_KEYS = new Set(["batchId", "sourceConnectionId", "userId", "deviceId", "contractId", "batchSize", "maxPages", "startPage", "startOffset"]);
 const DAY_MS = 86_400_000;
 
@@ -33,6 +33,7 @@ export function parseBrowserJobCollectTaskPayload(input) {
   if (input.collectionBatchId !== undefined) output.collectionBatchId = requireUuid(input.collectionBatchId, "collectionBatchId");
   if (input.collectionItemId !== undefined) output.collectionItemId = requireUuid(input.collectionItemId, "collectionItemId");
   if ((output.collectionBatchId === undefined) !== (output.collectionItemId === undefined)) throw new BrowserJobCollectionError("collection batch and item must be provided together");
+  if (input.expectedTitle !== undefined) output.expectedTitle = requireTitle(input.expectedTitle, "expectedTitle");
   return output;
 }
 
@@ -109,7 +110,12 @@ export async function runBrowserJobCollection({ task: rawTask, now = new Date(),
     return failed(error.code ?? "BROWSER_JOB_TASK_INVALID", false);
   }
   if (!(await repository.sourceExists(task.sourceConnectionId))) return failed("BROWSER_SOURCE_NOT_FOUND", false);
-  const route = { userId: task.userId, deviceId: task.deviceId, expectedExternalId: task.externalId };
+  const route = {
+    userId: task.userId,
+    deviceId: task.deviceId,
+    expectedExternalId: task.externalId,
+    ...(task.expectedTitle ? { expectedTitle: task.expectedTitle } : {}),
+  };
   try {
     const status = await relayClient.getConnectionStatus({
       ...route,
@@ -186,6 +192,12 @@ function requireString(value, field) {
 function requireIdentifier(value, field) {
   const result = requireString(value, field);
   if (result.length > 200 || !/^[A-Za-z0-9._:@/-]+$/.test(result)) throw new BrowserJobCollectionError(`${field} is invalid`);
+  return result;
+}
+
+function requireTitle(value, field) {
+  const result = requireString(value, field);
+  if (result.length > 500) throw new BrowserJobCollectionError(`${field} is too long`);
   return result;
 }
 
