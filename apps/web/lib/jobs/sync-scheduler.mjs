@@ -266,6 +266,8 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "preflight",
       "extracted",
       "discovered",
+      "newOrChanged",
+      "skippedKnown",
       "enqueued",
       "pending",
       "selected",

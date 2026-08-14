@@ -4,6 +4,9 @@ import { BrowserRelayError } from "../adapters/csdn-browser/relay-client.mjs";
 const TASK_KEYS = new Set(["collectionBatchId", "collectionItemId", "sourceConnectionId", "userId", "deviceId", "contractId", "externalId", "expectedTitle"]);
 const BATCH_TASK_KEYS = new Set(["batchId", "sourceConnectionId", "userId", "deviceId", "contractId", "batchSize", "maxPages", "startPage", "startOffset"]);
 const DAY_MS = 86_400_000;
+/** 差分发现安全阀：单批次最多调用的发现次数与累计翻页数，防止已知职位占满列表时无限翻页。 */
+const MAX_DISCOVERY_LOOP_CALLS = 10;
+const MAX_DISCOVERY_TOTAL_PAGES = 60;
 
 export class BrowserJobCollectionError extends Error {
   constructor(message, code = "BROWSER_JOB_TASK_INVALID") {
@@ -56,30 +59,92 @@ export function parseBrowserJobBatchDiscoverTaskPayload(input) {
   return output;
 }
 
+/**
+ * 差分发现：`batchSize` = 本批要采集的「新增 + 标题变化」职位数。
+ * 逐页调用发现合同，跳过已入库且标题未变的职位（计入 skippedKnown），
+ * 直到凑满目标或列表到底；标题变化的已知职位按变更重新采集（upsert 覆盖）。
+ */
 export async function runBrowserJobBatchDiscovery({ task: rawTask, relayClient, repository }) {
   let task;
   try { task = parseBrowserJobBatchDiscoverTaskPayload(rawTask); }
   catch (error) { return failed(error.code ?? "BROWSER_JOB_TASK_INVALID", false); }
   if (!(await repository.sourceExists(task.sourceConnectionId))) return failed("BROWSER_SOURCE_NOT_FOUND", false);
-  const route = {
-    userId: task.userId, deviceId: task.deviceId, contractId: task.contractId,
-    batchSize: task.batchSize, maxPages: task.maxPages,
-    ...(task.startPage ? { startPage: task.startPage } : {}),
-    ...(task.startOffset !== undefined ? { startOffset: task.startOffset } : {}),
-  };
+  const known = new Map(
+    ((await repository.findKnownExternalIds({ sourceConnectionId: task.sourceConnectionId })) ?? []).map(
+      (row) => [row.externalId, row.title],
+    ),
+  );
+  const targetCount = task.batchSize;
   try {
-    const status = await relayClient.getConnectionStatus(route);
-    if (!status.ready || status.status !== "READY") return failed(`BROWSER_${status.status}`, false, { preflight: 1 });
-    const discovery = await relayClient.discoverFilteredJobs(route);
+    // 列表合同连接状态参数构建器（buildFilteredJobListConnectionStatusArguments）内部要求
+    // batchSize/maxPages 存在（白名单校验），预检必须带齐，否则 BROWSER_COLLECTION_ARGUMENTS_INVALID。
+    const preflightStatus = await relayClient.getConnectionStatus({
+      userId: task.userId, deviceId: task.deviceId, contractId: task.contractId,
+      batchSize: task.batchSize, maxPages: task.maxPages,
+    });
+    if (!preflightStatus.ready || preflightStatus.status !== "READY") {
+      return failed(`BROWSER_${preflightStatus.status}`, false, { preflight: 1 });
+    }
+
+    const collected = [];
+    let skippedKnown = 0;
+    let rawSeen = 0;
+    let calls = 0;
+    let totalPagesVisited = 0;
+    let lastStopReason = null;
+    let lastNextPage = null;
+    let lastNextOffset = null;
+    let cursor = {
+      ...(task.startPage ? { startPage: task.startPage } : {}),
+      ...(task.startOffset !== undefined ? { startOffset: task.startOffset } : {}),
+    };
+
+    while (collected.length < targetCount && calls < MAX_DISCOVERY_LOOP_CALLS) {
+      const route = {
+        userId: task.userId, deviceId: task.deviceId, contractId: task.contractId,
+        batchSize: task.batchSize, maxPages: task.maxPages, ...cursor,
+      };
+      const discovery = await relayClient.discoverFilteredJobs(route);
+      calls += 1;
+      totalPagesVisited += discovery.pagesVisited;
+      rawSeen += discovery.items.length;
+      for (const item of discovery.items) {
+        const knownTitle = known.get(item.externalId);
+        if (knownTitle !== undefined && normalizeTitle(knownTitle) === normalizeTitle(item.title)) {
+          skippedKnown += 1;
+          continue;
+        }
+        collected.push(item);
+      }
+      lastStopReason = discovery.stopReason;
+      lastNextPage = discovery.nextPage;
+      lastNextOffset = discovery.nextOffset ?? null;
+      if (collected.length >= targetCount) {
+        lastStopReason = discovery.nextPage === null ? lastStopReason : "target_reached";
+        break;
+      }
+      if (discovery.nextPage === null) break;
+      cursor = { startPage: discovery.nextPage, startOffset: discovery.nextOffset ?? 0 };
+      if (totalPagesVisited >= MAX_DISCOVERY_TOTAL_PAGES) break;
+    }
+
     const saved = await repository.persistDiscovery({
-      batch: task, discovery, detailContractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+      batch: task,
+      discovery: {
+        items: collected,
+        nextPage: lastNextPage,
+        nextOffset: lastNextOffset,
+        stopReason: lastStopReason,
+      },
+      detailContractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
     });
     return {
       status: "succeeded", retryable: false, ...saved,
       stats: {
-        preflight: 1, pages: discovery.pagesVisited,
-        discovered: discovery.items.length,
-        enqueued: saved.enqueuedDetails ?? discovery.items.length,
+        preflight: 1, pages: totalPagesVisited,
+        discovered: rawSeen, newOrChanged: collected.length, skippedKnown,
+        enqueued: saved.enqueuedDetails ?? collected.length,
+        stopReason: lastStopReason,
       },
     };
   } catch (error) {
@@ -182,6 +247,11 @@ export async function runBrowserJobCollection({ task: rawTask, now = new Date(),
 
 function failed(errorCode, retryable, stats = null) {
   return { status: "failed", errorCode, retryable, stats };
+}
+
+/** 标题变化检测：与详情合同 `expectedTitle` 校验一致的空白归一（折叠空白），避免纯空白差异触发重采。 */
+function normalizeTitle(value) {
+  return String(value ?? "").replace(/\s+/g, "").trim();
 }
 
 function requireString(value, field) {

@@ -44,6 +44,41 @@ export function createBrowserJobBatchRepository(sql) {
       return rows.length === 1;
     },
 
+    /** 差分采集已知集合：该来源 `jobs` 表已入库的 externalId → title，供发现阶段跳过未变职位。 */
+    async findKnownExternalIds({ sourceConnectionId }) {
+      const rows = await sql`
+        select external_id, title from jobs
+        where source_connection_id = ${sourceConnectionId}
+      `;
+      return rows.map((row) => ({ externalId: row.external_id, title: row.title }));
+    },
+
+    /** 批次列表（管理端「最近采集批次」）：按创建时间倒序，供前端展示批次活动与失败原因。 */
+    async listBatches({ page = 1, pageSize = 10 }) {
+      const [{ total }] = await sql`
+        select count(*)::int as total from browser_collection_batches
+      `;
+      const list = await sql`
+        select
+          id,
+          source_connection_id as "sourceConnectionId",
+          batch_size as "batchSize",
+          max_pages as "maxPages",
+          status,
+          discovered_count as "discoveredCount",
+          succeeded_count as "succeededCount",
+          skipped_count as "skippedCount",
+          failed_count as "failedCount",
+          stop_reason as "stopReason",
+          created_at as "createdAt",
+          finished_at as "finishedAt"
+        from browser_collection_batches
+        order by created_at desc, id desc
+        limit ${pageSize} offset ${(page - 1) * pageSize}
+      `;
+      return { total, page, pageSize, totalPages: Math.ceil(total / pageSize), list };
+    },
+
     async persistDiscovery({ batch, discovery, detailContractId }) {
       return sql.begin(async (tx) => {
         let createdItems = 0;
