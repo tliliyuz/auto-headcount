@@ -15,6 +15,12 @@ import {
   runAutomaticMatchPipeline,
 } from "./automatic-match-pipeline.mjs";
 import {
+  DEFAULT_GENERATOR_VERSION,
+  PROJECTION_FILTER_SYNC_TYPE,
+  runProjectionFilterSync,
+  selectJobsNeedingProjection,
+} from "./projection-filter-sync.mjs";
+import {
   createDefaultCallTool,
   runUnderServedSync,
 } from "./under-served-sync.mjs";
@@ -44,6 +50,10 @@ export function buildSyncIdempotencyKey(provider, periodKey) {
 
 export function buildMatchPipelineIdempotencyKey(periodKey) {
   return `match-pipeline-v2:${periodKey}`;
+}
+
+export function buildProjectionFilterIdempotencyKey(periodKey) {
+  return `match-projection-filter:${periodKey}`;
 }
 
 /** 指数退避毫秒数（attempts 为本次尝试序号，从 1 起），封顶 maxMs。 */
@@ -150,6 +160,28 @@ export async function enqueueAutomaticMatchTasks(
   return { enqueuedMatches: false, taskId: existing[0]?.id ?? null, idempotencyKey };
 }
 
+/**
+ * 入队当前周期的阶段一（投影生成 + 硬过滤）任务（幂等，仿 enqueueAutomaticMatchTasks）。
+ * 与 `match_pipeline_v2` 同受 MATCH_AUTOMATION_ENABLED 门禁（见 runScheduledTick）。
+ */
+export async function enqueueProjectionFilterTasks(
+  sql,
+  { now, intervalMs = DEFAULT_INTERVAL_MS },
+) {
+  const periodKey = syncPeriodKey(now, intervalMs);
+  const idempotencyKey = buildProjectionFilterIdempotencyKey(periodKey);
+  const taskRepo = createAsyncTaskRepository(sql);
+  const taskId = await taskRepo.enqueueTask({
+    kind: PROJECTION_FILTER_SYNC_TYPE,
+    idempotencyKey,
+    payload: { source: "automatic" },
+    scheduledAt: now,
+  });
+  if (taskId) return { projectionEnqueued: true, taskId, idempotencyKey };
+  const existing = await sql`select id from async_tasks where idempotency_key = ${idempotencyKey}`;
+  return { projectionEnqueued: false, taskId: existing[0]?.id ?? null, idempotencyKey };
+}
+
 /** 执行同步任务：配置从 env 解析（加密/MCP 可注入 mcp 用假客户端测试）。 */
 async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapter, now }) {
   try {
@@ -200,6 +232,38 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
         return await runMatchSync({ sql, source, jobIds, mcp });
       }
       return await runMatchSync({ sql, source, jobIds });
+    }
+    if (task.kind === PROJECTION_FILTER_SYNC_TYPE) {
+      // 阶段一：投影生成 + 硬过滤。增量选择需（重新）投影的可操作沉睡职位；
+      // 候选人为 0 时只产出职位投影（filter 结果 0），任务正常 succeeded。
+      const encryption = {
+        key: env.APP_ENCRYPTION_KEY,
+        keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
+      };
+      if (!encryption.key || !encryption.keyVersion) {
+        return {
+          status: "failed",
+          errorCode: "ENCRYPTION_CONFIG_REQUIRED",
+          retryable: false,
+          stats: null,
+        };
+      }
+      const jobIds = await selectJobsNeedingProjection(sql, DEFAULT_GENERATOR_VERSION);
+      return runProjectionFilterSync({
+        sql,
+        source: {
+          provider: "auto-match",
+          environment:
+            env.APP_ENV === "production" || env.APP_ENV === "test"
+              ? env.APP_ENV
+              : "development",
+          displayName: "自动匹配（投影与硬过滤）",
+        },
+        jobIds,
+        generatorVersion: DEFAULT_GENERATOR_VERSION,
+        encryption,
+        now: () => now,
+      });
     }
     if (task.kind === MATCH_PIPELINE_TASK_KIND) {
       return await runAutomaticMatchPipeline({ sql, env, adapter: scoringAdapter, now: () => now });
@@ -259,6 +323,12 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "detailsMatched",
       "detailsMissing",
       "jobsQueried",
+      "jobsProjected",
+      "candidatesQueried",
+      "candidatesProjected",
+      "piiRejected",
+      "filterPassed",
+      "filterRejected",
       "candidatesScored",
       "matchesStored",
       "hardFiltered",
@@ -404,6 +474,9 @@ export async function runScheduledTick({
   const enqueuedMatches = env.MATCH_AUTOMATION_ENABLED === "false"
     ? { enqueuedMatches: false, taskId: null, idempotencyKey: null }
     : await enqueueAutomaticMatchTasks(sql, { now, intervalMs });
+  const enqueuedProjections = env.MATCH_AUTOMATION_ENABLED === "false"
+    ? { projectionEnqueued: false, taskId: null, idempotencyKey: null }
+    : await enqueueProjectionFilterTasks(sql, { now, intervalMs });
   const summary = await processDueTasks(sql, {
     env,
     now,
@@ -423,6 +496,9 @@ export async function runScheduledTick({
     matchesEnqueued: enqueuedMatches.enqueuedMatches,
     matchesTaskId: enqueuedMatches.taskId,
     matchesIdempotencyKey: enqueuedMatches.idempotencyKey,
+    projectionsEnqueued: enqueuedProjections.projectionEnqueued,
+    projectionsTaskId: enqueuedProjections.taskId,
+    projectionsIdempotencyKey: enqueuedProjections.idempotencyKey,
     ...summary,
   };
 }

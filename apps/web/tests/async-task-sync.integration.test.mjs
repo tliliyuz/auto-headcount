@@ -16,6 +16,7 @@ import {
 import {
   buildSyncIdempotencyKey,
   enqueueDueSyncTasks,
+  enqueueProjectionFilterTasks,
   processDueTasks,
   runScheduledTick,
   syncPeriodKey,
@@ -1103,6 +1104,245 @@ test(
         await t`set local app.audit_retention = 'on'`;
         await t`delete from audit_logs where action = 'sync.run' and request_id = ${taskId}`;
       });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "调度分发：match_projection_filter 任务被认领执行，职位投影落库（候选人无脱敏详情被跳过）",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(marker);
+    const env = fixtureEnv(source);
+    const now = new Date();
+    const taskIds = [];
+    const jobIds = [];
+    let candRow;
+    await reclaimRunningSyncTasks(sql);
+
+    try {
+      // seed 两个可操作沉睡职位
+      const sourceId = await getOrCreateSourceConnection(sql, source);
+      const runId = await startSyncRun(sql, sourceId, "under_served_jobs");
+      for (const [i, ext] of ["pf-1", "pf-2"].entries()) {
+        const { jobId } = await persistUnderServedJob(sql, {
+          sourceId,
+          syncRunId: runId,
+          rawPayload: { job_id: ext },
+          job: {
+            externalId: ext,
+            title: `Proj Job ${i + 1}`,
+            companyName: "Fixture Co",
+            ownerExternalId: "fixture-owner",
+            ownerName: "Fixture Owner",
+            ageDays: 7 + i * 5,
+            lastRecommendationAt: null,
+            category: "Engineering",
+            city: "Shanghai",
+            salaryMin: 20,
+            salaryMax: 30,
+            portalUrl: `https://portal.invalid/jobs/${ext}`,
+            sourceCreatedAt: null,
+            eligibilityEvidence: {
+              activeStatus: "provider_filter",
+              zeroRecommendations: "provider_filter",
+              age: "days_without_rec",
+            },
+          },
+          encryption: { key: ENC_KEY, keyVersion: "test-v1" },
+          operabilityStatus: "actionable",
+        });
+        jobIds.push(jobId);
+      }
+      await finishSyncRun(sql, runId, { persisted: 2 });
+
+      // seed 一个候选人 + 画像（无脱敏详情来源 → 调度侧应计 piiRejected 并跳过）
+      const candExt = `pf-cand-${marker}`;
+      [candRow] = await sql`
+        insert into candidates (external_id, display_name, summary)
+        values (${candExt}, '王**', '示例工程师')
+        returning id
+      `;
+      await sql`
+        insert into candidate_profiles (
+          candidate_id, skills, experience_years, location, education, seniority,
+          industry, expected_salary_min, expected_salary_max, activity_updated_at
+        ) values (
+          ${candRow.id}, '[]'::jsonb, 6, '上海', '本科', '高级',
+          '互联网', 20, 30, now()
+        )
+      `;
+
+      const enqueued = await enqueueProjectionFilterTasks(sql, {
+        now,
+        intervalMs: SIX_HOURS_MS,
+      });
+      assert.equal(enqueued.projectionEnqueued, true);
+      taskIds.push(enqueued.taskId);
+
+      const counts = await processDueTasks(sql, { env, now });
+      assert.equal(counts.succeeded, 1, "投影任务应 succeeded");
+
+      const [task] = await sql`
+        select status from async_tasks where id = ${enqueued.taskId}
+      `;
+      assert.equal(task.status, "succeeded");
+
+      // 两个职位都应有 consumable 投影（rules/v1）
+      const projections = await sql`
+        select job_id, status, generator_version from job_match_projections
+        where job_id = any(${jobIds})
+      `;
+      assert.equal(projections.length, 2, "两个职位都应有投影");
+      for (const p of projections) {
+        assert.equal(p.status, "consumable");
+        assert.equal(p.generator_version, "rules/v1");
+      }
+
+      // 候选人无脱敏详情 → 不落消费态候选投影 → 0 filter 结果
+      const [candProj] = await sql`
+        select count(*)::int as n from candidate_match_projections
+        where candidate_id = ${candRow.id}
+      `;
+      assert.equal(candProj.n, 0, "无脱敏详情来源 → 不落候选投影");
+      const [filterCount] = await sql`
+        select count(*)::int as n from match_filter_results
+      `;
+      assert.equal(filterCount.n, 0, "无消费态候选投影 → 0 filter 结果");
+
+      // 审计应含 jobsProjected / candidatesQueried / piiRejected 白名单键
+      const [audit] = await sql`
+        select metadata from audit_logs
+        where action = 'sync.run' and request_id = ${enqueued.taskId}
+      `;
+      assert.ok(audit, "调度应写 sync.run 审计");
+      assert.equal(audit.metadata.jobsProjected, 2);
+      assert.equal(audit.metadata.candidatesQueried, 1);
+      assert.equal(audit.metadata.piiRejected, 1);
+    } finally {
+      // FK 顺序清理：filter_results → 投影 → 候选人 → 源 → 任务/审计
+      if (jobIds.length) {
+        await sql`
+          delete from match_filter_results
+          where job_projection_id in (
+            select id from job_match_projections where job_id = any(${jobIds})
+          )
+        `;
+        await sql`delete from job_match_projections where job_id = any(${jobIds})`;
+      }
+      if (candRow) {
+        await sql`delete from candidate_match_projections where candidate_id = ${candRow.id}`;
+        await sql`delete from candidate_profiles where candidate_id = ${candRow.id}`;
+        await sql`delete from candidates where id = ${candRow.id}`;
+      }
+      const [autoMatch] = await sql`
+        select id from source_connections where provider = 'auto-match'
+      `;
+      if (autoMatch) {
+        await sql`delete from sync_runs where source_connection_id = ${autoMatch.id}`;
+        await sql`delete from source_connections where id = ${autoMatch.id}`;
+      }
+      // 投影任务（payload 为 { source: "automatic" }，cleanupFixture 按 fixture 源 provider
+      // 匹配不到，必须显式删除，避免同周期幂等键残留污染后续测试）
+      await sql`delete from async_tasks where id = any(${taskIds})`;
+      await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "enqueueProjectionFilterTasks 幂等：同周期重复入队返回同一任务",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const now = new Date();
+    const taskIds = [];
+    try {
+      const first = await enqueueProjectionFilterTasks(sql, {
+        now,
+        intervalMs: SIX_HOURS_MS,
+      });
+      const second = await enqueueProjectionFilterTasks(sql, {
+        now,
+        intervalMs: SIX_HOURS_MS,
+      });
+      assert.equal(first.projectionEnqueued, true);
+      assert.equal(second.projectionEnqueued, false);
+      assert.equal(second.taskId, first.taskId);
+      const [count] = await sql`
+        select count(*)::int as n from async_tasks
+        where idempotency_key = ${first.idempotencyKey}
+      `;
+      assert.equal(count.n, 1, "同周期只应有一条投影任务");
+      if (first.taskId) taskIds.push(first.taskId);
+    } finally {
+      await sql`delete from async_tasks where id = any(${taskIds})`;
+      await sql.begin(async (t) => {
+        await t`set local app.audit_retention = 'on'`;
+        await t`delete from audit_logs where request_id = any(${taskIds})`;
+      });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "MATCH_AUTOMATION_ENABLED 门禁：false 不入队投影任务，true 入队",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(marker);
+    const now = new Date();
+    const taskIds = [];
+    const callTool = dispatchCallTool(
+      async () =>
+        fakePage({ total: 0, page: 1, pageSize: 20, totalPages: 0, list: [] }),
+      { operableIds: [] },
+    );
+    await reclaimRunningSyncTasks(sql);
+
+    try {
+      // 关闭自动匹配 → 投影任务不入队
+      const off = await runScheduledTick({
+        env: fixtureEnv(source),
+        sql,
+        now,
+        intervalMs: SIX_HOURS_MS,
+        mcp: { callTool },
+      });
+      assert.equal(off.projectionsEnqueued, false);
+
+      // 开启自动匹配 → 投影任务入队（当期认领执行，0 职位空跑 succeeded）
+      const on = await runScheduledTick({
+        env: { ...fixtureEnv(source), MATCH_AUTOMATION_ENABLED: "true" },
+        sql,
+        now,
+        intervalMs: SIX_HOURS_MS,
+        mcp: { callTool },
+      });
+      assert.equal(on.projectionsEnqueued, true);
+      assert.ok(on.projectionsTaskId, "应有投影任务 id");
+      if (on.projectionsTaskId) taskIds.push(on.projectionsTaskId);
+      if (on.matchesTaskId) taskIds.push(on.matchesTaskId);
+    } finally {
+      await sql`delete from async_tasks where id = any(${taskIds})`;
+      await sql.begin(async (t) => {
+        await t`set local app.audit_retention = 'on'`;
+        await t`delete from audit_logs where request_id = any(${taskIds})`;
+      });
+      const [autoMatch] = await sql`
+        select id from source_connections where provider = 'auto-match'
+      `;
+      if (autoMatch) {
+        await sql`delete from sync_runs where source_connection_id = ${autoMatch.id}`;
+        await sql`delete from source_connections where id = ${autoMatch.id}`;
+      }
+      await cleanupFixture(sql, { source, taskIds });
       await sql.end();
     }
   },

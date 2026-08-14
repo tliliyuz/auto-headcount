@@ -8,9 +8,10 @@
  * - 逐 (job, candidate) 跑 `hardFilter`（lib/matching/filter.mjs，纯函数）→ 落库
  *   match_filter_results（通过/剔除原因，不可变幂等）。
  *
- * 阶段二（LLM 脱敏详情评分 + 本地汇总）不在本切片；`passed=false` 不创建 LLM 运行（docs/10 §5）。
+ * 阶段二（LLM 脱敏详情评分 + 本地汇总）不在本函数；`passed=false` 不创建 LLM 运行（docs/10 §5）。
  * 仿 runMatchSync（match-sync.mjs）：source connection + sync_run 审计 + stats + 失败机器码。
- * 本切片不新增任务 kind / API 端点——调度接线随阶段二一并落地。
+ * 调度接线：作为周期任务 kind `match_projection_filter` 运行（见 sync-scheduler.mjs），
+ * 增量选择需（重新）投影的可操作沉睡职位（`selectJobsNeedingProjection`）。
  *
  * `encryption` 必须提供（候选人 redacted_detail 落库加密）。
  */
@@ -40,6 +41,33 @@ export const DEFAULT_FILTER_RULE_VERSION = "v1";
 export const DEFAULT_GENERATOR_VERSION = "rules/v1";
 export const DEFAULT_REDACTION_VERSION = "redact/v1";
 export const DEFAULT_STALE_SYNC_RUN_MS = 30 * 60 * 1000;
+
+/**
+ * 增量选择「需（重新）投影」的可操作沉睡职位（docs/01 §1.1 沉睡口径）：
+ * - 条件：active + 发布 7~30 天 + 零有效推荐 + 可操作；
+ * - 增量：不存在「generator_version 匹配且 created_at >= job.updated_at」的 consumable
+ *   投影。首跑全选；职位内容变化（updated_at 更新）→ 重投影；未变 → 跳过。
+ * 投影/过滤写入幂等（insertJobProjection / insertMatchFilterResult ON CONFLICT DO NOTHING），
+ * 周期重跑不会产生重复行，也避免每周期全量重算 (job×candidate) 过滤。
+ */
+export async function selectJobsNeedingProjection(sql, generatorVersion) {
+  const rows = await sql`
+    select j.id
+    from jobs j
+    where j.status = 'active'
+      and j.days_without_recommendation between 7 and 30
+      and (j.valid_recommendation_count is null or j.valid_recommendation_count = 0)
+      and (j.operability_status is null or j.operability_status = 'actionable')
+      and not exists (
+        select 1 from job_match_projections p
+        where p.job_id = j.id
+          and p.generator_version = ${generatorVersion}
+          and p.status = 'consumable'
+          and p.created_at >= j.updated_at
+      )
+  `;
+  return rows.map((row) => row.id);
+}
 
 /**
  * 投影生成 + 硬过滤垂直切片。

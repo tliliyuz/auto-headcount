@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildMatchPipelineIdempotencyKey,
+  buildProjectionFilterIdempotencyKey,
   buildSyncIdempotencyKey,
   decideTaskOutcome,
   nextRetryDelayMs,
@@ -30,6 +31,13 @@ test("buildSyncIdempotencyKey：provider + periodKey 拼接", () => {
 
 test("自动匹配编排使用独立周期幂等键", () => {
   assert.equal(buildMatchPipelineIdempotencyKey(12345), "match-pipeline-v2:12345");
+});
+
+test("阶段一投影任务使用独立周期幂等键", () => {
+  assert.equal(
+    buildProjectionFilterIdempotencyKey(12345),
+    "match-projection-filter:12345",
+  );
 });
 
 test("decideTaskOutcome：成功/业务失败不重试/网络退避/超阈值 dead", () => {
