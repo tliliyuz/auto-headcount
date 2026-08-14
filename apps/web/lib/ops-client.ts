@@ -83,6 +83,37 @@ export type AuditLogView = {
   ipAddress: string | null;
 };
 
+export type MatchDimensionView = {
+  dimension: string;
+  score: number | null;
+  evidence: string | null;
+  risk: string | null;
+  assessable: boolean | null;
+  confidence: number | null;
+  llmScoreRunId: string | null;
+  outputHash: string | null;
+};
+
+export type MatchView = {
+  id: string; jobId: string; jobTitle: string; jobExternalId: string;
+  candidateId: string; candidateName: string; candidateSummary: string | null;
+  score: number | null; band: string | null; status: string; scoreStatus: string;
+  evidence: string[]; missing: string[]; risk: string[];
+  jobProjectionId: string | null; candidateProjectionId: string | null;
+  llmScoreRunId: string | null; aggregationRuleVersion: string | null;
+  modelId: string | null; modelRevision: string | null; promptVersion: string | null;
+  schemaVersion: string | null; outputHash: string | null;
+  createdAt: string; updatedAt: string;
+};
+
+export type MatchDetailView = MatchView & { dimensions: MatchDimensionView[] };
+
+export type MatchExceptionView = {
+  id: string; type: "filter" | "scoring"; errorCode: string; status: string;
+  retryable: boolean; jobId: string; jobTitle: string; candidateId: string;
+  candidateName: string; createdAt: string;
+};
+
 function withQuery(path: string, params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -170,6 +201,26 @@ export function fetchAuditLogs(input?: {
     }),
     { method: "GET" },
   );
+}
+
+export function fetchMatches(input?: { status?: string; band?: string; page?: number; pageSize?: number; signal?: AbortSignal }): Promise<AuthResult<Paged<MatchView>>> {
+  return request(withQuery("/api/matches", {
+    status: input?.status, band: input?.band, page: input?.page, page_size: input?.pageSize,
+  }), { method: "GET", signal: input?.signal });
+}
+
+export function fetchMatchDetail(id: string, input?: { signal?: AbortSignal }): Promise<AuthResult<MatchDetailView>> {
+  return request(`/api/matches/${encodeURIComponent(id)}`, { method: "GET", signal: input?.signal });
+}
+
+export function reviewMatch(id: string, decision: "approve" | "reject"): Promise<AuthResult<{ id: string; status: string }>> {
+  return request(`/api/matches/${encodeURIComponent(id)}/review`, { method: "POST", body: JSON.stringify({ decision }) });
+}
+
+export function fetchMatchExceptions(input?: { type?: "all" | "filter" | "scoring"; page?: number; pageSize?: number; signal?: AbortSignal }): Promise<AuthResult<Paged<MatchExceptionView>>> {
+  return request(withQuery("/api/match-exceptions", {
+    type: input?.type, page: input?.page, page_size: input?.pageSize,
+  }), { method: "GET", signal: input?.signal });
 }
 
 /** 手动触发沉睡职位同步（写路由）：入队 async_tasks 任务，调度 tick 认领执行，返回 202 + taskId。 */

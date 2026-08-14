@@ -2,17 +2,19 @@
 
 FROM node:22.13-bookworm-slim AS dependencies
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 FROM dependencies AS development
 ENV NODE_ENV=development
-COPY . .
+COPY apps/web/ .
+COPY docs/contracts/ /docs/contracts/
 EXPOSE 3000
 CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
 
 FROM dependencies AS build
-COPY . .
+COPY apps/web/ .
+COPY docs/contracts/ /docs/contracts/
 RUN npm run build
 
 FROM node:22.13-bookworm-slim AS production

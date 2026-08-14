@@ -154,6 +154,7 @@ function dispatchCallTool(underServedCallTool, { operableIds = [] } = {}) {
 function fixtureEnv(source, { withKey = true } = {}) {
   const env = {
     APP_ENV: "test",
+    MATCH_AUTOMATION_ENABLED: "false",
     SYNC_SOURCE_PROVIDER: source.provider,
     SYNC_SOURCE_DISPLAY_NAME: source.displayName,
   };

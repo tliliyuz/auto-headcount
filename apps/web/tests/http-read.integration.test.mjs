@@ -64,11 +64,12 @@ test(
     assert.equal(syncTrigger.status, 401, "触发同步无会话应 401");
     assert.equal((await syncTrigger.json()).code, "unauthorized");
 
-    // 1d) M2 匹配端点：只读列表 / 详情 / 触发匹配任务 / 审核，无会话均 401。
+    // 1d) M3 匹配端点：列表 / 详情 / 异常 / 已停用旧入口 / 审核，无会话均 401。
     for (const req of [
       new Request(`${base}/api/matches`),
       new Request(`${base}/api/matches/00000000-0000-0000-0000-000000000000`),
       new Request(`${base}/api/matches/not-a-uuid`),
+      new Request(`${base}/api/match-exceptions`),
       new Request(`${base}/api/match-tasks`, { method: "POST" }),
       new Request(`${base}/api/matches/00000000-0000-0000-0000-000000000000/review`, {
         method: "POST",

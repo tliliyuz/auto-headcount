@@ -11,6 +11,10 @@ import {
 } from "./job-details-sync.mjs";
 import { runMatchSync } from "./match-sync.mjs";
 import {
+  MATCH_PIPELINE_TASK_KIND,
+  runAutomaticMatchPipeline,
+} from "./automatic-match-pipeline.mjs";
+import {
   createDefaultCallTool,
   runUnderServedSync,
 } from "./under-served-sync.mjs";
@@ -36,6 +40,10 @@ export function syncPeriodKey(now, intervalMs) {
 /** 周期同步任务的幂等键（provider + 周期槽位）。 */
 export function buildSyncIdempotencyKey(provider, periodKey) {
   return `under-served-sync:${provider}:${periodKey}`;
+}
+
+export function buildMatchPipelineIdempotencyKey(periodKey) {
+  return `match-pipeline-v2:${periodKey}`;
 }
 
 /** 指数退避毫秒数（attempts 为本次尝试序号，从 1 起），封顶 maxMs。 */
@@ -124,8 +132,26 @@ export async function enqueueJobDetailSyncTasks(
   };
 }
 
+export async function enqueueAutomaticMatchTasks(
+  sql,
+  { now, intervalMs = DEFAULT_INTERVAL_MS },
+) {
+  const periodKey = syncPeriodKey(now, intervalMs);
+  const idempotencyKey = buildMatchPipelineIdempotencyKey(periodKey);
+  const taskRepo = createAsyncTaskRepository(sql);
+  const taskId = await taskRepo.enqueueTask({
+    kind: MATCH_PIPELINE_TASK_KIND,
+    idempotencyKey,
+    payload: { source: "automatic" },
+    scheduledAt: now,
+  });
+  if (taskId) return { enqueuedMatches: true, taskId, idempotencyKey };
+  const existing = await sql`select id from async_tasks where idempotency_key = ${idempotencyKey}`;
+  return { enqueuedMatches: false, taskId: existing[0]?.id ?? null, idempotencyKey };
+}
+
 /** 执行同步任务：配置从 env 解析（加密/MCP 可注入 mcp 用假客户端测试）。 */
-async function runSyncForTask(sql, { env, task, mcp, browserRelay, now }) {
+async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapter, now }) {
   try {
     const source = task.payload?.source ?? resolveSyncSource(env);
     if (task.kind === TASK_KIND_BROWSER_JOB_COLLECT) {
@@ -164,8 +190,8 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, now }) {
         mcp?.callTool ?? createDefaultCallTool({ env, allowedTools: [JOBS_GET_TOOL] });
       return await runJobDetailsSync({ sql, source, mcp: { callTool } });
     }
-    // 匹配任务流（M2）：按需触发（POST /api/match-tasks 入队），对选定可操作职位跑本地评分
-    // （外部对照 mcp 可选——提供时把 match_candidates 结果写入 external_*，不作为权威分）。
+    // 旧匹配任务仅保留对历史队列的兼容消费；公开手动创建端点已关闭，不再产生新任务。
+    // 外部 match_candidates 结果仍只写 external_* 对照，不作为权威分。
     if (task.kind === TASK_KIND_MATCH) {
       const jobIds = Array.isArray(task.payload?.jobIds)
         ? task.payload.jobIds
@@ -174,6 +200,9 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, now }) {
         return await runMatchSync({ sql, source, jobIds, mcp });
       }
       return await runMatchSync({ sql, source, jobIds });
+    }
+    if (task.kind === MATCH_PIPELINE_TASK_KIND) {
+      return await runAutomaticMatchPipeline({ sql, env, adapter: scoringAdapter, now: () => now });
     }
     const encryption = {
       key: env.APP_ENCRYPTION_KEY,
@@ -272,6 +301,7 @@ export async function processDueTasks(
     staleTaskMs = DEFAULT_STALE_TASK_MS,
     mcp,
     browserRelay,
+    scoringAdapter,
   },
 ) {
   const taskRepo = createAsyncTaskRepository(sql);
@@ -292,7 +322,7 @@ export async function processDueTasks(
   };
 
   for (const task of tasks) {
-    const outcome = await runSyncForTask(sql, { env, task, mcp, browserRelay, now });
+    const outcome = await runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapter, now });
     const decision = decideTaskOutcome({
       status: outcome.status,
       retryable: outcome.retryable,
@@ -356,6 +386,7 @@ export async function runScheduledTick({
   staleTaskMs = DEFAULT_STALE_TASK_MS,
   mcp,
   browserRelay,
+  scoringAdapter,
 }) {
   const source = resolveSyncSource(env);
   const enqueued = await enqueueDueSyncTasks(sql, { source, now, intervalMs });
@@ -364,6 +395,9 @@ export async function runScheduledTick({
     now,
     intervalMs,
   });
+  const enqueuedMatches = env.MATCH_AUTOMATION_ENABLED === "false"
+    ? { enqueuedMatches: false, taskId: null, idempotencyKey: null }
+    : await enqueueAutomaticMatchTasks(sql, { now, intervalMs });
   const summary = await processDueTasks(sql, {
     env,
     now,
@@ -371,6 +405,7 @@ export async function runScheduledTick({
     staleTaskMs,
     mcp,
     browserRelay,
+    scoringAdapter,
   });
   // `taskId`/`idempotencyKey` 保持 under_served 主键（既有消费方兼容）；
   // job_details 任务用独立前缀键，避免 spread 覆盖。
@@ -379,6 +414,9 @@ export async function runScheduledTick({
     detailsEnqueued: enqueuedDetails.enqueuedDetails,
     detailsTaskId: enqueuedDetails.taskId,
     detailsIdempotencyKey: enqueuedDetails.idempotencyKey,
+    matchesEnqueued: enqueuedMatches.enqueuedMatches,
+    matchesTaskId: enqueuedMatches.taskId,
+    matchesIdempotencyKey: enqueuedMatches.idempotencyKey,
     ...summary,
   };
 }

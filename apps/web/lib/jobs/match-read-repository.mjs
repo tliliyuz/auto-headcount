@@ -44,11 +44,21 @@ export async function listMatches(
       m.evidence,
       m.missing,
       m.risk,
+      m.job_projection_id as "jobProjectionId",
+      m.candidate_projection_id as "candidateProjectionId",
+      m.llm_score_run_id as "llmScoreRunId",
+      m.aggregation_rule_version as "aggregationRuleVersion",
+      case when fr.id is null then null else json_build_object('passed', fr.passed, 'reasonCodes', fr.reason_codes) end as "filterResult",
+      run.model_id as "modelId", run.model_revision as "modelRevision",
+      run.prompt_version as "promptVersion", run.schema_version as "schemaVersion",
+      run.output_hash as "outputHash",
       m.created_at as "createdAt",
       m.updated_at as "updatedAt"
     from matches m
     join jobs j on j.id = m.job_id
     join candidates c on c.id = m.candidate_id
+    left join match_filter_results fr on fr.id = m.filter_result_id
+    left join llm_score_runs run on run.id = m.llm_score_run_id
     where ${where}
     order by m.created_at desc, m.id desc
     limit ${pageSize} offset ${(page - 1) * pageSize}
@@ -86,17 +96,28 @@ export async function getMatchById(sql, id) {
       m.evidence,
       m.missing,
       m.risk,
+      m.job_projection_id as "jobProjectionId",
+      m.candidate_projection_id as "candidateProjectionId",
+      m.llm_score_run_id as "llmScoreRunId",
+      m.aggregation_rule_version as "aggregationRuleVersion",
+      case when fr.id is null then null else json_build_object('passed', fr.passed, 'reasonCodes', fr.reason_codes) end as "filterResult",
+      run.model_id as "modelId", run.model_revision as "modelRevision",
+      run.prompt_version as "promptVersion", run.schema_version as "schemaVersion",
+      run.output_hash as "outputHash",
       m.created_at as "createdAt",
       m.updated_at as "updatedAt"
     from matches m
     join jobs j on j.id = m.job_id
     join candidates c on c.id = m.candidate_id
+    left join match_filter_results fr on fr.id = m.filter_result_id
+    left join llm_score_runs run on run.id = m.llm_score_run_id
     where m.id = ${id}
   `;
   if (!match) return undefined;
 
   const dimensions = await sql`
-    select dimension, score, evidence, risk
+    select dimension, score, evidence, risk, assessable, confidence,
+      llm_score_run_id as "llmScoreRunId", output_hash as "outputHash"
     from match_dimensions
     where match_id = ${id}
     order by created_at, id

@@ -103,7 +103,7 @@ MVP 使用数据库任务表（`async_tasks`，已落库迁移 `0004`）处理�
 - **手动触发去重（2026-08-13）**：同一 kind 至多一个活跃（`pending/running`）任务。手动触发经 `enqueueTaskIfIdle` 原子入队（`INSERT … WHERE NOT EXISTS (活跃)`），活跃被拦截时返回既有任务 id（前端跟踪其进度，`deduplicated:true`）。此前多次点击会堆积多个并发同步任务同时打 MCP 触发限流/假死。
 - **任务看门狗（2026-08-13）**：每个调度 tick 先回收 `running` 超过 30 分钟的任务（`failed + TASK_STALE_TIMEOUT`），与同步运行看门狗（`failStaleRunningSyncRuns`）对称。进程崩溃/假死导致任务永久卡 `running` 时，若无回收，手动同步去重会被卡死任务永久锁死。
 - **同步串行化（2026-08-13，fix3）**：`claimDueTasks` 按 kind 每类至多认领 1 条（`not exists running` + `not exists earlier` 行比较，取 `(scheduled_at,id)` 最早），同一 kind 同时只跑一个同步——避免多个同 kind 任务并发打 MCP（此前多次点击 + 周期/手动叠加 = 多任务并发）。EXISTS 子查询可被 `FOR UPDATE SKIP LOCKED` 加锁且跨进程原子（窗口函数/DISTINCT 不可加锁，PG 0A000）。
-- **匹配任务 kind（2026-08-13，M3）**：现有 `match_candidates_sync`/`runMatchSync` 已验证 Fixture 下的本地确定性评分，但还不是修订后 `ADR-005` 的两阶段主路径。目标任务必须串联版本化投影 → 硬过滤 → LLM 维度评分 → 本地汇总；供应方 `match_candidates` 只写 `matches.external_*` 外部对照。该目标流程仍为 `specified`，未实现。
+- **匹配任务 kind（2026-08-13，M3）**：`match_pipeline_v2` 是两阶段主路径的周期自动编排任务，消费版本化投影与硬过滤结果，经评分端口得到七维结构化输出并本地汇总；同版本成功运行不重复调用，按单职位 Top-K 与单轮全局预算限流。开发/CI 注入确定性 Fake，生产未配置批准适配器时失败关闭。旧 `match_candidates_sync` 仅兼容历史队列，公开手动创建入口已关闭；供应方 `match_candidates` 只写 `matches.external_*` 外部对照。
 
 触发方式：由运行环境按 cron（默认每 15 分钟）触发 tick——先按周期幂等入队同步任务（默认 6 小时一个槽位），再认领到期任务执行（`FOR UPDATE SKIP LOCKED` 防并发重复）并落 `sync.run` 系统审计。自托管 Node 容器由 docker compose `scheduler` 服务跑 `node scripts/run-scheduled-tick.mjs --loop`（每 15 分钟，见 §6）触发；服务器级定时器（systemd timer / PM2 cron）为可选替代。Cloudflare Worker 部署则用 `scheduled` 处理器（可选路径，见 §6）。运维直连路径（`npm run sync:under-served`）保持 CLI 直接执行（携带真实 MCP 凭证）。
 

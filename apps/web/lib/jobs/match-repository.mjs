@@ -37,17 +37,26 @@ export async function upsertMatch(
     evidence = [],
     missing = [],
     risk = [],
+    jobProjectionId = null,
+    candidateProjectionId = null,
+    filterResultId = null,
+    llmScoreRunId = null,
+    aggregationRuleVersion = null,
   },
 ) {
   const rows = await sql`
     insert into matches (
       job_id, candidate_id, score, band, status, rule_version,
-      score_status, input_hash, evidence, missing, risk
+      score_status, input_hash, evidence, missing, risk,
+      job_projection_id, candidate_projection_id, filter_result_id,
+      llm_score_run_id, aggregation_rule_version
     ) values (
       ${jobId}, ${candidateId},
       ${score === null || score === undefined ? null : Math.round(score)},
       ${band}, ${status}, ${ruleVersion}, ${scoreStatus}, ${inputHash},
-      ${sql.json(evidence)}, ${sql.json(missing)}, ${sql.json(risk)}
+      ${sql.json(evidence)}, ${sql.json(missing)}, ${sql.json(risk)},
+      ${jobProjectionId}, ${candidateProjectionId}, ${filterResultId},
+      ${llmScoreRunId}, ${aggregationRuleVersion}
     )
     on conflict (job_id, candidate_id, rule_version) do update set
       score = excluded.score,
@@ -62,6 +71,11 @@ export async function upsertMatch(
       evidence = excluded.evidence,
       missing = excluded.missing,
       risk = excluded.risk,
+      job_projection_id = excluded.job_projection_id,
+      candidate_projection_id = excluded.candidate_projection_id,
+      filter_result_id = excluded.filter_result_id,
+      llm_score_run_id = excluded.llm_score_run_id,
+      aggregation_rule_version = excluded.aggregation_rule_version,
       updated_at = now()
     returning id, status
   `;
@@ -92,11 +106,16 @@ export async function replaceMatchDimensions(sql, { matchId, dimensions }) {
   await sql`delete from match_dimensions where match_id = ${matchId}`;
   for (const d of dimensions ?? []) {
     await sql`
-      insert into match_dimensions (match_id, dimension, score, evidence, risk)
+      insert into match_dimensions (
+        match_id, dimension, score, evidence, risk,
+        assessable, confidence, llm_score_run_id, output_hash
+      )
       values (
         ${matchId}, ${d.dimension},
         ${d.score === null || d.score === undefined ? null : Math.round(d.score)},
-        ${d.evidence ?? null}, ${d.risk ?? null}
+        ${d.evidence ?? null}, ${d.risk ?? null},
+        ${d.assessable ?? null}, ${d.confidence ?? null},
+        ${d.llmScoreRunId ?? null}, ${d.outputHash ?? null}
       )
     `;
   }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildMatchPipelineIdempotencyKey,
   buildSyncIdempotencyKey,
   decideTaskOutcome,
   nextRetryDelayMs,
@@ -25,6 +26,10 @@ test("buildSyncIdempotencyKey：provider + periodKey 拼接", () => {
     buildSyncIdempotencyKey("csdn-mcp", 12345),
     "under-served-sync:csdn-mcp:12345",
   );
+});
+
+test("自动匹配编排使用独立周期幂等键", () => {
+  assert.equal(buildMatchPipelineIdempotencyKey(12345), "match-pipeline-v2:12345");
 });
 
 test("decideTaskOutcome：成功/业务失败不重试/网络退避/超阈值 dead", () => {

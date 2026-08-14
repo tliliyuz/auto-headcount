@@ -2,7 +2,7 @@
 
 本文档是前端页面的**地图与接线状态**，不是业务规范。业务行为（沉睡规则、匹配分档、脱敏要求、触达门禁）以 [`docs/01-mvp-requirements.md`](../../../docs/01-mvp-requirements.md) 与 [`docs/07-acceptance-criteria.md`](../../../docs/07-acceptance-criteria.md) 为准；模块边界与数据所有权见 [`docs/02-architecture.md`](../../../docs/02-architecture.md)。
 
-当前前端为**单文件静态原型**：`apps/web/app/operations-dashboard.tsx` 承载登录视图、全部页面与假数据，`apps/web/app/globals.css` 承载全部样式。按既定决策保留该 UI，随后就地接真实数据。
+当前前端仍由 `apps/web/app/operations-dashboard.tsx` 集中承载登录视图和业务页面，`apps/web/app/globals.css` 承载全局样式；已接线页面通过 `lib/*-client.ts` 访问管理 API。
 
 默认初始视图为**登录页**（`LoginPage`）；请求头 `x-prototype-view: app` 可强制初始进入工作台（供服务端渲染测试覆盖两个视图）。
 
@@ -18,7 +18,7 @@
 | 页面 | 组件 | 数据来源 | 状态 |
 |---|---|---|---|
 | 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md) + [`GET /api/jobs/:id`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/洞察/脱敏预览；洞察面板按选中职位拉取完整 JD 展示「职位详情」；匹配池为 M3 占位） |
-| 智能匹配 | `MatchingPage` | `candidates` 数组 | 静态原型 |
+| 智能匹配 | `MatchingPage` | 真实 `/api/matches`、`/api/matches/:id`、`/api/matches/:id/review`、`/api/match-exceptions` | 已接真实数据（待审核列表/详情/七维追溯/审核/异常；无 Mock 回落） |
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
@@ -42,13 +42,22 @@
 
 | 数据 | 位置 | 对应真实来源（路线图阶段） |
 |---|---|---|
-| `candidates`（4 个候选人） | 文件顶部 | 授权 Web/MCP 适配器（M2）→ 规范化候选人与脱敏匹配投影（M3） |
+| ~~`candidates`（4 个候选人）~~ | ~~文件顶部~~ | M3 接线时删除，改读匹配 API |
 | `campaignRows`（4 个活动） | 文件顶部 | `campaigns` / `campaign_recipients` 表（M4） |
 | `followupColumns`（看板列） | 文件顶部 | `follow_up_tasks` 表（M5） |
 | 漏斗/转化数据（内联） | `FunnelPage` | `funnel_events` 聚合（M5） |
 | 审计记录（内联） | ~~`AuditPage`~~ | `audit_logs` 表（M1，已接真实数据） |
 
-> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则；当前 MCP 投影只返回 `operability_status='actionable'` 的可操作沉睡职位）。`ADR-005` 已指定授权 Web 数据源承接宽口径，但浏览器采集适配器尚未实现，页面当前不能宣称已展示 Web 采集职位。数据源页和审计日志页分别读取真实 `/api/sources` + `/api/sync-runs` 与 `/api/audit-logs`；原始载荷密文、简历正文、联系方式和游标令牌永不进入这些响应。
+> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则；当前 MCP 投影只返回 `operability_status='actionable'` 的可操作沉睡职位）。数据源页已接 `liebide-filtered-job-list-v2 → browser_job_collect × N` 批次触发：列表页要求“推荐 0 人、发布时间最近 30 天”，详情页再复核 7～30 天，0～6 天项只记跳过。设备路由由服务端 `BROWSER_RELAY_USER_ID/BROWSER_RELAY_DEVICE_ID` 固定配置，页面不读取 Secret、不要求运营重复填写，日常只选择批量并点击“采集当前筛选结果”。列表/详情 Provider Fixture 已实现，但尚未用真实筛选页做整批复验，因此页面不能宣称生产批量采集已验证。数据源页和审计日志页分别读取真实 `/api/sources` + `/api/sync-runs` 与 `/api/audit-logs`；原始载荷密文、简历正文、联系方式和浏览器 session 永不进入这些响应。
+
+### 智能匹配目标交互（M3）
+
+- 沉睡职位页只负责查看职位列表、JD 详情、沉睡时长与同步状态；删除职位复选框和“创建匹配任务”，不得从前端拼装正常匹配任务。
+- 智能匹配页默认进入“待审核”，读取匹配列表；点击一条结果后读取详情，展示七维评分、可评估性、置信度、证据、缺失项、风险和版本追踪信息。
+- 审核按钮只在 `pending_review` 显示，提交后原地刷新列表与详情；`approved/rejected` 为只读终态。
+- “异常”视图读取异常 API，区分硬过滤异常与评分失败，展示白名单错误码、发生时间及是否可重试；普通业务不匹配不是运营异常，不进入待审核。
+- 页面必须具备 loading、空列表、请求失败和会话失效状态；`401` 复用全局退出登录回调，禁止回落到 Mock 数据。
+- 自动编排状态以只读摘要呈现，运营不选择职位或候选人启动任务。未来如增加“重试”，按钮只能针对后端明确标记 `retryable=true` 的失败运行。
 
 ### 同步触发状态机（2026-08-13）
 

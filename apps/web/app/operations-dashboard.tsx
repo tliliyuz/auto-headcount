@@ -24,13 +24,20 @@ import {
   fetchAuditLogs,
   fetchDormantJobs,
   fetchJobDetail,
+  fetchMatchDetail,
+  fetchMatches,
+  fetchMatchExceptions,
   fetchSources,
   fetchSyncRuns,
   triggerSync,
   triggerBrowserCollection,
+  reviewMatch,
   type AuditLogView,
   type DormantJob,
   type JobDetail,
+  type MatchDetailView,
+  type MatchExceptionView,
+  type MatchView,
   type SourceView,
   type SyncRunView,
 } from "@/lib/ops-client";
@@ -119,46 +126,10 @@ const pageLabels: Record<PageId, string> = {
   audit: "审计日志",
 };
 
-const candidates = [
-  {
-    id: "C-2048", name: "候选人 A", role: "高级前端工程师", city: "上海", score: 94,
-    years: "8 年经验", status: "待审核", job: "资深前端工程师", jobCode: "JOB-0821",
-    confidence: "高", updatedAt: "12 分钟前", tags: ["React", "TypeScript", "复杂系统"],
-    evidence: [["核心技能", "React 与 TypeScript 经验覆盖职位核心要求"], ["业务复杂度", "长期负责复杂 B 端系统与平台重构"], ["地点意向", "当前在上海，接受同城机会"]],
-    missing: "英文沟通频率尚未确认", risk: "期望薪资接近职位上限",
-    dimensions: [["技能", 96], ["行业", 88], ["职级", 92], ["经历", 91], ["地点", 100], ["薪资", 78], ["活跃度", 90]],
-  },
-  {
-    id: "C-2017", name: "候选人 B", role: "前端技术专家", city: "上海", score: 89,
-    years: "7 年经验", status: "待审核", job: "资深前端工程师", jobCode: "JOB-0821",
-    confidence: "中", updatedAt: "18 分钟前", tags: ["工程化", "Node.js", "团队管理"],
-    evidence: [["工程能力", "具备大型前端工程治理经验"], ["管理经验", "有小型技术团队管理经历"], ["地点意向", "当前所在地与职位一致"]],
-    missing: "未明确最近一年的编码投入比例", risk: "职级可能高于岗位当前范围",
-    dimensions: [["技能", 91], ["行业", 82], ["职级", 86], ["经历", 93], ["地点", 100], ["薪资", 74], ["活跃度", 86]],
-  },
-  {
-    id: "C-1982", name: "候选人 C", role: "资深全栈工程师", city: "杭州", score: 86,
-    years: "9 年经验", status: "待审核", job: "资深前端工程师", jobCode: "JOB-0821",
-    confidence: "中", updatedAt: "26 分钟前", tags: ["React", "可视化", "B 端产品"],
-    evidence: [["核心技能", "React 与数据可视化经验匹配"], ["业务经验", "持续参与 B 端产品建设"], ["复杂度", "有跨团队系统整合经验"]],
-    missing: "异地到岗安排未确认", risk: "当前城市与职位地点不同",
-    dimensions: [["技能", 90], ["行业", 87], ["职级", 88], ["经历", 92], ["地点", 62], ["薪资", 84], ["活跃度", 83]],
-  },
-  {
-    id: "C-1961", name: "候选人 D", role: "高级前端开发", city: "上海", score: 82,
-    years: "6 年经验", status: "待审核", job: "跨端开发专家", jobCode: "JOB-0816",
-    confidence: "中", updatedAt: "31 分钟前", tags: ["Vue", "TypeScript", "跨端"],
-    evidence: [["跨端经验", "有多个跨端项目交付记录"], ["语言能力", "TypeScript 使用年限满足要求"], ["地点意向", "当前所在地与职位一致"]],
-    missing: "React Native 深度不可评估", risk: "核心框架经历偏 Vue 生态",
-    dimensions: [["技能", 80], ["行业", 78], ["职级", 84], ["经历", 86], ["地点", 100], ["薪资", 76], ["活跃度", 79]],
-  },
-];
-
-const matchingExceptions = [
-  { id: "E-031", job: "数据平台架构师", code: "REQUIRED_FIELD_MISSING", title: "职位硬性要求不完整", detail: "最低工作年限和必备证书未明确，系统已停止评分。", action: "补充职位要求", tone: "amber" },
-  { id: "E-027", job: "高级算法工程师", code: "MATCH_PROJECTION_PII_DETECTED", title: "候选人投影脱敏未通过", detail: "检测到残留联系方式，未向评分模型发送任何内容。", action: "检查脱敏结果", tone: "red" },
-  { id: "E-019", job: "商业化产品经理", code: "LLM_TIMEOUT", title: "详情评分暂时失败", detail: "评分服务超时，任务将在预算窗口内自动重试。", action: "查看运行记录", tone: "blue" },
-];
+const DIMENSION_LABELS: Record<string, string> = {
+  skills: "技能", industry: "行业", seniority: "职级", experience: "经历",
+  location: "地点", salary: "薪资", activity: "活跃度",
+};
 
 function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: string }) {
   return (
@@ -311,61 +282,115 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   );
 }
 
-function MatchingPage() {
-  const [selected, setSelected] = useState(candidates[0].id);
-  const [decisions, setDecisions] = useState<Record<string, string>>({});
+function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
+  const [matches, setMatches] = useState<MatchView[]>([]);
+  const [exceptions, setExceptions] = useState<MatchExceptionView[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<MatchDetailView | null>(null);
   const [queueView, setQueueView] = useState<"review" | "exceptions">("review");
-  const candidate = candidates.find((item) => item.id === selected) ?? candidates[0];
-  const decision = decisions[candidate.id];
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+
+  const loadQueues = useCallback(async (signal?: AbortSignal) => {
+    const [matchResult, exceptionResult] = await Promise.all([
+      fetchMatches({ status: "pending_review", pageSize: 50, signal }),
+      fetchMatchExceptions({ pageSize: 50, signal }),
+    ]);
+    if (!matchResult.ok || !exceptionResult.ok) {
+      const failure = !matchResult.ok ? matchResult : exceptionResult;
+      if (failure.status === 401 || failure.code === "password_change_required") onAuthExpired();
+      else setError(failure.message);
+      setLoading(false);
+      return;
+    }
+    setMatches(matchResult.data.list);
+    setExceptions(exceptionResult.data.list);
+    if (matchResult.data.list.length === 0) setCandidate(null);
+    setSelected((current) => current && matchResult.data.list.some((item) => item.id === current) ? current : matchResult.data.list[0]?.id ?? null);
+    setError(null);
+    setLoading(false);
+  }, [onAuthExpired]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.resolve().then(() => loadQueues(controller.signal));
+    return () => controller.abort();
+  }, [loadQueues]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    void fetchMatchDetail(selected, { signal: controller.signal }).then((result) => {
+      if (result.ok) setCandidate(result.data);
+      else if (result.status === 401 || result.code === "password_change_required") onAuthExpired();
+      else setError(result.message);
+    });
+    return () => controller.abort();
+  }, [selected, onAuthExpired]);
+
+  const decide = async (decision: "approve" | "reject") => {
+    if (!candidate || reviewing) return;
+    setReviewing(true);
+    const result = await reviewMatch(candidate.id, decision);
+    if (result.ok) await loadQueues();
+    else if (result.status === 401 || result.code === "password_change_required") onAuthExpired();
+    else setError(result.message);
+    setReviewing(false);
+  };
 
   return <>
     <PageIntro eyebrow="系统自动生成 · 人工最终确认" title="匹配审核工作台" description="职位或候选人信息变化后系统自动重算；运营只需审核结果和处理异常。" />
     <SummaryStrip items={[
-      { label: "待人工审核", value: "28", note: "7 个高匹配", tone: "violet" },
-      { label: "自动评分中", value: "6", note: "预计 4 分钟完成" },
-      { label: "需要处理", value: "3", note: "数据或评分异常", tone: "amber" },
-      { label: "今日已通过", value: "12", note: "进入触达准备", tone: "green" },
+      { label: "待人工审核", value: String(matches.length), note: `${matches.filter((item) => item.band === "high").length} 个高匹配`, tone: "violet" },
+      { label: "自动评分", value: "增量", note: "按版本与预算运行" },
+      { label: "需要处理", value: String(exceptions.length), note: "数据或评分异常", tone: "amber" },
+      { label: "触达门禁", value: "人工", note: "审核通过后放行", tone: "green" },
     ]} />
     <section className="matching-flow" aria-label="自动匹配流程">
       <div className="flow-step done"><i>✓</i><span><strong>数据就绪</strong><small>职位与候选人投影</small></span></div><b>→</b>
       <div className="flow-step done"><i>✓</i><span><strong>硬过滤</strong><small>剔除明确不符合项</small></span></div><b>→</b>
       <div className="flow-step running"><i>◎</i><span><strong>详情评分</strong><small>脱敏七维评估</small></span></div><b>→</b>
       <div className="flow-step"><i>4</i><span><strong>人工审核</strong><small>通过后进入触达</small></span></div>
-      <span className="flow-budget">本轮 14 / 20 个评分额度</span>
+      <span className="flow-budget">系统按 Top-K 与全局预算自动运行</span>
     </section>
     <div className="queue-switch" role="tablist" aria-label="匹配工作区">
-      <button role="tab" aria-selected={queueView === "review"} className={queueView === "review" ? "active" : ""} onClick={() => setQueueView("review")}>待审核 <b>28</b></button>
-      <button role="tab" aria-selected={queueView === "exceptions"} className={queueView === "exceptions" ? "active" : ""} onClick={() => setQueueView("exceptions")}>需要处理 <b>3</b></button>
+      <button role="tab" aria-selected={queueView === "review"} className={queueView === "review" ? "active" : ""} onClick={() => setQueueView("review")}>待审核 <b>{matches.length}</b></button>
+      <button role="tab" aria-selected={queueView === "exceptions"} className={queueView === "exceptions" ? "active" : ""} onClick={() => setQueueView("exceptions")}>需要处理 <b>{exceptions.length}</b></button>
     </div>
+    {error && <div className="login-notice danger" role="alert">{error}</div>}
     {queueView === "exceptions" ? <section className="surface-card exception-panel">
       <div className="surface-header"><div><h2>需要人工处理</h2><p>失败关闭的任务不会生成分数，也不会进入触达池</p></div><button className="plain-filter">全部异常⌄</button></div>
-      <div className="exception-list">{matchingExceptions.map((item) => <article key={item.id}>
-        <span className={`exception-icon ${item.tone}`}>!</span>
-        <div><header><strong>{item.title}</strong><code>{item.code}</code></header><p>{item.job} · {item.detail}</p></div>
-        <button>{item.action}</button>
+      <div className="exception-list">{exceptions.map((item) => <article key={item.id}>
+        <span className={`exception-icon ${item.type === "scoring" ? "red" : "amber"}`}>!</span>
+        <div><header><strong>{item.type === "scoring" ? "详情评分失败" : "硬过滤输入异常"}</strong><code>{item.errorCode}</code></header><p>{item.jobTitle} · {item.candidateName} · {formatDateTime(item.createdAt)}</p></div>
+        <button disabled={!item.retryable}>{item.retryable ? "等待自动重试" : "检查输入"}</button>
       </article>)}</div>
+      {!loading && exceptions.length === 0 && <div className="empty-state">当前没有需要处理的匹配异常</div>}
     </section> : <section className="review-layout">
       <div className="surface-card review-list">
         <div className="surface-header"><div><h2>待审核候选人</h2><p>已完成硬过滤、详情评分和本地汇总</p></div><button className="plain-filter">优先级：从高到低⌄</button></div>
-        <div className="segmented"><button className="active">全部 28</button><button>高匹配 7</button><button>中匹配 21</button></div>
+        <div className="segmented"><button className="active">全部 {matches.length}</button><button>高匹配 {matches.filter((item) => item.band === "high").length}</button><button>中匹配 {matches.filter((item) => item.band === "medium").length}</button></div>
         <div className="candidate-list">
-          {candidates.map((item) => <button key={item.id} className={`candidate-row ${selected === item.id ? "active" : ""}`} onClick={() => setSelected(item.id)}>
-            <span className="candidate-avatar">{item.name.slice(-1)}</span>
-            <span className="candidate-main"><strong>{item.name}<i>{decisions[item.id] ?? item.status}</i></strong><small>{item.job} · {item.jobCode}</small><em>{item.tags.map((tag) => <b key={tag}>{tag}</b>)}</em></span>
-            <span className={`match-score ${item.score >= 85 ? "high" : "medium"}`}><strong>{item.score}</strong><small>匹配分</small></span>
+          {matches.map((item) => <button key={item.id} className={`candidate-row ${selected === item.id ? "active" : ""}`} onClick={() => setSelected(item.id)}>
+            <span className="candidate-avatar">{item.candidateName.slice(-1)}</span>
+            <span className="candidate-main"><strong>{item.candidateName}<i>待审核</i></strong><small>{item.jobTitle} · {item.jobExternalId}</small><em>{item.candidateSummary && <b>{item.candidateSummary}</b>}</em></span>
+            <span className={`match-score ${item.band ?? "medium"}`}><strong>{item.score ?? "—"}</strong><small>匹配分</small></span>
           </button>)}
+          {!loading && matches.length === 0 && <div className="empty-state">暂无待审核结果，系统会在新版本就绪后自动生成</div>}
         </div>
       </div>
       <aside className="surface-card candidate-detail">
-        <div className="detail-head"><span className="candidate-avatar large">{candidate.name.slice(-1)}</span><div><h2>{candidate.name}</h2><p>{candidate.role} · {candidate.city} · {candidate.years}</p></div><span className="score-badge">{candidate.score} 分</span></div>
-        <div className="score-context"><span>匹配职位 <b>{candidate.job}</b></span><span>评分置信度 <b>{candidate.confidence}</b></span><span>更新于 <b>{candidate.updatedAt}</b></span></div>
-        {decision && <div className={`decision-banner ${decision === "已通过" ? "success" : "danger"}`}>当前审核结果：{decision}</div>}
-        <div className="detail-section"><h3>匹配证据</h3><ul className="evidence-list positive">{candidate.evidence.map(([label, copy]) => <li key={label}><b>{label}</b><span>{copy}</span></li>)}</ul></div>
-        <div className="detail-section two-cols"><div><h3>缺失项</h3><p className="notice amber">{candidate.missing}</p></div><div><h3>风险提示</h3><p className="notice red">{candidate.risk}</p></div></div>
-        <div className="dimension-scores"><h3>七维评分</h3>{candidate.dimensions.map(([label, value]) => <div key={label}><span>{label}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>)}</div>
-        <details className="score-trace"><summary>评分追溯</summary><p>投影 v1 · Prompt v1 · 汇总规则 v1 · 已保存结构化评分结果</p></details>
-        <label className="review-note"><span>审核备注</span><textarea placeholder="填写判断依据或后续关注点（选填）" /></label>
-        <div className="review-actions"><button onClick={() => setDecisions((current) => ({ ...current, [candidate.id]: "已拒绝" }))}>拒绝</button><button className="approve" onClick={() => setDecisions((current) => ({ ...current, [candidate.id]: "已通过" }))}>通过并加入触达池</button></div>
+        {candidate ? <>
+          <div className="detail-head"><span className="candidate-avatar large">{candidate.candidateName.slice(-1)}</span><div><h2>{candidate.candidateName}</h2><p>{candidate.candidateSummary ?? "暂无候选人摘要"}</p></div><span className="score-badge">{candidate.score ?? "—"} 分</span></div>
+          <div className="score-context"><span>匹配职位 <b>{candidate.jobTitle}</b></span><span>模型 <b>{candidate.modelId ?? "—"}</b></span><span>更新于 <b>{formatDateTime(candidate.updatedAt)}</b></span></div>
+          <div className="detail-section"><h3>匹配证据</h3><ul className="evidence-list positive">{candidate.evidence.map((copy, index) => <li key={`${copy}-${index}`}><b>证据 {index + 1}</b><span>{copy}</span></li>)}</ul></div>
+          <div className="detail-section two-cols"><div><h3>缺失项</h3><p className="notice amber">{candidate.missing.join("；") || "无"}</p></div><div><h3>风险提示</h3><p className="notice red">{candidate.risk.join("；") || "无"}</p></div></div>
+          <div className="dimension-scores"><h3>七维评分</h3>{candidate.dimensions.map((item) => <div key={item.dimension}><span>{DIMENSION_LABELS[item.dimension] ?? item.dimension}</span><i><b style={{ width: `${item.score ?? 0}%` }} /></i><strong>{item.assessable === false ? "不可评估" : item.score ?? "—"}</strong></div>)}</div>
+          <details className="score-trace"><summary>评分追溯</summary><p>{candidate.schemaVersion ?? "—"} · {candidate.promptVersion ?? "—"} · {candidate.aggregationRuleVersion ?? "—"} · 输出 {candidate.outputHash?.slice(0, 12) ?? "—"}</p></details>
+          <label className="review-note"><span>审核备注</span><textarea placeholder="填写判断依据或后续关注点（选填）" disabled /></label>
+          <div className="review-actions"><button disabled={reviewing} onClick={() => void decide("reject")}>拒绝</button><button className="approve" disabled={reviewing} onClick={() => void decide("approve")}>{reviewing ? "提交中…" : "通过并加入触达池"}</button></div>
+        </> : <div className="empty-state">{loading ? "正在加载匹配结果…" : "请选择一条待审核结果"}</div>}
       </aside>
     </section>}
   </>;
@@ -700,7 +725,7 @@ function PrototypePage({
   onSync: () => void;
   syncState: SyncTriggerState;
 }) {
-  if (page === "matching") return <MatchingPage />;
+  if (page === "matching") return <MatchingPage onAuthExpired={onAuthExpired} />;
   if (page === "campaigns") return <CampaignsPage />;
   if (page === "followups") return <FollowupsPage />;
   if (page === "funnel") return <FunnelPage />;

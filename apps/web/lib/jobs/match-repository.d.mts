@@ -25,6 +25,11 @@ export function upsertMatch(
     evidence?: string[];
     missing?: string[];
     risk?: string[];
+    jobProjectionId?: string | null;
+    candidateProjectionId?: string | null;
+    filterResultId?: string | null;
+    llmScoreRunId?: string | null;
+    aggregationRuleVersion?: string | null;
   },
 ): Promise<{ id: string; status: string }>;
 
@@ -46,7 +51,7 @@ export function replaceMatchDimensions(
   input: {
     matchId: string;
     dimensions:
-      | { dimension: string; score: number | null; evidence?: string | null; risk?: string | null }[]
+      | { dimension: string; score: number | null; evidence?: string | null; risk?: string | null; assessable?: boolean | null; confidence?: number | null; llmScoreRunId?: string | null; outputHash?: string | null }[]
       | null;
   },
 ): Promise<number>;

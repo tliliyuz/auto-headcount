@@ -83,18 +83,20 @@
 
 ### 2.5 业务写/读：匹配（M3 · 数据集成与匹配）
 
-现有端点已支持 Fixture 下的本地确定性评分和审核 API。修订后 `ADR-005` 两阶段权威路径的阶段一（不可变版本化投影 + 第一轮确定性硬过滤）已实现并落库 `job_match_projections`/`candidate_match_projections`/`match_filter_results`（迁移 0008，虚构 Fixture 已验证，见 [CHANGELOG](../CHANGELOG.md)）；但**投影与硬过滤结果尚未暴露为 HTTP API**（管线函数 `runProjectionFilterSync` 直接可测，调度/端点接线随阶段二 LLM 汇总一并落地）。目标路径为硬过滤通过后调用 LLM 脱敏详情评分，再由本地固定权重汇总；供应方 `match_candidates` 仅存 `matches.external_*` 外部对照。统一要求：会话 + RBAC `operations|admin`；写路由 CSRF 同源；每次访问写审计（`match-tasks.trigger` / `matches.list` / `matches.detail` / `matches.review`，元数据白名单仅计数/决策/状态）。
+`ADR-005` 两阶段权威路径由后台自动编排：消费不可变职位/候选人投影与硬过滤结果，调用脱敏详情评分适配器，再由本地固定权重汇总；供应方 `match_candidates` 仅存 `matches.external_*` 外部对照。正常路径不提供“勾选职位并创建匹配任务”的写接口；旧 `/api/match-tasks` 对已登录授权调用固定返回 `410 { code:"manual_match_disabled", message:"正常匹配已改为系统自动编排" }`，且不得入队。统一要求：会话 + RBAC `operations|admin`；写路由 CSRF 同源；每次访问写审计（`matches.list` / `matches.detail` / `matches.review` / `match-exceptions.list`，元数据白名单仅计数/决策/状态）。
 
 | 接口 | 方法 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|
-| `/api/match-tasks` | POST | 会话 + `operations\|admin` | `{ job_ids: string[] }`（仅可操作职位） | `202 { accepted: true, taskId }`；`202 { accepted:false, taskId, deduplicated:true }`；非法 `400` |
 | `/api/matches` | GET | 会话 + `operations\|admin` | `job_id?`/`band?`/`status?`/`page`/`page_size` | `200` 分页包络，`list[]` 匹配投影 |
 | `/api/matches/:id` | GET | 会话 + `operations\|admin` | 路径 `id`（UUID） | `200` 匹配详情（含维度分）；非 UUID `400`；查无 `404` |
 | `/api/matches/:id/review` | POST | 会话 + `operations\|admin` | `{ decision: "approve"\|"reject" }` | `200 { id, status }`；已审核 `409` |
+| `/api/match-exceptions` | GET | 会话 + `operations\|admin` | `type?`（`all`/`filter`/`scoring`）、`page`/`page_size` | `200` 分页包络；只返回白名单 `errorCode`、状态和 `retryable`，不返回供应商错误正文 |
 
 **当前匹配投影（`list[]`/详情）**：`id`、`jobId`、`jobTitle`、`jobExternalId`、`candidateId`、`candidateName`（打码）、`candidateSummary`、`score`、`band`、`status`、`ruleVersion`、`inputHash`、`scoreStatus`、`externalScore`/`externalTier`/`externalScoreStatus`（外部对照，可空）、`evidence`/`missing`/`risk`、`createdAt`/`updatedAt`；详情含 `dimensions[]`。
 
-**两阶段目标扩展（specified，尚未实现）**：列表/详情增加 `jobProjectionId`、`candidateProjectionId`、`filterResult`（`passed/reasonCodes`）、`llmScoreRunId`、`aggregationRuleVersion`、`modelId`、`modelRevision`、`promptVersion`、`schemaVersion`、`outputHash`；`dimensions[]` 增加 `assessable` 和 `confidence`。失败运行只返回白名单 `errorCode`，不返回供应商错误正文。**永不返回** `portal_url`、联系方式、未脱敏简历、LLM 原始请求/响应或 `raw_records.payload_*`。内部结构化契约见 [匹配契约](10-matching-contracts.md)。
+**两阶段响应扩展**：列表/详情增加 `jobProjectionId`、`candidateProjectionId`、`filterResult`（`passed/reasonCodes`）、`llmScoreRunId`、`aggregationRuleVersion`、`modelId`、`modelRevision`、`promptVersion`、`schemaVersion`、`outputHash`；`dimensions[]` 增加 `assessable` 和 `confidence`。失败运行只返回白名单 `errorCode`，不返回供应商错误正文。**永不返回** `portal_url`、联系方式、未脱敏简历、LLM 原始请求/响应或 `raw_records.payload_*`。内部结构化契约见 [匹配契约](10-matching-contracts.md)。
+
+**自动编排内部状态模型**：`filter_rejected` 为硬过滤终态且不调用 LLM；通过后依次为 `scoring_pending → scoring_running → pending_review`，评分失败转 `scoring_failed`，人工审核后转 `approved` 或 `rejected`。相同版本组合由请求哈希和运行版本幂等；周期任务只消费缺少成功运行的组合。该状态模型是 API 投影，不要求所有状态写入同一数据库列。
 
 ## 3. 规划端点（随里程碑补充）
 
@@ -105,8 +107,8 @@
 | 职位巡检（M1） | `GET /api/jobs/under-served`、`GET /api/jobs/:id` | 已设计（见 §2.2；`/api/jobs` 全列表另行设计） |
 | 数据源/同步（M1） | `GET /api/sources`、`GET /api/sync-runs` | 已设计（见 §2.2） |
 | 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
-| 匹配（M3） | `POST /api/match-tasks`、`GET /api/matches`、`GET /api/matches/:id`、`POST /api/matches/:id/review` | 已设计（见 §2.5） |
-| 浏览器采集控制（M2） | `POST /api/browser-collections` | 单职位任务创建契约已定稿；任务状态查询复用后续统一任务读 API |
+| 匹配（M3） | `GET /api/matches`、`GET /api/matches/:id`、`POST /api/matches/:id/review`、`GET /api/match-exceptions` | 已设计（见 §2.5；正常匹配由后台自动编排） |
+| 浏览器采集控制（M2） | `POST /api/browser-collections` | 批量发现任务为运营主入口；兼容单职位任务仅供诊断/受控重跑 |
 | 浏览器受控直传（M2） | `POST /api/browser-ingestion/:ticket` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
 | 触达活动（M4） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |
 | 跟进任务（M5） | `GET/POST /api/followups` | 待设计 |
@@ -119,6 +121,8 @@
 - 职位详情 Relay 适配器协议已经由 [`liebide-job-detail.request.v1`](contracts/liebide-job-detail.request.v1.schema.json) 和 [`liebide-job-detail.receipt.v1`](contracts/liebide-job-detail.receipt.v1.schema.json) 固定，并按 [`浏览器采集 Runbook`](runbooks/browser-collection.md) 做单职位只读验证。该协议不是管理端 HTTP API，也不代表下述任务、ingestion 或入库端点已经实现。
 - `POST /api/browser-collections` 由管理端会话 + `operations|admin` 创建单职位 `browser_job_collect` 任务，请求体严格使用 [`browser-job-collect.task.v1`](contracts/browser-job-collect.task.v1.schema.json)。成功返回 `202 { accepted:true, taskId }`；同一来源、设备、契约和职位的活跃任务重复提交返回 `202 { accepted:false, taskId, deduplicated:true }`。写路由执行同源 CSRF 和 `browser.collection.trigger` 审计，审计只保存 task ID、是否去重、契约 ID，不保存用户/设备/职位完整值。
 - 任务载荷不保存 `browserSessionId`。执行时 Relay 只可在 `userId + deviceId` 所有权范围内选择当前活跃页面，并以目标 external ID 做 `READY` 预检；无唯一可用页面或实体不匹配时失败关闭，不切换其他设备。
+- 批量 HTTP 请求只接受 `sourceConnectionId`、固定 `contractId=liebide-filtered-job-list-v2`、`batchSize`、`maxPages` 和可选数字断点；服务端生成 `batchId`，并从 `BROWSER_RELAY_USER_ID`、`BROWSER_RELAY_DEVICE_ID` 注入 [`browser-job-batch-discover.task.v2`](contracts/browser-job-batch-discover.task.v2.schema.json) 所需路由。缺少服务端路由配置返回 `503 browser_route_config_required` 且不入队；请求体中的 `userId/deviceId` 不得覆盖部署绑定。成功返回 `202 { accepted:true, batchId, taskId }`；同一路由已有活跃发现批次时返回其 ID 并标记 `deduplicated:true`。
+- 列表请求/回执分别由 [`liebide-filtered-job-list.request.v2`](contracts/liebide-filtered-job-list.request.v2.schema.json) 与 [`liebide-filtered-job-list.receipt.v2`](contracts/liebide-filtered-job-list.receipt.v2.schema.json) 固定。v2 只接受“推荐 0 人、发布时间最近 30 天”的页面筛选证据；回执条目只含 `externalId/title/pageNumber/position`，断点只含页码与停止原因。Consumer 持久化批次/条目后按条目创建 `browser_job_collect`，详情任务再独立复核 7～30 天规则，0～6 天项只记跳过。
 - 服务端为单个任务签发短期、高熵、单次消费 ingestion ticket；数据库只保存 token 哈希、任务/契约绑定、到期时间和大小上限，明文 ticket 不写日志或审计。
 - `POST /api/browser-ingestion/:ticket` 不接受管理端 Cookie，以 ticket 作为独立身份域；必须校验 HTTPS、到期/撤销/已消费、任务、契约版本、来源域/设备声明、内容类型、载荷大小、Schema 和内容哈希后，先加密再持久化。
 - 成功响应只返回 receipt ID、接受/拒绝计数、内容哈希和下一游标；错误只返回机器码。任何响应、审计或普通日志都不得回显 ticket、Cookie、完整简历或联系方式。

@@ -15,6 +15,9 @@ export interface SyncTickResult {
   detailsEnqueued: boolean;
   detailsTaskId: string | null;
   detailsIdempotencyKey: string;
+  matchesEnqueued: boolean;
+  matchesTaskId: string | null;
+  matchesIdempotencyKey: string | null;
   /** 看门狗回收的崩溃残留 running 任务数。 */
   staleReclaimed: number;
   claimed: number;
@@ -29,6 +32,7 @@ export declare function buildSyncIdempotencyKey(
   provider: string,
   periodKey: number,
 ): string;
+export declare function buildMatchPipelineIdempotencyKey(periodKey: number): string;
 export declare function nextRetryDelayMs(
   attempts: number,
   baseMs?: number,
@@ -59,6 +63,11 @@ export declare function enqueueJobDetailSyncTasks(
   },
 ): Promise<{ enqueuedDetails: boolean; taskId: string | null; idempotencyKey: string }>;
 
+export declare function enqueueAutomaticMatchTasks(
+  sql: postgres.Sql,
+  input: { now: Date; intervalMs?: number },
+): Promise<{ enqueuedMatches: boolean; taskId: string | null; idempotencyKey: string }>;
+
 export declare function processDueTasks(
   sql: postgres.Sql,
   input: {
@@ -67,6 +76,7 @@ export declare function processDueTasks(
     maxAttempts?: number;
     staleTaskMs?: number;
     mcp?: { callTool: (tool: string, args: object) => Promise<unknown> };
+    scoringAdapter?: unknown;
   },
 ): Promise<{
   staleReclaimed: number;
@@ -85,4 +95,5 @@ export declare function runScheduledTick(input: {
   maxAttempts?: number;
   staleTaskMs?: number;
   mcp?: { callTool: (tool: string, args: object) => Promise<unknown> };
+  scoringAdapter?: unknown;
 }): Promise<SyncTickResult>;

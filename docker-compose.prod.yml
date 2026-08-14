@@ -37,7 +37,8 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      context: .
+      dockerfile: apps/web/Dockerfile
       target: production
     env_file:
       - path: ./.env.production
@@ -51,7 +52,8 @@ services:
 
   scheduler:
     build:
-      context: ./apps/web
+      context: .
+      dockerfile: apps/web/Dockerfile
       target: production
     command: node scripts/run-scheduled-tick.mjs --loop
     env_file:

@@ -10,6 +10,42 @@
 
 ## [Unreleased]
 
+### 2026-08-14 — 猎必得最近 30 天列表合同 v2
+
+> 状态：真实筛选口径 `specified`；Consumer/Provider 与 Schema `implemented`；Consumer 定向 22/22、Provider 全量 73/73、双仓 Schema 哈希、ESLint 与生产构建 `verified`；真实整批成功路径仍待复验。
+
+- 真实页面确认猎必得列表没有“发布 7～30 天”选项，运营实际可选择“推荐 0 人、发布时间最近 30 天”。列表合同不兼容升级为 `liebide-filtered-job-list-v2`，v1 Schema 保留为历史版本，不静默改义。
+- 列表 v2 只负责发现 0～30 天候选；`liebide-job-detail-v1` 继续逐职位复核 `active + 发布 7～30 天 + 有效推荐数 0`，0～6 天及其他不合格项只记跳过，不写 `jobs`。
+- 验证：Consumer 浏览器采集定向 22/22、Provider Node 全量 73/73、列表/详情双仓 Schema 规范化哈希一致，ESLint 与 Vinext 生产构建通过；Bridge 已重启加载 v2，扩展重载及真实批次复验仍需在授权浏览器中完成。
+- 真实 v2 首次执行通过筛选证据后按预期因列表 DOM 不同失败关闭：页面使用 `.job-item[data-spm-e-data]` 卡片而非职位 `<a>`。新增无链接虚构卡片 Fixture，先观察 `PAGE_CONTRACT_CHANGED: no job rows found` RED，再从卡片公开元数据中的固定详情地址提取 ID、从白名单名称字段提取标题；Provider 定向更新为 8/8 并通过静态检查，真实重载后复验待完成。
+- 真实跨页回执进一步暴露 Element 分页先更新 active 页码、后更新卡片数据：旧等待条件产生 20 条中仅 10 个唯一 ID，Consumer 以重复 ID 失败关闭且零写入。新增延迟卡片更新 Fixture 并观察 6/7 RED，修正为首条职位 ID 实际变化后才继续；Provider 合同定向 9/9、全量 75/75 GREEN。
+- 正式发现已真实成功并创建 20 个详情任务。详情链路复验修复两处 Consumer 接线：详情页/列表页之间允许在唯一同源、已登录页面上以 `WRONG_ENTITY` 进入固定导航，其他状态仍失败关闭；详情预检内部 `contractId` 在关闭参数构造前剥离，避免 `BROWSER_COLLECTION_ARGUMENTS_INVALID`。Consumer 定向 20/20、ESLint 与生产构建通过。
+- 真实详情页状态位于 `.name_tags_wrap .tags`，而非旧 Fixture 的 `.tags .job-tag-primary`；Provider 先以 `unknown job status` 失败关闭，新增真实形状的虚构 Fixture RED 后兼容包含“招聘中”的状态标签，合同定向 10/10、全量 76/76 GREEN。扩展重载及 20 条详情最终复验仍待完成。
+
+### 2026-08-13 — 自动两阶段匹配与审核工作台接线
+
+> 状态：产品/API/前端规范 `specified`；Fake LLM、本地汇总、周期自动编排、匹配/异常 API 与 MatchingPage `implemented`；单元、ESLint、生产构建和无数据库 HTTP/渲染测试 `verified`，PostgreSQL 集成因本机未提供 `DATABASE_URL` 跳过，不声明数据库闭环已 verified。
+
+- 正常匹配改为后台自动编排：周期任务只消费缺少同版本成功运行的硬过滤通过组合，执行稳定预排序、单职位 Top-K 与单轮全局预算；旧 `/api/match-tasks` 授权后固定返回 `410 manual_match_disabled`，职位页不再提供复选框或“创建匹配任务”。
+- 新增确定性 Fake LLM 评分适配器和 `aggregation/v1` 本地固定权重汇总；不可评估维度不猜分并按剩余维度重归一，完整版本束派生独立匹配规则版本，生产未配置批准适配器时失败关闭。
+- `matches`/`match_dimensions` 写入投影、过滤、LLM 运行、输出哈希、可评估性与置信度追溯；匹配列表/详情响应扩展版本信息，新增 `/api/match-exceptions` 白名单异常列表和人工审核接线。
+- `MatchingPage` 删除静态候选人与异常数组，接真实列表、详情、审核和异常 API，覆盖 loading/空态/错误/会话失效；职位页仅展示 JD、沉睡时长和只读自动匹配状态。
+- 修复生产调度器加载匹配 Schema 时缺少 `ajv/dist/2020.js`：`ajv`/`ajv-formats` 调整为生产依赖，Docker 构建上下文显式包含权威 `docs/contracts`，避免后续运行时契约文件缺失。
+- 验证：新增 RED 后完成 Fake/汇总/调度定向 9/9；全量单元 171/171、ESLint、Vinext 生产构建、渲染 3/3 通过；集成测试 36 项因无 `DATABASE_URL` 全部显式跳过。
+
+### 2026-08-13 — 筛选列表批量发现与自动详情导航
+
+> 状态：双端 Fixture、Consumer 单元/构建与 CSDN-Agent Rust Relay 定向测试 `verified`；PostgreSQL 整批集成、授权登录态真实列表仍待完成，不声明生产批量可用。
+
+- 新增 `liebide-filtered-job-list-v1` 请求/回执 Schema：最初固定验证“有效推荐数 0、发布 7～30 天”，在 `batchSize<=100`/`maxPages<=20` 内自动翻页，只返回职位 ID、标题、页码/页内序号、筛选证据、停止原因、page/offset 断点和 SHA-256；该版本随后因真实页面仅提供“最近 30 天”而由 v2 取代。
+- 新增 `browser_job_batch_discover` 调度分发与迁移 0009：持久化批次、数字断点、唯一发现条目及成功/跳过/失败计数，事务内按发现项创建幂等 `browser_job_collect`；详情仍执行 ID、active、7～30 天、零推荐复核。
+- CSDN-Agent Provider 新增固定列表解析/翻页合同；详情合同在授权域名内自动导航到确定性 `MyCompany.html#/Job/{externalId}`，无需运营逐个打开职位。未知字段、提示词、URL、选择器、异常筛选和页面漂移失败关闭。
+- 管理端数据源页新增“采集当前筛选结果”和批量选择；CSDN-Agent 用户/设备标识由服务端 `BROWSER_RELAY_USER_ID/BROWSER_RELAY_DEVICE_ID` 固定注入，页面不再要求运营填写，客户端也不能覆盖部署绑定。配置缺失时返回 503 且不创建批次。后端仍执行 operations/admin、CSRF、批次去重与最小化审计。
+- 路由配置修复完成 RED/GREEN：新增 3 个服务端配置/防覆盖测试；浏览器采集相关定向 18/18、ESLint、生产构建与 Markdown 链接检查通过。
+- 首次真实批次发现并修复 Relay 接线：内部 `contractId` 只用于选择固定合同，不再重复进入关闭参数构造器；连接预检改走 `/mcp/local-tool`，列表/详情执行保持 `/mcp/request`；Docker Desktop 本地 Bridge 使用 `host.docker.internal:48887/mcp/request`。相关回归先 RED 后 GREEN。
+- 真实批次 `e1df8e84…` 已依次越过参数、HTTP URL 和本地工具路由门禁，最终按预期在 `BROWSER_WRONG_ORIGIN` 失败关闭；当时 Relay active page 为 auto-headcount 本地后台而非猎必得，发现数和职位入库数均为 0。该结果只验证失败门禁，不声明真实列表采集成功。
+- 验证：Consumer 定向 20/20、单元 167/167、ESLint、生产构建、双仓列表/详情 Schema 哈希一致；Provider 合同定向 7/7、Node 全量 72/72、静态检查与 Rust Relay 定向 1/1 通过。真实猎必得筛选 DOM/分页和 PostgreSQL 整批调度尚未完成最终验证。
+
 ### 2026-08-13 — M3 阶段一：投影生成 + 第一轮确定性硬过滤（垂直切片）
 
 > 状态：虚构 Fixture + PostgreSQL `verified`（迁移 0008）；LLM 适配器、本地汇总、人工审核页与调度/API 接线仍为 `specified`/后续切片。

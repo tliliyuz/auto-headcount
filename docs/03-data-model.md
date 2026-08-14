@@ -42,7 +42,7 @@
 
 `candidate_contacts`、`browser_source_bindings`、`ingestion_tickets`、`source_field_observations`、`campaigns`、`campaign_recipients`、`landing_links`、`intent_responses`、`funnel_events`、`follow_up_tasks`、`recommendations`。字段草案见 [§8 规划表](#8-规划表m2m5未落库)，落地前必须先回写本文件再写迁移。
 
-**M3 匹配表（迁移 0007/0008 已落库）**：`job_requirements`、`match_rules`、`candidates`、`candidate_profiles`、`matches`、`match_dimensions` + 迁移 0008 新增 `job_match_projections`、`candidate_match_projections`、`match_filter_results`、`llm_score_runs`。旧本地评分表已支持 Fixture 下的确定性评分；两阶段投影/过滤表已落库（迁移 0008），LLM 评分与汇总流程仍待 LLM 适配器切片消费（见 [§7.3](#73-匹配域表m3-数据集成与匹配)、[§7.4](#74-两阶段匹配表)）。
+**M3 匹配表（迁移 0007/0008 已落库）**：`job_requirements`、`match_rules`、`candidates`、`candidate_profiles`、`matches`、`match_dimensions` + 迁移 0008 新增 `job_match_projections`、`candidate_match_projections`、`match_filter_results`、`llm_score_runs`。两阶段投影/过滤、评分运行、本地汇总和匹配追溯写入均已实现；真实候选人输入与批准的生产 LLM 适配器仍未接入（见 [§7.3](#73-匹配域表m3-数据集成与匹配)、[§7.4](#74-两阶段匹配表)）。
 
 ## 3. 通用存储约定
 
@@ -204,7 +204,7 @@ erDiagram
 
 ## 7.3 匹配域表（M3 数据集成与匹配）
 
-迁移 0007 已落库的表支持旧的本地确定性 Fixture 闭环；迁移 0008 已落库两阶段匹配表（不可变职位/候选人投影、硬过滤结果、LLM 评分运行）并扩展 `matches`/`match_dimensions` 追溯列。修订后 [ADR-005](decisions/ADR-005-authorized-web-collection-and-local-matching.md) 主路径：版本化投影 → 硬过滤 → LLM 脱敏详情评分 → 本地固定权重汇总权威总分；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。投影生成 + 第一轮硬过滤已实现（迁移 0008 切片），LLM 评分与汇总仍待 LLM 适配器切片消费。
+迁移 0007 已落库的表支持旧的本地确定性 Fixture 闭环；迁移 0008 已落库两阶段匹配表并扩展 `matches`/`match_dimensions` 追溯列。[ADR-005](decisions/ADR-005-authorized-web-collection-and-local-matching.md) 主路径已实现为：版本化投影 → 硬过滤 → 评分端口的脱敏七维输出 → 本地固定权重汇总权威总分；供应方 `match_candidates` 结果仅存 `matches.external_*` 作外部对照。当前评分端口只有开发/CI Fake，批准的生产 LLM 适配器仍保持关闭。
 
 | 表 | 关键字段与约束 |
 |:---|:---|
@@ -342,6 +342,11 @@ unknown → permitted → opted_out
 3. **`0002_steady_cargill`**：建 `user_role`/`user_status` 枚举与 `organizations`/`users`/`role_assignments`/`sessions`/`audit_logs`（含外键与索引）。
 4. **`0003_complete_wallop`**：`audit_logs` 增加 `ip_address`（可空），并建立追加写触发器 `audit_logs_no_modify`（`guard_audit_logs`：`UPDATE` 拒绝、`DELETE` 需 `app.audit_retention=on`）。
 5. **`0004_chilly_zaladane`**：建 `async_task_status` 枚举与 `async_tasks` 表（含唯一幂等键与 `(status, scheduled_at)` 调度索引）。
+6. **`0005_charming_magneto`**：`jobs` 增加完整 `job_description`。
+7. **`0006_tiresome_mockingbird`**：`jobs` 增加 `operability_status` 权限可操作性投影。
+8. **`0007_huge_clea`**：建本地匹配基础表与职位—候选人结果表。
+9. **`0008_furry_princess_powerful`**：建两阶段匹配投影、硬过滤和 LLM 运行表，并扩展匹配追溯列。
+10. **`0009_browser_collection_batches`**：建 `browser_collection_batches`/`browser_collection_items`，保存有界发现批次、page/offset 断点、唯一条目与详情终态计数。
 
 迁移由 Drizzle journal（`__drizzle_migrations`）保证幂等，重复执行安全跳过。新增表必须在迁移前回写本文件 §2/§8。
 

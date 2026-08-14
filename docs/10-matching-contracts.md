@@ -20,7 +20,7 @@
 - 展示摘要仅用于列表和人工审核概览，最多 150 字符；硬过滤必须读取结构化画像，不得只依赖摘要文本。
 - 实现必须在持久化与外部调用前执行 JSON Schema 校验；未知字段因 `additionalProperties:false` 被拒绝。
 
-**实现状态（2026-08-13）**：三份 v1 Schema 的运行时校验已实现于 `apps/web/lib/matching/projection-schemas.mjs`（Ajv2020，`validateJobRequirementProjection`/`validateCandidateMatchProjection`/`validateLlmDetailScore`），职位要求投影与候选人脱敏投影生成器（`lib/matching/job-projection.mjs`、`candidate-projection.mjs`）在落库前执行校验；候选人生成器对残留 PII 返回 `MATCH_PROJECTION_PII_DETECTED`，不产出消费态投影。第一阶段确定性硬过滤已实现于 `lib/matching/filter.mjs`（纯函数，六种原因码 + `REQUIRED_FIELD_MISSING` + `combined_input_hash`），结果落库 `match_filter_results`（不可变幂等）。以上均经虚构 Fixture 验证（见 [CHANGELOG](../CHANGELOG.md)）；LLM 适配器与本地汇总仍为 `specified`。
+**实现状态（2026-08-13）**：三份 v1 Schema 运行时校验、职位/候选人投影生成器、残留 PII 拒绝和第一阶段确定性硬过滤已实现。第二阶段已实现统一评分端口、开发/CI 确定性 Fake、`llm_score_runs` 加密结构化输出、本地 `aggregation/v1` 汇总、匹配追溯写入和周期自动编排；批准的生产 LLM 适配器仍为 `specified`，未配置时失败关闭。
 
 ## 3. 职位要求结构化提取契约
 
@@ -66,7 +66,7 @@
 
 `passed=false` 时不创建 LLM 评分运行。`REQUIRED_FIELD_MISSING` 默认不猜测通过；进入异常/人工补全队列。
 
-> **技术债（2026-08-13，未实现）**：硬过滤只保证"未通过者不调 LLM"，不保证通过者的数量上界——一个要招 10 人的岗位，硬过滤后通过 100+ 个候选人属正常，全部送 LLM 成本不可控。阶段一之后、LLM 之前的**候选池成本上界机制**（候选方案：本地确定性预排序 + 每职位 Top-K + 每轮全局 LLM 调用预算，K/M 可配置且可审计）尚未定案，属产品/成本决策。待 M3 阶段二（LLM 评分 + 本地汇总）跑通、拿到真实通过量后回填并实现。
+> **成本上界（2026-08-13，默认机制已实现）**：硬过滤通过者按结构化技能命中与地点命中稳定预排序，再限制每职位 Top-K（默认 10）和每轮全局调用预算（默认 20）。预算外组合不标失败，由后续周期继续消费；参数可配置，真实通过量与费用到位后再校准。
 
 > **实现状态**：`hardFilter`（`lib/matching/filter.mjs`）输出每条原因携带 `jobValue`/`candidateValue`/`explanation`（人类可读），`combined_input_hash` = 职位投影 hash + 候选人投影 hash + 规则版本组合 SHA-256；同输入同规则版本确定性复算（虚构 Fixture 已验证）。未通过硬过滤的组合不创建 LLM 运行。
 

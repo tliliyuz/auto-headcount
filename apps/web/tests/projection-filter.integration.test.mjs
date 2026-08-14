@@ -5,6 +5,7 @@ import test from "node:test";
 import postgres from "postgres";
 
 import { runProjectionFilterSync } from "../lib/jobs/projection-filter-sync.mjs";
+import { runAutomaticMatchPipeline } from "../lib/jobs/automatic-match-pipeline.mjs";
 import {
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -87,6 +88,15 @@ async function seedCandidate(sql, { externalId, displayName, profile }) {
 async function cleanup(sql, { sourceId, candidateIds, jobIds }) {
   if (sourceId) {
     const projJobIds = jobIds ?? [];
+    await sql`delete from match_dimensions where match_id in (select id from matches where job_id = any(${projJobIds}))`;
+    await sql`delete from matches where job_id = any(${projJobIds})`;
+    await sql`
+      delete from llm_score_runs where filter_result_id in (
+        select fr.id from match_filter_results fr
+        join job_match_projections jp on jp.id = fr.job_projection_id
+        where jp.job_id = any(${projJobIds})
+      )
+    `;
     await sql`
       delete from match_filter_results
       where job_projection_id in (
@@ -101,8 +111,6 @@ async function cleanup(sql, { sourceId, candidateIds, jobIds }) {
     await sql`
       delete from candidate_match_projections where candidate_id = any(${candidateIds})
     `;
-    await sql`delete from match_dimensions where match_id in (select id from matches where job_id = any(${projJobIds}))`;
-    await sql`delete from matches where job_id = any(${projJobIds})`;
     if (candidateIds?.length) {
       await sql`delete from candidate_profiles where candidate_id = any(${candidateIds})`;
       await sql`delete from candidates where id = any(${candidateIds})`;
@@ -246,6 +254,34 @@ test(
       assert.ok(fr, "过滤结果已落库");
       assert.equal(fr.passed, true);
       assert.deepEqual(fr.reason_codes, []);
+
+      const pipelineEnv = {
+        APP_ENV: "test",
+        APP_ENCRYPTION_KEY: encryption.key,
+        APP_ENCRYPTION_KEY_VERSION: encryption.keyVersion,
+      };
+      const scored = await runAutomaticMatchPipeline({ sql, env: pipelineEnv });
+      assert.equal(scored.status, "succeeded");
+      assert.equal(scored.stats.scored, 1);
+      const [stored] = await sql`
+        select m.status, m.score_status, m.job_projection_id, m.candidate_projection_id,
+          m.filter_result_id, m.llm_score_run_id, m.aggregation_rule_version,
+          (select count(*)::int from match_dimensions md where md.match_id = m.id) as dimension_count
+        from matches m where m.job_id = ${jobId} and m.candidate_id = ${goodId}
+      `;
+      assert.equal(stored.status, "pending_review");
+      assert.equal(stored.score_status, "llm_aggregated");
+      assert.equal(stored.dimension_count, 7);
+      assert.equal(stored.aggregation_rule_version, "aggregation/v1");
+
+      const idempotent = await runAutomaticMatchPipeline({ sql, env: pipelineEnv });
+      assert.equal(idempotent.stats.scored, 0, "相同版本组合不重复调用评分适配器");
+      const runCount = await sql`
+        select count(*)::int as n from llm_score_runs where filter_result_id = (
+          select id from match_filter_results where job_projection_id = ${jp.id} and candidate_projection_id = ${cp.id}
+        )
+      `;
+      assert.equal(runCount[0].n, 1);
 
       // 幂等重跑：投影/过滤结果不重复（版本不覆盖 + 唯一约束）
       const second = await runProjectionFilterSync({
