@@ -31,6 +31,25 @@
 - **候选人分类证据对齐（跨 Provider，2026-08-14）**：运营确认猎必得人才池候选人分类实际叫「互联网技术其他」，两端 const 从「互联网技术」对齐——Consumer（`parseTalentPoolListExtractionResult` + receipt schema + check 脚本 + Fixture）与 Provider（csdn-agent `runLiebideTalentPoolListContract` 校验 + 回执 `filterEvidence` 改为报告实际提取值 `{ category }`，此前硬编码「互联网技术」是契约跑不起来的主因 + receipt schema + check 脚本 + 测试）。Provider 93/93、Consumer 202/202 + 44/44 + 契约对齐通过，真实采集可跑。
 - 文档：`docs/09-api-contract.md` §3.2 候选人采集任务端点；`docs/10-candidate-collection.md` §3.1 分类证据注记更新（值已对齐；参数化分类为后续待定）。
 
+### 2026-08-15 — 落地页核心切片：令牌门禁脱敏页 + 意向提交 + 飞书通知（ADR-006 实现）
+
+> 状态：`verified`。单测 212/212、集成 46/46（迁移 0011 应用到全新集成库）、rendered-html 3/3、http-read 1/1、lint/tsc 0 错误、Vinext 生产构建通过；浏览器实测（dev 真实职位）：脱敏页渲染（标题/城市/薪资范围/「某科技企业」，无公司名与 JD 摘要）、意向 A 提交落库、重复提交幂等去重、联系方式信封加密无明文、notify 未配置时诚实失败（NOTIFIER_NOT_CONFIGURED）。
+
+- 迁移 0011：`intent_option`（A/B/C/opt_out）/`notify_status`（pending/succeeded/failed）枚举 + `landing_links`（job×candidate、token_hash 只存哈希、expires_at/revoked_at/created_by）+ `intent_responses`（联系方式单信封 `encryptJsonPayload` 加密 + HMAC + consent_snapshot + notify 状态，landing_link_id 唯一幂等）。
+- `lib/landing/`：landing-token（32 字节 base64url + SHA-256）、landing-link-repository（建链/有效令牌门禁/撤销/分页）、intent-repository（幂等创建/查询/notify 结果）、landing-mask（脱敏白名单 DTO：标题/类别/城市/薪资范围，**省略可能泄漏公司/品牌名的 JD 摘要**）、landing-contact（信封加密 + HMAC）、landing-intent-service（令牌门禁 → 幂等 → 加密落库 → notifier 尽力投递 → notify 状态）。
+- `lib/notifier/`：notifier 适配器工厂（fake/飞书/null）+ feishu-notifier（webhook + `timestamp\nsecret` 签名，payload 最小化：联系方式+意向+职位+时间；失败 `NOTIFY_HTTP_*`/`NOTIFY_UNREACHABLE`/`NOTIFIER_NOT_CONFIGURED`）。
+- API：`POST /api/landing-links`（运营侧会话 + RBAC + CSRF + 审计，明文令牌仅建链响应返回一次）；`GET /api/landing/:token`（公开，独立身份域，脱敏 DTO，失效统一 404）；`POST /api/landing/:token/intent`（公开，幂等去重，联系方式加密，提交/notify 结果审计，审计元数据不含联系方式正文）。公开落地页 `app/landing/[token]/page.tsx`。
+- 测试：landing-token/landing-mask/feishu-notifier 单测；link 仓储/intent 服务集成测试；迁移契约 0011 断言；http-read 鉴权/CSRF/坏请求断言。
+- 文档：`docs/07` §3 切片验收、`docs/03` §8/§9/§10（含 JD 摘要省略注记）、`docs/01` §1.5、`apps/web/docs/FRONTEND.md` 公开落地页说明、`docs/09` §3.3 契约。
+
+### 2026-08-14 — 决策：ADR-006 落地页意向反馈实时通知（飞书）接受，M4 落地页核心切片并行启动
+
+> 状态：`specified`。ADR-006 已由项目负责人确认（proposed → accepted）：候选人在落地页主动提交意向与联系方式后，经 notifier 适配器（首实现飞书群机器人 webhook）异步推送最小化 payload（联系方式 + 意向 + 职位 + 时间）给运营，按 `(candidate_id, job_id, intent_event_id)` 幂等去重、触发/失败全审计，webhook 与签名 secret 走部署密钥服务。M4 落地页核心切片（脱敏职位页/随机令牌/过期撤销/A/B/C/退订/联系方式确认/飞书通知）按并行口径提前启动，用真实职位 + 完全虚构候选人 Fixture 验证；完整 M4 退出门禁仍需 M3 通过后收口。
+
+- `docs/decisions/ADR-006-landing-intent-notifier.md`：新增（accepted）：意向是真源、通知尽力转发；notifier 适配器接口；最小化 payload；授权边界（仅主动提交触发、退订也通知、仅运营内部群）；幂等与审计；境内必要性评估。
+- `docs/05-roadmap.md`：M4 状态未开始 → 进行中；§2 主线与 M4 进入条件加并行注记（照 M2/M3 并行口径）；意向反馈通知条目引用 ADR-006。
+- `docs/decisions/README.md`：索引补 ADR-006。
+
 ### 2026-08-14 — 候选人差分采集：仓储 + 差分调度 + 数据模型（迁移 0010）
 
 > 状态：`implemented`。ESLint、`npx tsc` 0 错误、单测 201/201、集成测试 43/43（`auto_headcount_test` 全新库迁移可应用，含迁移 `0010`）、Provider↔Consumer 契约对齐通过。**注意**：本条目同时修复了「迁移 0010 重复 0009 建 `browser_collection_*` 导致全新库 42P07」的迁移基线缺陷——`drizzle/meta` 缺 `0009_snapshot.json` 使 drizzle-kit 从 0008 快照生成重复建表语句；已重建 0009 快照链并重新生成干净的 `0010_bitter_odin.sql`，集成测试库全量通过。

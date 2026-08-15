@@ -135,3 +135,31 @@
 - `POST /api/candidate-collections` 由管理端会话 + `operations|admin` 创建人才池候选人**批次发现**任务。批量请求只接受 `sourceConnectionId`、固定 `contractId=liebide-talent-pool-list-v1`、`batchSize`、`maxPages` 和可选数字断点；服务端生成 `batchId`，并从 `BROWSER_RELAY_USER_ID`/`BROWSER_RELAY_DEVICE_ID` 注入路由。缺少服务端路由配置返回 `503 browser_route_config_required` 且不入队；请求体 `userId/deviceId` 不得覆盖部署绑定。成功返回 `202 { accepted:true, batchId, taskId }`；同一路由已有活跃发现批次时返回其 ID 并标记 `deduplicated:true`。`batchSize` 为差分目标：发现任务读取该来源已入库候选人集合，跳过已入库且 `current_title` 未变的候选人，按合同断点向后翻页直到凑满 `batchSize` 个「新增 + 画像变化」候选人或结果末尾，再为这些候选人创建 `browser_candidate_collect` 详情任务。写路由执行同源 CSRF 和 `candidate.collection.trigger` 审计，审计只保存 batch/task ID、是否去重、契约 ID，不保存用户/设备/候选人完整值。
 - `GET /api/candidate-batches` 由管理端会话 + `operations|admin` 只读返回 `browser_candidate_batches` 批次列表（`page/page_size` 分页），结构与 `GET /api/browser-batches` 一致；审计 `candidate-batches.list` 只保存页码/条数/总数。
 - 候选人详情回执含**真实姓名**（内部 `candidates`，RBAC + 加密 + 审计保护），但**联系方式/简历正文白名单外键失败关闭**，绝不进 HTTP 响应、任务载荷、审计或日志；`candidate-match-projection.v1` 的脱敏职责在匹配侧另行保证（见 [10-matching-contracts](10-matching-contracts.md)）。
+
+### 3.3 落地页与意向（M4 切片）
+
+落地页公开端点属于**独立身份域**（[`ADR-006`](decisions/ADR-006-landing-intent-notifier.md)）：只接受随机令牌哈希校验，不并入管理端会话/RBAC；仅运营侧建链端点走会话 + `operations|admin`。
+
+**运营侧建链**（管理端）：
+
+| 接口 | 方法 | 鉴权 | 请求 | 响应 |
+|---|---|---|---|---|
+| `/api/landing-links` | POST | 会话 + `operations\|admin` | `{ jobId, candidateId, expiresInDays? }` | `201 { linkId, url }`（`url` 含明文令牌，**仅此一次**返回给创建者）；查无职位/候选人 `404` |
+
+- 令牌为高熵随机（≥32 字节 → base64url），数据库只存 SHA-256 哈希；`expires_at` 默认 30 天；支持撤销。
+- 审计 `landing.link.create` 只存 `linkId/jobId/candidateId`，不含明文令牌。
+- **生产门禁注记**：完整 M4 中建链仅对「人工审核通过的匹配」开放；本切片为可测试核心机制，先按职位+候选人直接建链，审核门禁随活动流程（`campaigns`）收口。
+
+**公开侧意向**（独立身份域，无会话；令牌即能力凭证）：
+
+| 接口 | 方法 | 鉴权 | 请求 | 响应 |
+|---|---|---|---|---|
+| `GET /api/landing/:token` | GET | 令牌哈希 | 无 | `200` 脱敏职位 DTO；令牌不存在/已过期/已撤销 `404 { code: "landing_link_unavailable" }` |
+| `POST /api/landing/:token/intent` | POST | 令牌哈希 | `{ option, phone?, email?, consentSnapshot? }` | `200 { responseId, option, deduplicated? }`；无效令牌 `404`；option 非法/无联系方式 `400` |
+
+- 公开侧响应（页面/DTO）只含白名单字段：职位标题、类别、城市、薪资范围、去标识化职责摘要、意向操作；**永不包含**公司名称/简称、内部职位编号、客户联系人、招聘负责人、详细地址或原始 JD（见 [`03-data-model.md`](03-data-model.md) §10）。职责摘要由**模板 + 白名单词库**自动生成（`lib/landing/landing-summary.mjs`）：大类桶模板 + 从 JD 命中的通用能力词/行业词变量，公司/产品专名结构性无法进入；确定性纯函数，LLM 改写留作增强路径。
+- 薪资只展示上下限范围；边界缺失时安全降级文案，不推断精确薪资。
+- 意向 `option ∈ { A, B, C, opt_out }`；同一 `landing_link_id` 唯一，重复提交返回既有记录并标记 `deduplicated:true`（不产生冲突数据）。
+- 联系方式 `phone`/`email` 至少一个，应用层加密入库；明文不落日志/审计/审计元数据。
+- 落库成功后经 notifier 适配器（首实现飞书群机器人 webhook）**直接尽力投递**（有界超时，`NOTIFIER_NOT_CONFIGURED`/非 2xx/不可达均记 `notify_status=failed` + `notify_error_code`，不阻塞意向真源，失败可重试）；payload 最小化（联系方式+意向+职位+时间）；同一意向回复仅投递一次，触发/成功/失败写审计（`landing.intent.submit` 元数据白名单 responseId/deduplicated/notifyStatus），审计元数据不含联系方式正文。
+- CSRF：公开侧无会话，令牌为请求能力；重复提交幂等（返回既有记录 + `deduplicated:true`）。
