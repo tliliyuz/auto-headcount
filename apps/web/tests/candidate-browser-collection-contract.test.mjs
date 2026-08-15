@@ -77,7 +77,15 @@ function validCandidateDetailResult(overrides = {}) {
       degree: "本科",
       completion: 80,
       recommendationCount: 3,
-      workExperiences: [{ company: "虚构科技", title: "数据工程师" }],
+      workExperiences: [
+        { company: "虚构科技", title: "数据工程师", city: "北京市", period: "2015.03-2016.07", duration: "（1年4个月）", description: "负责数据平台建设" },
+      ],
+      projects: [
+        { name: "基础组件容器化", description: "kafka/haproxy 容器化\n方案设计与实施" },
+      ],
+      education: [
+        { school: "虚构大学", major: "计算机", degree: "硕士", period: "2012.09-2015.04", duration: "（2年7个月）" },
+      ],
     },
     contentHash: "d".repeat(64),
     ...overrides,
@@ -212,7 +220,11 @@ test("解析候选人详情回执：白名单画像、真实姓名保留、联�
   assert.equal(parsed.cityName, "北京");
   assert.equal(parsed.school, "虚构大学");
   assert.equal(parsed.completion, 80);
-  assert.deepEqual(parsed.workExperiences, [{ company: "虚构科技", title: "数据工程师" }]);
+  assert.deepEqual(parsed.workExperiences, [
+    { company: "虚构科技", title: "数据工程师", city: "北京市", period: "2015.03-2016.07", duration: "（1年4个月）", description: "负责数据平台建设" },
+  ]);
+  assert.deepEqual(parsed.projects, [{ name: "基础组件容器化", description: "kafka/haproxy 容器化\n方案设计与实施" }]);
+  assert.deepEqual(parsed.education, [{ school: "虚构大学", major: "计算机", degree: "硕士", period: "2012.09-2015.04", duration: "（2年7个月）" }]);
 
   // 联系方式 / 简历正文必须失败关闭（不进 candidates，也不进 LLM 投影）
   const forbiddenKeys = ["mobile", "email", "wechat", "content", "selfEvaluation", "projectExperiences"];

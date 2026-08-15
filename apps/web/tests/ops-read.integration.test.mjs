@@ -517,7 +517,7 @@ test(
         values (${candidate.id}, '数据工程师', '虚构科技', '北京', 8, '硕士', '虚构大学', '计算机')
       `;
 
-      // raw_records 加密载荷含工作经历（与真实采集一致：详情合同回执整包加密落库）
+      // raw_records 加密载荷含完整简历（与真实采集一致：详情合同回执整包加密落库）
       const encrypted = await encryptJsonPayload(
         {
           candidateId: `cand-detail-${marker}`,
@@ -526,8 +526,14 @@ test(
           company: "虚构科技",
           yearOfExperience: 8,
           workExperiences: [
-            { company: "字节跳动", title: "资深开发" },
-            { company: "美团", title: "高级工程师" },
+            { company: "字节跳动", title: "资深开发", city: "北京市", period: "2019.07-至今", duration: "（3年）", description: "负责容器云平台" },
+            { company: "美团", title: "高级工程师", city: "北京市", period: "2016.09-2019.06", duration: "（2年9个月）", description: "负责基础设施" },
+          ],
+          projects: [
+            { name: "基础组件容器化", description: "kafka/haproxy 容器化" },
+          ],
+          education: [
+            { school: "虚构大学", major: "计算机", degree: "硕士", period: "2012.09-2015.04", duration: "（2年7个月）" },
           ],
         },
         { key: encryption.key, keyVersion: encryption.keyVersion },
@@ -546,9 +552,11 @@ test(
       assert.equal(detail?.title, "数据工程师");
       assert.equal(detail?.school, "虚构大学");
       assert.deepEqual(detail?.workExperiences, [
-        { company: "字节跳动", title: "资深开发" },
-        { company: "美团", title: "高级工程师" },
+        { company: "字节跳动", title: "资深开发", city: "北京市", period: "2019.07-至今", duration: "（3年）", description: "负责容器云平台" },
+        { company: "美团", title: "高级工程师", city: "北京市", period: "2016.09-2019.06", duration: "（2年9个月）", description: "负责基础设施" },
       ]);
+      assert.deepEqual(detail?.projects, [{ name: "基础组件容器化", description: "kafka/haproxy 容器化" }]);
+      assert.deepEqual(detail?.educationHistory, [{ school: "虚构大学", major: "计算机", degree: "硕士", period: "2012.09-2015.04", duration: "（2年7个月）" }]);
 
       const unknown = await getCandidateById(sql, randomUUID(), { encryption });
       assert.equal(unknown, undefined);

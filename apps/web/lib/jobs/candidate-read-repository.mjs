@@ -132,6 +132,8 @@ export async function getCandidateById(sql, id, { encryption }) {
   const row = rows[0];
 
   let workExperiences = [];
+  let projects = [];
+  let educationHistory = [];
   if (row.payloadCiphertext && encryption?.key) {
     try {
       const plain = await decryptJsonPayload(
@@ -146,10 +148,29 @@ export async function getCandidateById(sql, id, { encryption }) {
         ? plain.workExperiences.map((entry) => ({
             company: entry?.company ?? null,
             title: entry?.title ?? null,
+            city: entry?.city ?? null,
+            period: entry?.period ?? null,
+            duration: entry?.duration ?? null,
+            description: entry?.description ?? null,
+          }))
+        : [];
+      projects = Array.isArray(plain?.projects)
+        ? plain.projects.map((entry) => ({
+            name: entry?.name ?? null,
+            description: entry?.description ?? null,
+          }))
+        : [];
+      educationHistory = Array.isArray(plain?.education)
+        ? plain.education.map((entry) => ({
+            school: entry?.school ?? null,
+            major: entry?.major ?? null,
+            degree: entry?.degree ?? null,
+            period: entry?.period ?? null,
+            duration: entry?.duration ?? null,
           }))
         : [];
     } catch {
-      // 解密失败（密钥轮换/数据异常）静默回落空工作经历，不阻塞画像展示
+      // 解密失败（密钥轮换/数据异常）静默回落空简历段，不阻塞画像展示
     }
   }
 
@@ -173,5 +194,7 @@ export async function getCandidateById(sql, id, { encryption }) {
     matchCount: row.matchCount,
     status: row.status,
     workExperiences,
+    projects,
+    educationHistory,
   };
 }

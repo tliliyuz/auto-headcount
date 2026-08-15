@@ -326,11 +326,14 @@ const CANDIDATE_DETAIL_RESULT_KEYS = new Set([
 ]);
 const CANDIDATE_RECORD_KEYS = new Set([
   "candidateId", "realName", "title", "company", "yearOfExperience", "cityName",
-  "school", "major", "degree", "completion", "recommendationCount", "workExperiences",
+  "school", "major", "degree", "completion", "recommendationCount",
+  "workExperiences", "projects", "education",
 ]);
-const WORK_EXPERIENCE_KEYS = new Set(["company", "title"]);
-/** 简历正文 / 自我评价等不在候选人画像白名单内，即使被 Provider 误传也失败关闭。 */
-const CANDIDATE_FORBIDDEN_KEYS = /content|selfEvaluation|projectExperiences|mobile|email|wechat|phone/i;
+const WORK_EXPERIENCE_KEYS = new Set(["company", "title", "city", "period", "duration", "description"]);
+const PROJECT_KEYS = new Set(["name", "description"]);
+const EDUCATION_KEYS = new Set(["school", "major", "degree", "period", "duration"]);
+/** 联系方式 / 自我评价等不在候选人画像白名单内，即使被 Provider 误传也失败关闭。 */
+const CANDIDATE_FORBIDDEN_KEYS = /selfEvaluation|projectExperiences|mobile|email|wechat|phone/i;
 
 /** 严格解析人才池列表回执；固定分类证据、唯一候选人 ID 与有界断点。 */
 export function parseTalentPoolListExtractionResult(input, limits) {
@@ -414,6 +417,29 @@ export function parseCandidateDetailExtractionResult(input) {
     return {
       company: requireString(entry.company, `result.record.workExperiences[${index}].company`, true),
       title: requireString(entry.title, `result.record.workExperiences[${index}].title`, true),
+      city: requireString(entry.city, `result.record.workExperiences[${index}].city`, true),
+      period: requireString(entry.period, `result.record.workExperiences[${index}].period`, true),
+      duration: requireString(entry.duration, `result.record.workExperiences[${index}].duration`, true),
+      description: requireString(entry.description, `result.record.workExperiences[${index}].description`, true),
+    };
+  }) : [];
+  const projects = Array.isArray(record.projects) ? record.projects.map((entry, index) => {
+    requirePlainObject(entry, `result.record.projects[${index}]`);
+    requireOnlyKeys(entry, PROJECT_KEYS, `result.record.projects[${index}]`);
+    return {
+      name: requireString(entry.name, `result.record.projects[${index}].name`, true),
+      description: requireString(entry.description, `result.record.projects[${index}].description`, true),
+    };
+  }) : [];
+  const education = Array.isArray(record.education) ? record.education.map((entry, index) => {
+    requirePlainObject(entry, `result.record.education[${index}]`);
+    requireOnlyKeys(entry, EDUCATION_KEYS, `result.record.education[${index}]`);
+    return {
+      school: requireString(entry.school, `result.record.education[${index}].school`, true),
+      major: requireString(entry.major, `result.record.education[${index}].major`, true),
+      degree: requireString(entry.degree, `result.record.education[${index}].degree`, true),
+      period: requireString(entry.period, `result.record.education[${index}].period`, true),
+      duration: requireString(entry.duration, `result.record.education[${index}].duration`, true),
     };
   }) : [];
   const contentHash = requireString(input.contentHash, "result.contentHash");
@@ -433,6 +459,8 @@ export function parseCandidateDetailExtractionResult(input) {
     completion: record.completion === null ? null : requireBoundedInteger(record.completion, "result.record.completion", 0, 100),
     recommendationCount: requireNullableNonNegativeInteger(record.recommendationCount, "result.record.recommendationCount"),
     workExperiences,
+    projects,
+    education,
   };
 }
 

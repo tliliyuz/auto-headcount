@@ -37,7 +37,22 @@ export function listCandidates(
 ): Promise<PageResult<CandidateRow>>;
 
 export type CandidateDetailRow = CandidateRow & {
-  workExperiences: Array<{ company: string | null; title: string | null }>;
+  workExperiences: Array<{
+    company: string | null;
+    title: string | null;
+    city: string | null;
+    period: string | null;
+    duration: string | null;
+    description: string | null;
+  }>;
+  projects: Array<{ name: string | null; description: string | null }>;
+  educationHistory: Array<{
+    school: string | null;
+    major: string | null;
+    degree: string | null;
+    period: string | null;
+    duration: string | null;
+  }>;
 };
 
 export function getCandidateById(

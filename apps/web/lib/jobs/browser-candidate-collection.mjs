@@ -2,7 +2,7 @@ import { BrowserCollectionContractError, LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID, L
 import { BrowserRelayError } from "../adapters/csdn-browser/relay-client.mjs";
 
 const TASK_KEYS = new Set(["collectionBatchId", "collectionItemId", "sourceConnectionId", "userId", "deviceId", "contractId", "externalId", "expectedTitle"]);
-const BATCH_TASK_KEYS = new Set(["batchId", "sourceConnectionId", "userId", "deviceId", "contractId", "batchSize", "maxPages", "startPage", "startOffset"]);
+const BATCH_TASK_KEYS = new Set(["batchId", "sourceConnectionId", "userId", "deviceId", "contractId", "batchSize", "maxPages", "startPage", "startOffset", "forceRefresh"]);
 /** 差分发现安全阀：单批次最多调用的发现次数与累计翻页数，防止已知候选人占满列表时无限翻页。 */
 const MAX_DISCOVERY_LOOP_CALLS = 10;
 const MAX_DISCOVERY_TOTAL_PAGES = 60;
@@ -55,6 +55,8 @@ export function parseBrowserCandidateBatchDiscoverTaskPayload(input) {
   };
   if (input.startPage !== undefined) output.startPage = requireInteger(input.startPage, "startPage", 1, 10000);
   if (input.startOffset !== undefined) output.startOffset = requireInteger(input.startOffset, "startOffset", 0, 10000);
+  // forceRefresh：忽略差分跳过，把本批数量内已入库候选人一并重新采集（详情 upsert 覆盖画像）。
+  if (input.forceRefresh !== undefined) output.forceRefresh = input.forceRefresh === true;
   return output;
 }
 
@@ -108,10 +110,12 @@ export async function runBrowserCandidateBatchDiscovery({ task: rawTask, relayCl
       totalPagesVisited += discovery.pagesVisited;
       rawSeen += discovery.items.length;
       for (const item of discovery.items) {
-        const knownTitle = known.get(item.candidateId);
-        if (knownTitle !== undefined && normalizeTitle(knownTitle) === normalizeTitle(item.title)) {
-          skippedKnown += 1;
-          continue;
+        if (!task.forceRefresh) {
+          const knownTitle = known.get(item.candidateId);
+          if (knownTitle !== undefined && normalizeTitle(knownTitle) === normalizeTitle(item.title)) {
+            skippedKnown += 1;
+            continue;
+          }
         }
         collected.push(item);
       }

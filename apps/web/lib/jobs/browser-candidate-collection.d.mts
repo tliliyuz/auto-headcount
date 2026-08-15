@@ -24,6 +24,8 @@ export interface BrowserCandidateBatchDiscoverTaskPayload {
   maxPages: number;
   startPage?: number;
   startOffset?: number;
+  /** forceRefresh：忽略差分跳过，把本批数量内已入库候选人一并重采（覆盖画像为完整简历）。 */
+  forceRefresh?: boolean;
 }
 
 export function parseBrowserCandidateCollectTaskPayload(

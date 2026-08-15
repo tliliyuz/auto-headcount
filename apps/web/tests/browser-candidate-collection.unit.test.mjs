@@ -151,6 +151,42 @@ test("差分发现跳过已入库未变候选人、只采集新增，凑满目�
   assert.equal(persisted.detailContractId, "liebide-candidate-detail-v1");
 });
 
+test("forceRefresh 时忽略差分跳过：已入库未变候选人一并重采", async () => {
+  const calls = [];
+  const batchTask = {
+    batchId: "22222222-2222-4222-8222-222222222222",
+    sourceConnectionId: task.sourceConnectionId,
+    userId: task.userId, deviceId: task.deviceId,
+    contractId: "liebide-talent-pool-list-v1", batchSize: 2, maxPages: 20, forceRefresh: true,
+  };
+  const result = await runBrowserCandidateBatchDiscovery({
+    task: batchTask,
+    relayClient: {
+      async getConnectionStatus() { return { status: "READY", ready: true }; },
+      async discoverTalentPool() { return {
+        items: [
+          { candidateId: "fixture-cand-001", title: "数据工程师", realName: "示例候选人甲", pageNumber: 1, position: 1 },
+          { candidateId: "fixture-cand-002", title: "算法工程师", realName: "示例候选人乙", pageNumber: 1, position: 2 },
+        ],
+        nextPage: null, nextOffset: null, stopReason: "end_of_results", pagesVisited: 1,
+      }; },
+    },
+    repository: {
+      async sourceExists() { return true; },
+      async findKnownCandidates() { return [{ candidateId: "fixture-cand-001", title: "数据工程师" }]; },
+      async persistDiscovery(input) {
+        calls.push(["persist", input]);
+        return { createdItems: input.discovery.items.length, enqueuedDetails: input.discovery.items.length };
+      },
+    },
+  });
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.stats.skippedKnown, 0, "forceRefresh 不跳过已入库候选人");
+  assert.equal(result.stats.newOrChanged, 2, "forceRefresh 重采已入库未变候选人");
+  const persisted = calls.find(([name]) => name === "persist")[1];
+  assert.deepEqual(persisted.discovery.items.map((i) => i.candidateId), ["fixture-cand-001", "fixture-cand-002"]);
+});
+
 test("凑不满目标时按数字断点向后翻页，已入库但标题变化的候选人按变更重新采集", async () => {
   const discoverResponses = [
     {

@@ -214,9 +214,24 @@ export function fetchCandidates(input?: {
   );
 }
 
-/** 候选人详情 = 列表画像字段 + 工作经历（从 raw_records 加密载荷解密，内部运营可见）。契约见 docs/09 §3.4。 */
+/** 候选人详情 = 列表画像字段 + 完整简历（从 raw_records 加密载荷解密，内部运营可见）。契约见 docs/09 §3.4。 */
 export type CandidateDetailView = CandidateView & {
-  workExperiences: Array<{ company: string | null; title: string | null }>;
+  workExperiences: Array<{
+    company: string | null;
+    title: string | null;
+    city: string | null;
+    period: string | null;
+    duration: string | null;
+    description: string | null;
+  }>;
+  projects: Array<{ name: string | null; description: string | null }>;
+  educationHistory: Array<{
+    school: string | null;
+    major: string | null;
+    degree: string | null;
+    period: string | null;
+    duration: string | null;
+  }>;
 };
 
 export function fetchCandidateDetail(
@@ -370,6 +385,7 @@ export function triggerCandidateCollection(input: {
   sourceConnectionId: string;
   batchSize: number;
   maxPages: number;
+  forceRefresh?: boolean;
 }): Promise<AuthResult<{ accepted: boolean; batchId: string; taskId: string | null; deduplicated?: boolean }>> {
   return request("/api/candidate-collections", {
     method: "POST",

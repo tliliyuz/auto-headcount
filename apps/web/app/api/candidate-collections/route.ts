@@ -47,6 +47,7 @@ const handler = withAudit(
       maxPages: payload.maxPages,
       ...(payload.startPage ? { startPage: payload.startPage } : {}),
       ...(payload.startOffset !== undefined ? { startOffset: payload.startOffset } : {}),
+      ...(payload.forceRefresh === true ? { forceRefresh: true } : {}),
     };
     const result = await createBrowserCandidateBatchRepository(client).createAndEnqueue({
       payload: requestPayload,

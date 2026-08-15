@@ -64,7 +64,8 @@
 ## 6. M3 集成
 
 - 由 `candidate_profiles` 生成 `candidate-match-projection.v1`（脱敏画像 → `profile` + `redacted_detail`），匹配模块读不到真实姓名/联系方式。
-- `match_pipeline_v2` 消费候选人投影 + 职位投影；候选人源就绪后，`match_projection_filter` 从"只产职位投影的正确空跑"收敛为真实 (job, candidate) 匹配池。
+- **候选人脱敏详情桥（2026-08-16 已实现）**：`candidate-redaction-loader.mjs` 解密 `raw_records`（`entity_type='candidate'`）载荷里的 `workExperiences[{company,title}]`，组装成脱敏 `career_history = "某公司 · title"`（公司名完全泛化为固定占位，采集侧 industry 恒 null 无法泛化行业/规模）、`project_highlights=[]`；`match_projection_filter` 调度路径现已注入该 Map，从"只产职位投影的正确空跑"收敛为真实 (job, candidate) 匹配池（公司名不进 LLM，`scanResidualPii` 兜底）。
+- 过滤语义：无 raw_record / 解密失败 / 载荷无 `workExperiences` / 空 `career_history` 的候选人不消费（计 `piiRejected`，保持「无脱敏详情来源 → 跳过」）。
 - 垂直切片：人才池「互联网技术」抓 N 个候选人画像 → 用 2 个沉睡职位跑匹配，验证每个职位命中 5~10 个候选人。
 
 ## 7. 本阶段不做（顺延）
