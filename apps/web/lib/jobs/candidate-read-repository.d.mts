@@ -35,3 +35,13 @@ export function listCandidates(
   sql: SqlClient,
   input?: { q?: string; status?: string; page?: number; pageSize?: number },
 ): Promise<PageResult<CandidateRow>>;
+
+export type CandidateDetailRow = CandidateRow & {
+  workExperiences: Array<{ company: string | null; title: string | null }>;
+};
+
+export function getCandidateById(
+  sql: SqlClient,
+  id: string,
+  options: { encryption: { key: string; keyVersion: string } },
+): Promise<CandidateDetailRow | undefined>;

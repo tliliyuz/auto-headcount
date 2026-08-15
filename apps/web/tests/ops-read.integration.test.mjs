@@ -19,7 +19,8 @@ import {
   listSources,
   listSyncRuns,
 } from "../lib/sources/source-read-repository.mjs";
-import { listCandidates } from "../lib/jobs/candidate-read-repository.mjs";
+import { getCandidateById, listCandidates } from "../lib/jobs/candidate-read-repository.mjs";
+import { encryptJsonPayload } from "../lib/security/payload-encryption.mjs";
 
 const connectionString = process.env.DATABASE_URL;
 const encryption = {
@@ -478,6 +479,85 @@ test(
         await sql`delete from jobs where source_connection_id = ${sourceId}`;
         await sql`delete from candidate_profiles where candidate_id in (select id from candidates where source_connection_id = ${sourceId})`;
         await sql`delete from candidates where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "getCandidateById：从 raw_records 加密载荷解密工作经历，未知 id 返回 undefined",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    let sourceId;
+    let candidateId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-cand-detail-${marker}`,
+        environment: "test",
+        status: "active",
+        displayName: "Cand Detail Source",
+      });
+      const [runId] = await sql`
+        insert into sync_runs (source_connection_id, sync_type, status, started_at)
+        values (${sourceId}, 'browser_candidate_collect', 'succeeded', now())
+        returning id
+      `;
+      const [candidate] = await sql`
+        insert into candidates (source_connection_id, external_id, display_name)
+        values (${sourceId}, ${`cand-detail-${marker}`}, '示例详情')
+        returning id
+      `;
+      candidateId = candidate.id;
+      await sql`
+        insert into candidate_profiles (candidate_id, current_title, current_company, location, experience_years, education, school, major)
+        values (${candidate.id}, '数据工程师', '虚构科技', '北京', 8, '硕士', '虚构大学', '计算机')
+      `;
+
+      // raw_records 加密载荷含工作经历（与真实采集一致：详情合同回执整包加密落库）
+      const encrypted = await encryptJsonPayload(
+        {
+          candidateId: `cand-detail-${marker}`,
+          realName: "示例详情",
+          title: "数据工程师",
+          company: "虚构科技",
+          yearOfExperience: 8,
+          workExperiences: [
+            { company: "字节跳动", title: "资深开发" },
+            { company: "美团", title: "高级工程师" },
+          ],
+        },
+        { key: encryption.key, keyVersion: encryption.keyVersion },
+      );
+      const [rawRecord] = await sql`
+        insert into raw_records (sync_run_id, source_connection_id, entity_type, external_id, schema_version, payload_ciphertext, payload_nonce, key_version, payload_hash, processing_status, captured_at)
+        values (${runId.id}, ${sourceId}, 'candidate', ${`cand-detail-${marker}`}, 'liebide-candidate-detail-v1', ${encrypted.ciphertext}, ${encrypted.nonce}, ${encrypted.keyVersion}, ${encrypted.payloadHash}, 'normalized', now())
+        returning id
+      `;
+      await sql`
+        update candidates set raw_record_id = ${rawRecord.id} where id = ${candidate.id}
+      `;
+
+      const detail = await getCandidateById(sql, candidate.id, { encryption });
+      assert.equal(detail?.name, "示例详情");
+      assert.equal(detail?.title, "数据工程师");
+      assert.equal(detail?.school, "虚构大学");
+      assert.deepEqual(detail?.workExperiences, [
+        { company: "字节跳动", title: "资深开发" },
+        { company: "美团", title: "高级工程师" },
+      ]);
+
+      const unknown = await getCandidateById(sql, randomUUID(), { encryption });
+      assert.equal(unknown, undefined);
+    } finally {
+      if (sourceId) {
+        await sql`delete from candidate_profiles where candidate_id = ${candidateId}`;
+        await sql`delete from candidates where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
         await sql`delete from source_connections where id = ${sourceId}`;
       }
       await sql.end();

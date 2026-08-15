@@ -214,6 +214,21 @@ export function fetchCandidates(input?: {
   );
 }
 
+/** 候选人详情 = 列表画像字段 + 工作经历（从 raw_records 加密载荷解密，内部运营可见）。契约见 docs/09 §3.4。 */
+export type CandidateDetailView = CandidateView & {
+  workExperiences: Array<{ company: string | null; title: string | null }>;
+};
+
+export function fetchCandidateDetail(
+  id: string,
+  input?: { signal?: AbortSignal },
+): Promise<AuthResult<CandidateDetailView>> {
+  return request<CandidateDetailView>(`/api/candidates/${encodeURIComponent(id)}`, {
+    method: "GET",
+    signal: input?.signal,
+  });
+}
+
 /** 职位详情 = 列表投影字段 + jobDescription（完整 JD，可空）。契约见 docs/09 §2.2。 */
 export type JobDetail = DormantJob & {
   jobDescription: string | null;

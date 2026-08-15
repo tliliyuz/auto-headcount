@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-15 — 候选人详情 + 工作经历：GET /api/candidates/:id 解密 raw_records
+
+> 状态：`verified`。单测 220/220、集成（ops-read 补 getCandidateById 解密断言）、lint/tsc 0 错误。真实候选人工作经历解密验证：高枫 4 条（阿里高德·无线开发专家、美团·大前端工程师）、魏纬来 2 条、皓匀 4 条。
+
+- `GET /api/candidates/:id`（`operations|admin`）：画像字段 + 从 raw_records 加密载荷解密的工作经历（`workExperiences: [{company,title}]`）；非 UUID `400`、查无 `404`；审计元数据白名单仅 `found`。
+- `candidate-read-repository.getCandidateById`：按 id 投影画像白名单 + 解密 raw_records（密钥 env 注入，解密失败静默回落空列表不阻塞展示）。
+- 前端候选人池右侧面板：新增「工作经历」区块（选中后拉取详情，陈旧响应丢弃），逐条展示公司·职位；删除右侧卡片 RBAC 提示文案。
+- 测试：ops-read 补 getCandidateById 断言（raw_records 加密载荷解密工作经历、未知 id → undefined）。
+
 ### 2026-08-15 — 候选人池页接真实数据：GET /api/candidates + 画像列表
 
 > 状态：`verified`。单测 220/220、集成（ops-read 补 listCandidates 断言）、lint/tsc 0 错误。候选人池页从原型假数据切换为真实采集画像（42 条入库），支持搜索/状态筛选/分页，详情含学校/专业/教育背景；匹配状态由 matches 推导。

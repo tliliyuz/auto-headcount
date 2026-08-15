@@ -32,6 +32,7 @@ import {
   fetchBrowserBatches,
   fetchCandidateBatches,
   fetchCandidates,
+  fetchCandidateDetail,
   triggerSync,
   triggerBrowserCollection,
   triggerCandidateCollection,
@@ -39,6 +40,7 @@ import {
   type AuditLogView,
   type BrowserBatchView,
   type CandidateBatchView,
+  type CandidateDetailView,
   type CandidateView,
   type DormantJob,
   type JobDetail,
@@ -488,6 +490,11 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [candidatePage, setCandidatePage] = useState(1);
   const [jumpValue, setJumpValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [candidateDetail, setCandidateDetail] = useState<CandidateDetailView | null>(null);
+  const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
+  const [candidateDetailError, setCandidateDetailError] = useState<string | null>(null);
+  // 请求序号 ref：丢弃快速切换候选人时的陈旧详情响应，防竞态。
+  const candidateDetailSeq = useRef(0);
 
   // 拉取候选人池（真实姓名 RBAC 保护；按页拉全量后客户端筛选/分页）。
   useEffect(() => {
@@ -554,6 +561,32 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const selectedSummary =
     selected?.summary ??
     (`${[selected?.school, selected?.major].filter(Boolean).join(" · ")}${selected?.experienceYears != null ? ` · ${selected.experienceYears} 年经验` : ""}${selected?.city ? ` · ${selected.city}` : ""}`.replace(/^\s*·\s*/, "") || "暂无摘要");
+
+  // 选中候选人时拉取详情（含工作经历，从 raw_records 加密载荷解密；陈旧响应丢弃）。
+  useEffect(() => {
+    const candidateId = selected?.id;
+    if (!candidateId) return;
+    const seq = ++candidateDetailSeq.current;
+    const controller = new AbortController();
+    void (async () => {
+      setCandidateDetail(null);
+      setCandidateDetailLoading(true);
+      setCandidateDetailError(null);
+      const result = await fetchCandidateDetail(candidateId, { signal: controller.signal });
+      if (seq !== candidateDetailSeq.current) return;
+      setCandidateDetailLoading(false);
+      if (result.ok) {
+        setCandidateDetail(result.data);
+      } else if (result.status === 401 || result.code === "password_change_required") {
+        onAuthExpired();
+      } else if (result.status === 404) {
+        setCandidateDetailError("候选人不存在或已移除");
+      } else {
+        setCandidateDetailError("详情加载失败，请稍后重试");
+      }
+    })();
+    return () => controller.abort();
+  }, [selected?.id, onAuthExpired]);
 
   function jumpToCandidatePage() {
     const page = Number.parseInt(jumpValue, 10);
@@ -654,7 +687,25 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
               <div><strong>{selected.education ?? "—"}</strong><small>学历</small></div>
               <div><strong>{selected.seniority ?? "—"}</strong><small>职级</small></div>
             </div>
-            <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p><small>真实姓名按 RBAC 保护，匹配投影（candidate-match-projection）不含联系方式</small></div>
+            <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p></div>
+            <div className="message-preview"><span>工作经历</span>
+              {candidateDetailLoading ? (
+                <p>加载中…</p>
+              ) : candidateDetailError ? (
+                <p>{candidateDetailError}</p>
+              ) : candidateDetail && candidateDetail.workExperiences.length > 0 ? (
+                <div className="work-history">
+                  {candidateDetail.workExperiences.map((work, index) => (
+                    <div key={`${work.company}-${work.title}-${index}`} className="work-history-item">
+                      <strong>{work.company ?? "—"}</strong>
+                      <span>{work.title ?? "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p>无工作经历记录</p>
+              )}
+            </div>
             <div className="message-preview"><span>候选人摘要</span><p>{selectedSummary}</p></div>
             <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>{selected.matchCount}</i><p><strong>匹配记录</strong><span>{selected.matchCount} 条 · 匹配状态由 matches 推导</span></p></div></div>
           </>

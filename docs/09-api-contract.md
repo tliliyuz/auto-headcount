@@ -174,3 +174,7 @@
 - 列表字段白名单：姓名、当前职位（`current_title ?? seniority`）、公司、城市、经验年限、学历、学校、专业、职级、行业、摘要、`consent_status`、匹配状态、匹配数、入库时间。
 - **匹配状态由 `matches` 推导**：已审核（存在 approved/rejected）→ 已匹配（存在 generated）→ 待匹配（无匹配）。M3 匹配流水线未跑时全为待匹配。
 - 只列出有画像内容的候选人（`current_title` 或经验非空），排除落地页预览产生的空画像夹具。
+
+| `/api/candidates/:id` | GET | 会话 + `operations\|admin` | 无 | `200` 候选人详情（画像字段 + 工作经历）；非 UUID `400`；查无 `404 { code: "candidate_not_found" }` |
+
+- 详情端点把 `GET /api/candidates` 的画像字段 + 从 raw_records 加密载荷解密的工作经历一并返回（`workExperiences: [{ company, title }]`）；加密 key 由服务端 env 注入，解密失败静默回落空列表不阻塞画像展示。
