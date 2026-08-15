@@ -99,6 +99,11 @@ function batchEventStatusView(ev: BatchEvent): { label: string; className: strin
   return map[ev.status] ?? { label: ev.status, className: "" };
 }
 
+/** 事件种类展示名：批次为原子事件（发现 + 入库在一个事件里），标签直接区分职位/候选人/周期同步。 */
+function batchKindLabel(kind: BatchEvent["kind"]): string {
+  return kind === "collection" ? "职位采集" : kind === "candidate" ? "候选人采集" : "周期同步";
+}
+
 /**
  * 同步触发状态机：idle 空闲 → triggering 请求中 → queued 已入队（等待调度 tick 认领）
  * → syncing 执行中 → succeeded/failed 终态。终态显示结果文本（含计数/错误码），可再次触发。
@@ -893,9 +898,9 @@ function SourcesPage({
           </div>
           <div className="category-tabs" role="tablist" aria-label="批次类型">
             <button role="tab" aria-selected={batchType === "all"} className={batchType === "all" ? "active" : ""} onClick={() => { setBatchType("all"); setBatchPage(1); }}>全部<span>{allEvents.length}</span></button>
-            <button role="tab" aria-selected={batchType === "collection"} className={batchType === "collection" ? "active" : ""} onClick={() => { setBatchType("collection"); setBatchPage(1); }}>采集批次<span>{browserBatches.length}</span></button>
+            <button role="tab" aria-selected={batchType === "collection"} className={batchType === "collection" ? "active" : ""} onClick={() => { setBatchType("collection"); setBatchPage(1); }}>职位采集批次<span>{browserBatches.length}</span></button>
             <button role="tab" aria-selected={batchType === "candidate"} className={batchType === "candidate" ? "active" : ""} onClick={() => { setBatchType("candidate"); setBatchPage(1); }}>候选人批次<span>{candidateBatches.length}</span></button>
-            <button role="tab" aria-selected={batchType === "sync"} className={batchType === "sync" ? "active" : ""} onClick={() => { setBatchType("sync"); setBatchPage(1); }}>同步批次<span>{syncRuns.length}</span></button>
+            <button role="tab" aria-selected={batchType === "sync"} className={batchType === "sync" ? "active" : ""} onClick={() => { setBatchType("sync"); setBatchPage(1); }}>周期同步<span>{syncRuns.length}</span></button>
           </div>
           <div className="table-tools">
             <label className="table-search"><span>⌕</span><input value={batchQuery} onChange={(event) => { setBatchQuery(event.target.value); setBatchPage(1); }} placeholder="搜索批次 ID 或来源" /></label>
@@ -910,21 +915,23 @@ function SourcesPage({
                   const isCollectionLike = ev.kind === "collection" || ev.kind === "candidate";
                   return (
                     <tr key={ev.key} className={displayedEvent?.key === ev.key ? "selected" : ""} onClick={() => setSelectedEventKey(ev.key)}>
-                      <td><span className={`event-kind ${ev.kind}`}><i />{ev.kind === "collection" ? "采集" : ev.kind === "candidate" ? "候选人" : "同步"}</span></td>
+                      <td><span className={`event-kind ${ev.kind}`}><i />{batchKindLabel(ev.kind)}</span></td>
                       <td><strong>{ev.shortId}</strong><small className="job-updated"><span className="job-external-id" title={ev.id}>{ev.id}</span><span className="job-updated-at"> · {formatDateTime(ev.createdAt)}</span></small></td>
                       <td><em className={`status-tag ${statusView.className}`}>{statusView.label}</em></td>
                       <td>{isCollectionLike
-                        ? <><strong>{ev.discoveredCount} 发现</strong><small>{ev.succeededCount} 入库 / {ev.failedCount} 失败</small></>
+                        ? <><strong>{ev.discoveredCount} 发现</strong><small>{ev.succeededCount} 入库 · {ev.failedCount} 失败 · {ev.skippedCount} 跳过</small></>
                         : <><strong>{ev.stats?.persisted ?? 0} 入库</strong><small>{ev.stats?.skipped ?? 0} 跳过 · {ev.stats?.failed ?? 0} 失败</small></>}</td>
                       <td>{isCollectionLike
-                        ? ev.status === "succeeded" && ev.discoveredCount === 0
-                          ? "无新增（全部已知）"
-                          : ev.status === "pending"
-                            ? "等待调度"
-                            : ev.stopReason
-                              ? <code>{ev.stopReason}</code>
-                              : formatDuration(ev.createdAt, ev.finishedAt)
-                        : ev.errorCode ? <code>{ev.errorCode}</code> : `${ev.stats?.skipped ?? 0} 异常`}</td>
+                        ? ev.status === "failed"
+                          ? <code>{ev.stopReason ?? "采集失败"}</code>
+                          : ev.status === "pending" || ev.status === "discovering"
+                            ? ev.status === "discovering" ? "发现中…" : "等待调度"
+                            : ev.status === "collecting"
+                              ? "采集进行中…"
+                              : ev.status === "succeeded" && ev.discoveredCount === 0
+                                ? "无新增（全部已知）"
+                                : "完成"
+                        : ev.errorCode ? <code>{ev.errorCode}</code> : "正常"}</td>
                       <td>{formatDuration(isCollectionLike ? ev.createdAt : ev.startedAt, ev.finishedAt)}</td>
                       <td><button aria-label={`查看 ${ev.shortId}`} onClick={() => setSelectedEventKey(ev.key)}>›</button></td>
                     </tr>
@@ -965,9 +972,9 @@ function SourcesPage({
               <div className="panel-heading">
                 <span className="role-icon">{displayedEvent.kind === "collection" ? "B" : displayedEvent.kind === "candidate" ? "C" : "M"}</span>
                 <div>
-                  <span className="status-pill"><i />{displayedEvent.kind === "collection" ? "浏览器采集" : displayedEvent.kind === "candidate" ? "候选人采集" : "MCP 同步"}</span>
+                  <span className="status-pill"><i />{batchKindLabel(displayedEvent.kind)}</span>
                   <h2>{displayedEvent.shortId}</h2>
-                  <p>{displayedEvent.kind === "collection" ? "筛选列表 → 批量详情复核" : displayedEvent.kind === "candidate" ? "人才池列表 → 候选人画像批量入库" : `${displayedEvent.sourceDisplayName} · ${displayedEvent.sourceProvider}`}</p>
+                  <p>{displayedEvent.kind === "collection" ? "筛选列表 → 批量详情复核" : displayedEvent.kind === "candidate" ? "人才池列表 → 候选人画像批量入库" : `${displayedEvent.syncType} · ${displayedEvent.sourceDisplayName}`}</p>
                 </div>
               </div>
               <div className="panel-section">

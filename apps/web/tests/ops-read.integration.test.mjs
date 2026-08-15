@@ -353,3 +353,48 @@ test(
     }
   },
 );
+
+test(
+  "listSyncRuns 默认排除详情采集 sync_run（browser_*_collect），周期同步不受影响",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    let sourceId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-sync-filter-${marker}`,
+        environment: "test",
+        status: "active",
+        displayName: "Sync Filter Source",
+      });
+      const periodic = await startSyncRun(sql, sourceId, "under_served_jobs");
+      const detail = await startSyncRun(sql, sourceId, "browser_candidate_collect");
+
+      const filtered = await listSyncRuns(sql, { pageSize: 100 });
+      assert.equal(
+        filtered.list.some((run) => run.id === detail),
+        false,
+        "默认排除 browser_candidate_collect 详情采集 sync_run",
+      );
+      assert.equal(
+        filtered.list.some((run) => run.id === periodic),
+        true,
+        "under_served_jobs 周期同步应保留",
+      );
+
+      const all = await listSyncRuns(sql, { pageSize: 100, excludeBrowserDetail: false });
+      assert.equal(
+        all.list.some((run) => run.id === detail),
+        true,
+        "excludeBrowserDetail:false 时详情采集 sync_run 应返回",
+      );
+    } finally {
+      if (sourceId) {
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);

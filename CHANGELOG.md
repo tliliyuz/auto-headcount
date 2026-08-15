@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-15 — 批次列表 UI 重设计：批次为原子事件，同步列表不再混入详情采集
+
+> 状态：`verified`。单测 220/220、集成（ops-read 补过滤断言）、lint/tsc 0 错误。数据源页「采集与同步批次」按清晰分类展示：职位采集 / 候选人采集 / 周期同步；一个批次 row 同时显示「发现 → 入库/失败/跳过」，逐条详情采集的 sync_run 不再单独出现。
+
+- **根因**：每个职位/候选人详情采集会写一条 `sync_runs`（`browser_job_collect`/`browser_candidate_collect`），与周期同步混在同一「同步」列表，导致 CAND 批次与其详情 SYNC 事件看不出关联、标签语义混乱（采集/同步与发现/入库对不上）。
+- 服务端（`source-read-repository.mjs` `listSyncRuns`）：默认排除 `browser_job_collect`/`browser_candidate_collect`（详情落库审计已由批次聚合），同步 tab 只留周期同步（under_served/job_details），「上次同步时间」不再被详情采集污染。
+- 前端（`operations-dashboard.tsx`）：批次列表标签改「职位采集 / 候选人采集 / 周期同步」；进度列一个 row 展示 `N 发现 / M 入库 · K 失败 · S 跳过`；结果列按状态显示 完成/等待调度/发现中…/采集进行中…/失败码；tab 改「职位采集批次 / 候选人批次 / 周期同步」。
+- 测试：`ops-read.integration.test.mjs` 补 `listSyncRuns` 排除详情采集断言（默认排除、excludeBrowserDetail:false 返回）。
+
 ### 2026-08-15 — 浏览器采集可靠性：relay 会话 TTL 回收 + 发现任务重试上限 3→6
 
 > 状态：`verified`。单测 220/220、集成 22/22（含新增「瞬时 relay 故障可重试超过默认 3 次」）、lint/tsc 0 错误。真实采集验证：relay 重启后扩展 2 秒内自动重注册（3 个活跃会话，20 个残留详情会话已清），发现提取 20 条、category「互联网技术其他」。

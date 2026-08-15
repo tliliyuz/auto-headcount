@@ -49,10 +49,24 @@ export async function listSources(sql, { page = 1, pageSize = 50 } = {}) {
   };
 }
 
-export async function listSyncRuns(sql, { status, page = 1, pageSize = 20 } = {}) {
+/**
+ * 同步批次列表。`excludeBrowserDetail`（默认 true）排除逐职位/逐候选人详情采集的内部
+ * sync_run（browser_job_collect/browser_candidate_collect）：这些是详情提取的落库审计，
+ * 已由 browser_collection_batches/browser_candidate_batches 聚合展示，混入会淹没周期同步、
+ * 且让「上次同步时间」失真。
+ */
+export async function listSyncRuns(
+  sql,
+  { status, page = 1, pageSize = 20, excludeBrowserDetail = true } = {},
+) {
   const where = sql`
     1 = 1
     ${status ? sql` and sr.status = ${status}` : sql``}
+    ${
+      excludeBrowserDetail
+        ? sql` and sr.sync_type not in ('browser_job_collect', 'browser_candidate_collect')`
+        : sql``
+    }
   `;
 
   const [{ total }] = await sql`
