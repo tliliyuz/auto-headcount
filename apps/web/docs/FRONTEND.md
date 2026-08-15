@@ -85,7 +85,7 @@
 
 ### 公开落地页（M4 切片，2026-08-15）
 
-- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染标题/类别/城市/薪资范围/「某科技企业」+ A/B/C/退订 + 手机号/邮箱表单。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
+- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染标题/类别/城市/薪资范围/去标识化职责摘要/「某科技企业」+ A/B/C/退订 + 手机号/邮箱表单。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
 - 公开 API 走独立身份域（无会话，令牌即能力凭证）：`POST /api/landing/:token/intent` 提交后意向落库（联系方式信封加密），notifier 尽力投递（飞书/假/未配置），提交与通知结果写审计。脱敏边界见 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)；**职责摘要当前一律省略**（原始 JD 截断可能泄漏公司/品牌名，见 `docs/03-data-model.md` §10）。
 - 运营侧建链端点为 `POST /api/landing-links`（会话 + RBAC `operations|admin`，返回含明文令牌的 URL，仅此一次）；管理端建链 UI 属后续接线（当前可经 API/脚本触发）。
 

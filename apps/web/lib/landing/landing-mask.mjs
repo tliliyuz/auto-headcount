@@ -1,8 +1,10 @@
+import { inferJobSummary } from "./landing-summary.mjs";
+
 /**
  * 落地页脱敏白名单 DTO（docs/03 §10、docs/07 §3 切片）：
- * 只含职位标题/类别/城市/薪资范围，**永不**包含公司名称/简称、内部职位编号、客户联系人、
- * 招聘负责人、详细地址或原始 JD。原始 JD 截断可能泄漏内嵌公司/品牌名（如岗位背景首句），
- * 因此职责摘要在运营侧配好去标识化摘要前一律省略（白名单为「最多包含」，省略即合规）。
+ * 只含职位标题/类别/城市/薪资范围/去标识化职责摘要，**永不**包含公司名称/简称、内部职位编号、
+ * 客户联系人、招聘负责人、详细地址或原始 JD。职责摘要由模板 + 白名单词库自动生成
+ * （结构性去标识化，见 landing-summary.mjs）。
  */
 export function toMaskedJobView(job) {
   const hasSalaryRange =
@@ -17,5 +19,10 @@ export function toMaskedJobView(job) {
     city: job.city,
     // 薪资只展示上下限范围；边界缺失时安全降级文案，不推断精确薪资。
     salaryRange: hasSalaryRange ? `${job.salaryMin}–${job.salaryMax}` : "薪资面议",
+    summary: inferJobSummary({
+      category: job.category,
+      title: job.title,
+      jobDescription: job.jobDescription,
+    }),
   };
 }

@@ -7,6 +7,7 @@ type MaskedJobView = {
   category: string;
   city: string;
   salaryRange: string;
+  summary: string;
 };
 
 type IntentOption = "A" | "B" | "C" | "opt_out";
@@ -131,6 +132,7 @@ export default function LandingPage() {
         <span>某科技企业</span>
       </div>
       <div className="lp-divider" />
+      {view.summary ? <p className="lp-desc">{view.summary}</p> : null}
       <h2 className="lp-sub">这份机会与你的经历是否契合？</h2>
       <div className="lp-actions">
         {OPTION_BUTTONS.map(({ value, label, tone }) => (

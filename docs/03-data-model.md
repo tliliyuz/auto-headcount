@@ -214,7 +214,7 @@ erDiagram
 | `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入；两阶段流程降为迁移期查询快照 |
 | `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
 | `candidates` | `source_connection_id`(FK source_connections RESTRICT) + `raw_record_id`(FK raw_records SET NULL) + `external_id`(unique `(source_connection_id, external_id)`，迁移 0010)，`display_name`(真实姓名，敏感业务 RBAC+加密+审计，不写日志/审计/任务载荷), `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
-| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`, `seniority`, `industry`, `current_title`, `current_company`(迁移 0010，近期工作；投影生成 `currentTitle ?? seniority` 回退), `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存 |
+| `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`(最高学历), `school`, `major`(迁移 0012，毕业院校/专业), `seniority`, `industry`, `current_title`, `current_company`(迁移 0010，近期工作；投影生成 `currentTitle ?? seniority` 回退), `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存 |
 | `matches` | `job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk` + 迁移 0008：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`(FK SET NULL), `aggregation_rule_version`。新权威分只能由已验证 LLM 结果经本地汇总产生 |
 | `match_dimensions` | `match_id`, `dimension`, `score`, `evidence`, `risk` + 迁移 0008：`assessable`, `confidence`, `llm_score_run_id`(FK SET NULL), `output_hash`，用于追溯已接受的 LLM 结构化输出 |
 
@@ -301,7 +301,7 @@ notify_pending → notify_succeeded | notify_failed
 
 ## 10. 候选人落地页投影
 
-落地页不得直接序列化 `jobs` 或 `job_requirements`。服务端必须生成独立的白名单 DTO，最多包含职位名称、类别、城市、薪资范围、职责摘要、要求摘要和候选人可执行操作。**职责摘要/要求摘要当前一律省略**：原始 JD 截断可能泄漏内嵌公司/品牌名（实测岗位背景首句含品牌名），在运营侧配置去标识化摘要前不输出（2026-08-15，落地页切片）。
+落地页不得直接序列化 `jobs` 或 `job_requirements`。服务端必须生成独立的白名单 DTO，最多包含职位名称、类别、城市、薪资范围、职责摘要、要求摘要和候选人可执行操作。**职责摘要由模板 + 白名单词库自动生成**（2026-08-15，落地页切片）：大类桶模板 + 从 JD 命中的通用能力词/行业词变量（`lib/landing/landing-summary.mjs`），变量只可能来自白名单词库 → 公司/产品专名结构性无法进入（规避原始 JD 截断泄漏品牌名的实测教训）；确定性纯函数、无存储、LLM 改写留作增强路径。
 
 以下字段始终禁止进入落地页响应和客户端埋点：公司名称及别名、详细地址、内部职位编号、客户联系人、招聘负责人、原始 JD 和供应商原始载荷。
 

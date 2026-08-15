@@ -8,6 +8,7 @@ export interface MaskedJobView {
   category: string;
   city: string;
   salaryRange: string;
+  summary: string;
 }
 
 export interface IntentSubmitOk {
