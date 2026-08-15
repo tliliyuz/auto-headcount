@@ -13,7 +13,7 @@ process.env.APP_ENV = "development";
 // `toPublicJobView`（公司固定标签、城市级、薪资范围），其断言见
 // `tests/job-rules.test.mjs`「候选人落地页投影隐藏公司与详细地址」。
 
-async function render(view = "login") {
+async function render(view = "login", path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
@@ -22,7 +22,7 @@ async function render(view = "login") {
   if (view === "app") headers["x-prototype-view"] = "app";
 
   return worker.fetch(
-    new Request("http://localhost/", { headers }),
+    new Request(`http://localhost${path}`, { headers }),
     {
       ASSETS: {
         fetch: async () => new Response("Not found", { status: 404 }),
@@ -61,17 +61,43 @@ test("服务端渲染运营后台不泄漏公司与详细地址", async () => {
   assert.match(html, /让沉睡的职位，重新流动起来。/);
   assert.match(html, /系统自动同步、补全职位并增量匹配/);
   assert.match(html, /正在加载职位…/);
-  assert.match(html, /候选人看到的内容/);
+  // 右侧洞察面板已移除：改断言 jobs-card 头文案（详情页独立路由后由 /jobs/[id] 承接）。
+  assert.match(html, /只展示满足巡检规则的有效职位/);
   assert.doesNotMatch(html, /创建匹配任务/);
   assert.doesNotMatch(html, /海岳智能科技有限公司/);
   assert.doesNotMatch(html, /浦东新区张江路/);
 });
 
-test("静态原型覆盖登录页与运营后台导航页面", async () => {
-  const source = await readFile(
-    new URL("../app/operations-dashboard.tsx", import.meta.url),
-    "utf8",
+test("服务端渲染职位详情页（/jobs/[id]）SSR 外壳", async () => {
+  const response = await render(
+    "app",
+    "/jobs/00000000-0000-0000-0000-000000000000",
   );
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+
+  const html = await response.text();
+  assert.match(html, /<title>职位详情｜职位激活台<\/title>/i);
+  assert.match(html, /← 返回职位列表/);
+  assert.match(html, /正在加载职位详情…/);
+  assert.doesNotMatch(html, /海岳智能科技有限公司/);
+  assert.doesNotMatch(html, /浦东新区张江路/);
+});
+
+test("静态原型覆盖登录页与运营后台导航页面", async () => {
+  // 职位详情相关标记（职位详情（完整 JD）/暂无详情）已随右侧洞察面板迁到独立详情页，
+  // 两个源文件拼接后统一断言。
+  const [dashboardSource, detailSource] = await Promise.all([
+    readFile(
+      new URL("../app/operations-dashboard.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/jobs/[id]/job-detail-page.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  const source = `${dashboardSource}\n${detailSource}`;
 
   for (const pageMarker of [
     "登录职位激活台",

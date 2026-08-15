@@ -8,6 +8,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { useRouter } from "next/navigation";
 import { isUnderServedJob, toPublicJobView } from "@/lib/job-rules.mjs";
 import {
   JOB_CATEGORY_BUCKETS,
@@ -23,7 +24,6 @@ import {
 import {
   fetchAuditLogs,
   fetchDormantJobs,
-  fetchJobDetail,
   fetchMatchDetail,
   fetchMatches,
   fetchMatchExceptions,
@@ -43,7 +43,6 @@ import {
   type CandidateDetailView,
   type CandidateView,
   type DormantJob,
-  type JobDetail,
   type MatchDetailView,
   type MatchExceptionView,
   type MatchView,
@@ -1363,23 +1362,19 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
   const [view, setView] = useState<"login" | "app">(initialView);
   const [user, setUser] = useState<AuthUser>({ name: "林然", role: "招聘运营" });
   const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
   const [activePage, setActivePage] = useState<PageId>("jobs");
   const [activeCategory, setActiveCategory] = useState("全部");
   const [query, setQuery] = useState("");
   const [jobPage, setJobPage] = useState(1);
   const [jumpValue, setJumpValue] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [dormantJobs, setDormantJobs] = useState<DormantJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [latestSyncAt, setLatestSyncAt] = useState<string | null>(null);
-  const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  // 请求序号 ref：丢弃快速切换职位时的陈旧详情响应，防竞态。
-  const detailRequestSeq = useRef(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // 会话核实：会话 Cookie 为 HttpOnly，JS 无法探测，因此无条件调 /api/auth/me。
   // SSR 已按 Cookie 存在性渲染视图；这里用 me 确认真实会话与用户，
@@ -1619,39 +1614,10 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
     setJumpValue("");
   }
 
+  // 右侧面板选中职位：行点击仅更新选中态；完整 JD 见独立详情页 /jobs/[id]（标题/› 跳转）。
   const selectedJob =
     sleepingJobs.find((job) => job.id === selectedId) ?? sleepingJobs[0];
   const publicJob = selectedJob ? toPublicJobView(selectedJob) : null;
-
-  // 职位详情：选中职位变化时按需拉取完整 JD（列表投影不含 JD，保持列表精简）。
-  // 请求序号 ref 丢弃陈旧响应；401/改密回落登录，403 显式无权限，404 视为已下架。
-  // setState 一律放在 async IIFE 内（与业务数据加载 effect 同款写法），满足 react-hooks 门禁。
-  useEffect(() => {
-    const jobId = selectedJob?.id;
-    if (!jobId) return; // 无选中职位时由渲染分支展示「未选择职位」，无需重置详情状态
-    const seq = ++detailRequestSeq.current;
-    const controller = new AbortController();
-    void (async () => {
-      setJobDetail(null);
-      setDetailLoading(true);
-      setDetailError(null);
-      const result = await fetchJobDetail(jobId, { signal: controller.signal });
-      if (seq !== detailRequestSeq.current) return; // 陈旧响应直接丢弃
-      setDetailLoading(false);
-      if (result.ok) {
-        setJobDetail(result.data);
-      } else if (result.status === 401 || result.code === "password_change_required") {
-        handleAuthExpired();
-      } else if (result.status === 403) {
-        setDetailError("无权限访问职位详情");
-      } else if (result.status === 404) {
-        setDetailError("职位不存在或已下架");
-      } else {
-        setDetailError("详情加载失败，请稍后重试");
-      }
-    })();
-    return () => controller.abort();
-  }, [selectedJob?.id, handleAuthExpired]);
 
   if (view === "login") {
     return (
@@ -1828,12 +1794,12 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     {pageJobs.map((job) => (
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><span className={`job-run-state ${job.hasDescription ? "queued" : "blocked"}`}><i />{job.hasDescription ? "自动排队" : "待补详情"}</span></td>
-                        <td><strong>{job.title}</strong><small className="job-updated"><span className="job-external-id" title={job.externalId}>{job.externalId}</span><span className="job-updated-at"> · 更新于 {formatDateTime(job.updatedAt)}</span></small></td>
+                        <td><button className="job-detail-link" onClick={(event) => { event.stopPropagation(); router.push(`/jobs/${job.id}`); }}>{job.title}</button><small className="job-updated"><span className="job-external-id" title={job.externalId}>{job.externalId}</span><span className="job-updated-at"> · 更新于 {formatDateTime(job.updatedAt)}</span></small></td>
                         <td><span>{jobCoarseBucket(job.category, job.title)}</span><small>{job.city}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
                         <td><strong>{job.hasDescription ? "等待评分" : "尚未生成"}</strong><small>{job.hasDescription ? "输入变化后自动运行" : "补全 JD 后自动继续"}</small></td>
                         <td><span>{job.hasDescription ? "排队中" : "—"}</span><small>{job.hasDescription ? "无需人工触发" : "等待数据"}</small></td>
-                        <td><button aria-label={`查看 ${job.title}`} onClick={() => setSelectedId(job.id)}>›</button></td>
+                        <td><button aria-label={`查看 ${job.title}`} onClick={(event) => { event.stopPropagation(); router.push(`/jobs/${job.id}`); }}>›</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1876,7 +1842,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
               </div>
             </div>
 
-            <aside className="insight-panel" aria-label="当前职位详情">
+            <aside className="insight-panel" aria-label="当前职位匹配与公开预览">
               {selectedJob ? (
                 <>
                   <div className="panel-heading">
@@ -1885,19 +1851,6 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                   </div>
 
                   <div className="sleeping-alert"><span>!</span><div><strong>已沉睡 {selectedJob.ageDays} 天</strong><p>距 30 天观察上限还有 {30 - selectedJob.ageDays} 天</p></div></div>
-
-                  <div className="panel-section">
-                    <div className="section-title"><h3>职位详情（完整 JD）</h3><span className="internal-label">仅内部</span></div>
-                    {detailLoading ? (
-                      <p className="muted-note">正在加载职位详情…</p>
-                    ) : detailError ? (
-                      <p className="muted-note">{detailError}</p>
-                    ) : jobDetail?.jobDescription ? (
-                      <div className="jd-detail">{jobDetail.jobDescription}</div>
-                    ) : (
-                      <p className="muted-note">暂无详情</p>
-                    )}
-                  </div>
 
                   <div className="panel-section">
                     <div className="section-title"><h3>自动匹配状态</h3><button onClick={() => setActivePage("matching")}>查看审核队列</button></div>
@@ -1918,7 +1871,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                     </div>
                   </div>
 
-                  <div className="panel-note"><span>i</span><p>正常匹配无需人工创建任务；职位、候选人或规则版本变化时系统自动增量重算。</p></div>
+                  <div className="panel-note"><span>i</span><p>完整 JD 已迁移到独立详情页 /jobs/[id]；正常匹配无需人工创建任务，职位、候选人或规则版本变化时系统自动增量重算。</p></div>
                 </>
               ) : (
                 <>

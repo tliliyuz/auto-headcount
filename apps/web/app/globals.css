@@ -350,4 +350,30 @@ button { color: inherit; }
 .audit-wrap td { cursor: default; }
 .audit-wrap td strong { white-space: normal; overflow-wrap: break-word; }
 
+/* —— 职位详情独立页 /jobs/[id]（2026-08-16）—— */
+/* 列表「职位」列标题按钮：与 `<strong>` 同视觉但可点击，点击跳独立详情页。 */
+.job-detail-link { display: block; padding: 0; border: 0; color: #27344c; background: none; font-size: 12px; font-weight: 700; text-align: left; overflow-wrap: break-word; cursor: pointer; }
+.job-detail-link:hover { color: #245ec7; text-decoration: underline; }
+.job-detail-page { max-width: 920px; margin: 0 auto; padding: 32px 24px 48px; }
+.back-link { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 16px; color: #4571c4; font-size: 11px; text-decoration: none; }
+.back-link:hover { color: #1d4fb8; }
+.job-detail-header { display: grid; grid-template-columns: 52px 1fr; gap: 14px; align-items: start; padding: 22px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 4px 18px rgb(25 38 67 / 3%); }
+.job-detail-header .role-icon { width: 52px; height: 52px; font-size: 20px; }
+.jd-title { margin: 4px 0 6px; font-size: 24px; line-height: 1.3; letter-spacing: -.02em; }
+.jd-company { margin: 0; color: #45536b; font-size: 14px; font-weight: 650; }
+.jd-meta { margin: 6px 0 0; color: #8e9aab; font-size: 11px; }
+.jd-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+.jd-tag { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 12px; color: #536178; background: #f1f4f7; font-size: 11px; }
+.jd-tag.urgent { color: #b87518; background: #fff4df; }
+.jd-section { margin-top: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 4px 18px rgb(25 38 67 / 3%); }
+.jd-main { margin: 0; padding: 18px; border: 1px solid #e5eaf1; border-radius: 9px; background: #fbfcff; color: #3a4556; font-size: 13px; line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
+.jd-note { margin: 32px 0; color: #8a97a9; font-size: 13px; line-height: 1.7; }
+.jd-note .back-link { margin-bottom: 0; }
+@media (max-width: 640px) {
+  .job-detail-page { padding: 22px 14px 32px; }
+  .job-detail-header { padding: 16px; }
+  .jd-title { font-size: 20px; }
+  .jd-main { font-size: 12px; padding: 14px; }
+}
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
