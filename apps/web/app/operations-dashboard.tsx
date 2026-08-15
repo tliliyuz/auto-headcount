@@ -31,6 +31,7 @@ import {
   fetchSyncRuns,
   fetchBrowserBatches,
   fetchCandidateBatches,
+  fetchCandidates,
   triggerSync,
   triggerBrowserCollection,
   triggerCandidateCollection,
@@ -38,6 +39,7 @@ import {
   type AuditLogView,
   type BrowserBatchView,
   type CandidateBatchView,
+  type CandidateView,
   type DormantJob,
   type JobDetail,
   type MatchDetailView,
@@ -476,40 +478,70 @@ function FunnelPage() {
   return <><PageIntro eyebrow="近 30 天运营数据" title="转化趋势" description="从消息发送到完成推荐，按职位、活动和渠道观察每一层转化。" action="导出报表" /><div className="analytics-grid"><section className="surface-card trend-card"><div className="surface-header"><div><h2>触达与意向趋势</h2><p>7 月 13 日 — 8 月 11 日</p></div><div className="legend"><span><i className="blue" />已送达</span><span><i className="green" />表达意向</span></div></div><div className="chart-area"><div className="y-axis"><span>300</span><span>200</span><span>100</span><span>0</span></div><div className="bar-chart">{bars.map((bar, index) => <div key={index}><i style={{ height: `${bar}%` }} /><b style={{ height: `${Math.max(8, bar * .18)}%` }} /></div>)}</div></div><div className="x-labels"><span>7/13</span><span>7/20</span><span>7/27</span><span>8/3</span><span>8/11</span></div></section><section className="surface-card funnel-card"><div className="surface-header"><div><h2>全链路漏斗</h2><p>所有渠道汇总</p></div></div><div className="funnel-steps">{stages.map((stage, index) => <div key={stage[0]} style={{ width: `${100 - index * 7}%` }}><span>{stage[0]}</span><strong>{stage[1]}</strong><em>{stage[2]}</em></div>)}</div></section></div><section className="surface-card data-card channel-performance"><div className="surface-header"><div><h2>职位转化表现</h2><p>按最终推荐率排序</p></div><button className="plain-filter">全部活动⌄</button></div><div className="data-table performance-table"><div className="data-row data-head"><span>职位</span><span>已送达</span><span>点击率</span><span>意向率</span><span>确认联系</span><span>完成推荐</span></div>{[["资深前端工程师","384","32.6%","11.7%","28","9"],["AI 产品经理","296","29.4%","10.1%","19","7"],["高级数据分析师","248","25.8%","7.7%","12","5"],["海外市场负责人","182","31.3%","9.3%","11","4"]].map((row) => <div className="data-row" key={row[0]}>{row.map((cell, index) => <span key={cell}>{index === 0 ? <strong>{cell}</strong> : cell}</span>)}</div>)}</div></section></>;
 }
 
-// 候选人池原型：完全虚构假数据（docs/10 §2：内部存真实姓名按 RBAC 保护，匹配投影不含联系方式）。
-const candidateRows = [
-  { id: "cand-1", name: "陈明", title: "资深前端工程师", company: "星云科技", city: "上海", exp: 8, edu: "本科", seniority: "高级", status: "待匹配", recCount: 0, summary: "8 年前端经验，React/Vue 双栈，主导过 3 个中大型项目的性能优化与组件库建设。" },
-  { id: "cand-2", name: "李静", title: "AI 算法工程师", company: "数聚智能", city: "北京", exp: 6, edu: "硕士", seniority: "高级", status: "已匹配", recCount: 1, summary: "NLP/CV 方向，熟悉大模型微调与 RAG 工程化，有 2 个落地项目。" },
-  { id: "cand-3", name: "王强", title: "后端架构师", company: "云启科技", city: "深圳", exp: 10, edu: "本科", seniority: "资深", status: "待匹配", recCount: 0, summary: "高并发服务架构，微服务拆分与容器化落地经验丰富，参与过日活千万级系统。" },
-  { id: "cand-4", name: "赵敏", title: "数据分析师", company: "千寻电商", city: "杭州", exp: 5, edu: "本科", seniority: "中级", status: "待匹配", recCount: 0, summary: "SQL/Python 数据分析，熟悉用户增长与漏斗分析，输出过 40+ 份业务洞察报告。" },
-  { id: "cand-5", name: "孙磊", title: "全栈工程师", company: "跃升软件", city: "成都", exp: 7, edu: "本科", seniority: "高级", status: "已匹配", recCount: 1, summary: "Node/React 全栈，主导过 SaaS 产品从 0 到 1，覆盖前端、服务端到 CI/CD。" },
-  { id: "cand-6", name: "周婷", title: "产品经理", company: "云杉 SaaS", city: "广州", exp: 6, edu: "本科", seniority: "高级", status: "待匹配", recCount: 0, summary: "B 端产品 6 年，擅长需求调研与商业化设计，主导过 2 条产品线迭代。" },
-  { id: "cand-7", name: "吴浩", title: "DevOps 工程师", company: "金科数据", city: "北京", exp: 9, edu: "硕士", seniority: "资深", status: "已审核", recCount: 0, summary: "K8s/Terraform/CI 流水线，主导过两地三中心基础设施迁移，稳定性 99.99%。" },
-  { id: "cand-8", name: "郑芳", title: "UI/UX 设计师", company: "知了设计", city: "上海", exp: 4, edu: "本科", seniority: "中级", status: "待匹配", recCount: 0, summary: "B 端与数据可视化设计，产出过 30+ 套组件规范，关注可访问性。" },
-];
-
-function CandidatesPage() {
+function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const CANDIDATE_PAGE_SIZE = 10;
+  const [candidates, setCandidates] = useState<CandidateView[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
+  const [candidatesError, setCandidatesError] = useState<string | null>(null);
   const [activeStatus, setActiveStatus] = useState("全部");
   const [query, setQuery] = useState("");
   const [candidatePage, setCandidatePage] = useState(1);
   const [jumpValue, setJumpValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // 拉取候选人池（真实姓名 RBAC 保护；按页拉全量后客户端筛选/分页）。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setCandidatesLoading(true);
+      const collected: CandidateView[] = [];
+      let page = 1;
+      let failed: { status: number; code: string | null } | null = null;
+      while (true) {
+        const result = await fetchCandidates({ page, pageSize: 100 });
+        if (cancelled) return;
+        if (!result.ok) {
+          failed = { status: result.status, code: result.code };
+          break;
+        }
+        collected.push(...result.data.list);
+        if (collected.length >= result.data.total || result.data.list.length === 0) break;
+        page += 1;
+      }
+      if (cancelled) return;
+      if (failed) {
+        if (failed.status === 401 || failed.code === "password_change_required") {
+          onAuthExpired();
+          return;
+        }
+        setCandidatesError("候选人池加载失败，请稍后重试");
+      } else {
+        setCandidates(collected);
+      }
+      setCandidatesLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onAuthExpired]);
+
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const c of candidateRows) counts[c.status] = (counts[c.status] ?? 0) + 1;
+    for (const c of candidates) counts[c.status] = (counts[c.status] ?? 0) + 1;
     return counts;
-  }, []);
-  const matchedCount = candidateRows.filter((c) => c.status === "已匹配").length;
+  }, [candidates]);
+  const matchedCount = candidates.filter((c) => c.status === "已匹配").length;
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const monthNew = candidates.filter((c) => new Date(c.createdAt) >= monthStart).length;
 
-  const filteredCandidates = candidateRows.filter((c) => {
+  const filteredCandidates = candidates.filter((c) => {
     const statusMatches = activeStatus === "全部" || c.status === activeStatus;
+    const q = query.trim().toLowerCase();
     const queryMatches =
-      query.trim() === "" ||
-      `${c.name}${c.title}${c.company}${c.city}`
+      q === "" ||
+      `${c.name}${c.title ?? ""}${c.company ?? ""}${c.city ?? ""}${c.school ?? ""}${c.major ?? ""}`
         .toLowerCase()
-        .includes(query.trim().toLowerCase());
+        .includes(q);
     return statusMatches && queryMatches;
   });
   const candidateTotalPages = Math.max(1, Math.ceil(filteredCandidates.length / CANDIDATE_PAGE_SIZE));
@@ -518,7 +550,10 @@ function CandidatesPage() {
     (currentCandidatePage - 1) * CANDIDATE_PAGE_SIZE,
     currentCandidatePage * CANDIDATE_PAGE_SIZE,
   );
-  const selected = candidateRows.find((c) => c.id === selectedId) ?? pageCandidates[0] ?? candidateRows[0];
+  const selected = candidates.find((c) => c.id === selectedId) ?? pageCandidates[0] ?? candidates[0];
+  const selectedSummary =
+    selected?.summary ??
+    (`${[selected?.school, selected?.major].filter(Boolean).join(" · ")}${selected?.experienceYears != null ? ` · ${selected.experienceYears} 年经验` : ""}${selected?.city ? ` · ${selected.city}` : ""}`.replace(/^\s*·\s*/, "") || "暂无摘要");
 
   function jumpToCandidatePage() {
     const page = Number.parseInt(jumpValue, 10);
@@ -529,10 +564,10 @@ function CandidatesPage() {
   return <>
     <PageIntro eyebrow="授权人才池采集的候选人画像" title="候选人池" description="展示采集的候选人画像与匹配状态；真实姓名按 RBAC 保护，匹配投影不含联系方式。" action="采集人才池候选人" />
     <SummaryStrip items={[
-      { label: "候选人总数", value: String(candidateRows.length), note: "互联网技术其他分类", tone: "blue" },
+      { label: "候选人总数", value: String(candidates.length), note: "互联网技术其他分类", tone: "blue" },
       { label: "已匹配", value: String(matchedCount), note: "进入智能匹配池", tone: "green" },
-      { label: "待匹配", value: String(candidateRows.length - matchedCount), note: "等待匹配任务", tone: "amber" },
-      { label: "本月新增", value: "8", note: "人才池采集（原型假数据）", tone: "violet" },
+      { label: "待匹配", value: String(candidates.length - matchedCount), note: "等待匹配任务", tone: "amber" },
+      { label: "本月新增", value: String(monthNew), note: "人才池采集入库", tone: "violet" },
     ]} />
     <section className="workspace-grid">
       <div className="jobs-card">
@@ -547,12 +582,12 @@ function CandidatesPage() {
               onClick={() => { setActiveStatus(status); setCandidatePage(1); }}
             >
               {status}
-              {status === "全部" ? <span>{candidateRows.length}</span> : <span>{statusCounts[status] ?? 0}</span>}
+              {status === "全部" ? <span>{candidates.length}</span> : <span>{statusCounts[status] ?? 0}</span>}
             </button>
           ))}
         </div>
         <div className="table-tools">
-          <label className="table-search"><span>⌕</span><input value={query} onChange={(e) => { setQuery(e.target.value); setCandidatePage(1); }} placeholder="搜索姓名 / 职位 / 公司 / 城市" /></label>
+          <label className="table-search"><span>⌕</span><input value={query} onChange={(e) => { setQuery(e.target.value); setCandidatePage(1); }} placeholder="搜索姓名 / 职位 / 公司 / 城市 / 学校" /></label>
         </div>
         <div className="table-wrap">
           <table>
@@ -561,17 +596,23 @@ function CandidatesPage() {
               {pageCandidates.map((c) => (
                 <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => setSelectedId(c.id)}>
                   <td><span className="candidate-cell"><span className="candidate-avatar small">{c.name.slice(0, 1)}</span><strong>{c.name}</strong></span></td>
-                  <td>{c.title}</td>
-                  <td><strong>{c.company}</strong><small>{c.city}</small></td>
-                  <td><span>{c.exp} 年</span></td>
-                  <td><span>{c.edu} · {c.seniority}</span></td>
+                  <td>{c.title ?? "—"}</td>
+                  <td><strong>{c.company ?? "—"}</strong><small>{c.city ?? "—"}</small></td>
+                  <td><span>{c.experienceYears != null ? `${c.experienceYears} 年` : "—"}</span></td>
+                  <td><span>{c.education ?? "—"}{c.seniority ? ` · ${c.seniority}` : ""}</span></td>
                   <td><span className={`status-tag status-${c.status}`}>{c.status}</span></td>
                   <td><button aria-label={`查看 ${c.name}`} onClick={() => setSelectedId(c.id)}>›</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {filteredCandidates.length === 0 && <div className="empty-state">没有符合当前条件的候选人</div>}
+          {candidatesLoading ? (
+            <div className="empty-state">正在加载候选人池…</div>
+          ) : candidatesError ? (
+            <div className="empty-state">{candidatesError}</div>
+          ) : filteredCandidates.length === 0 && (
+            <div className="empty-state">没有符合当前条件的候选人</div>
+          )}
         </div>
         <div className="table-footer">
           <span>{filteredCandidates.length === 0 ? "显示 0 条" : `显示 ${(currentCandidatePage - 1) * CANDIDATE_PAGE_SIZE + 1}–${Math.min(currentCandidatePage * CANDIDATE_PAGE_SIZE, filteredCandidates.length)} 条，共 ${filteredCandidates.length} 条候选人`}</span>
@@ -604,16 +645,16 @@ function CandidatesPage() {
       <aside className="surface-card campaign-detail">
         <span className={`status-tag status-${selected.status}`}>{selected.status}</span>
         <h2>{selected.name}</h2>
-        <p>{selected.title} · {selected.company}</p>
+        <p>{selected.title ?? "—"} · {selected.company ?? "—"}</p>
         <div className="campaign-stats">
-          <div><strong>{selected.exp}</strong><small>年经验</small></div>
-          <div><strong>{selected.city}</strong><small>城市</small></div>
-          <div><strong>{selected.edu}</strong><small>学历</small></div>
-          <div><strong>{selected.seniority}</strong><small>职级</small></div>
+          <div><strong>{selected.experienceYears != null ? selected.experienceYears : "—"}</strong><small>年经验</small></div>
+          <div><strong>{selected.city ?? "—"}</strong><small>城市</small></div>
+          <div><strong>{selected.education ?? "—"}</strong><small>学历</small></div>
+          <div><strong>{selected.seniority ?? "—"}</strong><small>职级</small></div>
         </div>
-        <div className="message-preview"><span>候选人摘要</span><p>{selected.summary}</p><small>真实姓名按 RBAC 保护，匹配投影（candidate-match-projection）不含联系方式</small></div>
-        <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>2</i><p><strong>有效推荐</strong><span>{selected.recCount} 次 · 沉睡职位匹配依据</span></p></div></div>
-        <button className="secondary-button full">加入匹配池</button>
+        <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p><small>真实姓名按 RBAC 保护，匹配投影（candidate-match-projection）不含联系方式</small></div>
+        <div className="message-preview"><span>候选人摘要</span><p>{selectedSummary}</p></div>
+        <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>{selected.matchCount}</i><p><strong>匹配记录</strong><span>{selected.matchCount} 条 · 匹配状态由 matches 推导</span></p></div></div>
       </aside>
     </section>
   </>;
@@ -1248,7 +1289,7 @@ function PrototypePage({
   syncState: SyncTriggerState;
 }) {
   if (page === "matching") return <MatchingPage onAuthExpired={onAuthExpired} />;
-  if (page === "candidates") return <CandidatesPage />;
+  if (page === "candidates") return <CandidatesPage onAuthExpired={onAuthExpired} />;
   if (page === "campaigns") return <CampaignsPage />;
   if (page === "followups") return <FollowupsPage />;
   if (page === "funnel") return <FunnelPage />;
@@ -1587,7 +1628,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
           <span className="nav-label secondary">数据与配置</span>
           <button className={`nav-item ${activePage === "funnel" ? "active" : ""}`} onClick={() => setActivePage("funnel")}><span>⌗</span>转化漏斗</button>
           <button className={`nav-item ${activePage === "sources" ? "active" : ""}`} onClick={() => setActivePage("sources")}><span>⌘</span>数据源</button>
-          <button className={`nav-item ${activePage === "candidates" ? "active" : ""}`} onClick={() => setActivePage("candidates")}><span>◈</span>候选人<i>{candidateRows.length}</i></button>
+          <button className={`nav-item ${activePage === "candidates" ? "active" : ""}`} onClick={() => setActivePage("candidates")}><span>◈</span>候选人</button>
           <button className={`nav-item ${activePage === "audit" ? "active" : ""}`} onClick={() => setActivePage("audit")}><span>▣</span>审计日志</button>
         </nav>
 

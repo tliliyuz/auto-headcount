@@ -163,3 +163,14 @@
 - 联系方式 `phone`/`email` 至少一个，应用层加密入库；明文不落日志/审计/审计元数据。
 - 落库成功后经 notifier 适配器（首实现飞书群机器人 webhook）**直接尽力投递**（有界超时，`NOTIFIER_NOT_CONFIGURED`/非 2xx/不可达均记 `notify_status=failed` + `notify_error_code`，不阻塞意向真源，失败可重试）；payload 最小化（联系方式+意向+职位+时间）；同一意向回复仅投递一次，触发/成功/失败写审计（`landing.intent.submit` 元数据白名单 responseId/deduplicated/notifyStatus），审计元数据不含联系方式正文。
 - CSRF：公开侧无会话，令牌为请求能力；重复提交幂等（返回既有记录 + `deduplicated:true`）。
+
+### 3.4 候选人池列表（M3 候选人采集切片）
+
+| 接口 | 方法 | 鉴权 | 请求 | 响应 |
+|---|---|---|---|---|
+| `/api/candidates` | GET | 会话 + `operations\|admin` | `page`/`page_size`/`q`（姓名/职位/公司/城市/学校/专业）/`status`（待匹配/已匹配/已审核） | `200 { total, page, page_size, total_pages, list }` |
+
+- 候选人画像属**敏感业务**（docs/06 §敏感业务）：真实姓名（`display_name`）仅在 RBAC `operations|admin` 会话下返回；响应**永不包含**联系方式/简历正文（raw_records payload_* 信封加密不外发）；审计 `candidates.list` 元数据只存页码/条数/总数。
+- 列表字段白名单：姓名、当前职位（`current_title ?? seniority`）、公司、城市、经验年限、学历、学校、专业、职级、行业、摘要、`consent_status`、匹配状态、匹配数、入库时间。
+- **匹配状态由 `matches` 推导**：已审核（存在 approved/rejected）→ 已匹配（存在 generated）→ 待匹配（无匹配）。M3 匹配流水线未跑时全为待匹配。
+- 只列出有画像内容的候选人（`current_title` 或经验非空），排除落地页预览产生的空画像夹具。

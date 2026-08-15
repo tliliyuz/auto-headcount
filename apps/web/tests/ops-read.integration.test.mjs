@@ -19,6 +19,7 @@ import {
   listSources,
   listSyncRuns,
 } from "../lib/sources/source-read-repository.mjs";
+import { listCandidates } from "../lib/jobs/candidate-read-repository.mjs";
 
 const connectionString = process.env.DATABASE_URL;
 const encryption = {
@@ -392,6 +393,91 @@ test(
     } finally {
       if (sourceId) {
         await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "listCandidates：画像白名单、匹配状态推导、搜索与空画像夹具排除",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    let sourceId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-cand-read-${marker}`,
+        environment: "test",
+        status: "active",
+        displayName: "Cand Read Source",
+      });
+      const [job] = await sql`
+        insert into jobs (source_connection_id, external_id, mapping_version, title, company_name, category, city, status, days_without_recommendation, eligibility_evidence, portal_url)
+        values (${sourceId}, ${`cand-read-job-${marker}`}, 'test', '数据工程师', '虚构科技', '信息技术', '北京', 'active', 10, ${sql.json({ activeStatus: "provider_filter", zeroRecommendations: "provider_filter", age: "days_without_rec" })}, ${`https://portal.invalid/jobs/cand-read-${marker}`})
+        returning id
+      `;
+
+      async function seedCandidate({ externalId, name, title, company, city, exp, edu, school, major, seniority }) {
+        const [c] = await sql`
+          insert into candidates (source_connection_id, external_id, display_name)
+          values (${sourceId}, ${externalId}, ${name})
+          returning id
+        `;
+        await sql`
+          insert into candidate_profiles (candidate_id, current_title, current_company, location, experience_years, education, school, major, seniority)
+          values (${c.id}, ${title}, ${company}, ${city}, ${exp}, ${edu}, ${school}, ${major}, ${seniority})
+        `;
+        return c.id;
+      }
+
+      const candMatched = await seedCandidate({ externalId: `cand-a-${marker}`, name: "示例甲", title: "数据工程师", company: "虚构科技", city: "北京", exp: 8, edu: "硕士", school: "虚构大学", major: "计算机", seniority: "高级" });
+      await seedCandidate({ externalId: `cand-b-${marker}`, name: "示例乙", title: "算法工程师", company: "虚构数据", city: "上海", exp: 6, edu: "本科", school: null, major: null, seniority: "中级" });
+      const candReviewed = await seedCandidate({ externalId: `cand-c-${marker}`, name: "示例丙", title: "后端工程师", company: "虚构云", city: "深圳", exp: 10, edu: "本科", school: "虚构理工", major: "软件工程", seniority: "资深" });
+
+      await sql`
+        insert into matches (job_id, candidate_id, score, band, status, rule_version)
+        values (${job.id}, ${candMatched}, 88, 'high', 'generated', 1)
+      `;
+      await sql`
+        insert into matches (job_id, candidate_id, score, band, status, rule_version)
+        values (${job.id}, ${candReviewed}, 92, 'high', 'approved', 1)
+      `;
+
+      // 空画像夹具（落地页预览产生）应被排除
+      const [preview] = await sql`
+        insert into candidates (source_connection_id, external_id, display_name)
+        values (${sourceId}, ${`preview-fixture-${marker}`}, '预览夹具')
+        returning id
+      `;
+      await sql`insert into candidate_profiles (candidate_id) values (${preview.id})`;
+
+      const all = await listCandidates(sql, { pageSize: 100 });
+      const byExt = (ext) => all.list.find((r) => r.externalId === ext);
+      assert.equal(all.list.some((r) => r.externalId === `preview-fixture-${marker}`), false, "空画像夹具排除");
+      assert.equal(byExt(`cand-a-${marker}`).status, "已匹配");
+      assert.equal(byExt(`cand-b-${marker}`).status, "待匹配");
+      assert.equal(byExt(`cand-c-${marker}`).status, "已审核");
+      assert.equal(byExt(`cand-a-${marker}`).name, "示例甲");
+      assert.equal(byExt(`cand-a-${marker}`).title, "数据工程师");
+      assert.equal(byExt(`cand-a-${marker}`).school, "虚构大学");
+      assert.equal(byExt(`cand-b-${marker}`).major, null);
+
+      const searched = await listCandidates(sql, { q: "虚构理工", pageSize: 100 });
+      assert.equal(searched.list.length, 1);
+      assert.equal(searched.list[0].externalId, `cand-c-${marker}`);
+
+      const reviewed = await listCandidates(sql, { status: "已审核", pageSize: 100 });
+      assert.equal(reviewed.list.length, 1);
+      assert.equal(reviewed.list[0].externalId, `cand-c-${marker}`);
+    } finally {
+      if (sourceId) {
+        await sql`delete from matches where candidate_id in (select id from candidates where source_connection_id = ${sourceId})`;
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from candidate_profiles where candidate_id in (select id from candidates where source_connection_id = ${sourceId})`;
+        await sql`delete from candidates where source_connection_id = ${sourceId}`;
         await sql`delete from source_connections where id = ${sourceId}`;
       }
       await sql.end();

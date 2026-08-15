@@ -86,6 +86,28 @@ export type BrowserBatchView = {
 
 export type CandidateBatchView = BrowserBatchView;
 
+/** 候选人池画像（内部运营，真实姓名 RBAC 保护；匹配状态由 matches 推导）。 */
+export type CandidateView = {
+  id: string;
+  externalId: string;
+  name: string;
+  summary: string | null;
+  consentStatus: string;
+  title: string | null;
+  company: string | null;
+  city: string | null;
+  experienceYears: number | null;
+  education: string | null;
+  school: string | null;
+  major: string | null;
+  seniority: string | null;
+  industry: string | null;
+  activityUpdatedAt: string | null;
+  createdAt: string;
+  matchCount: number;
+  status: string;
+};
+
 export type AuditLogView = {
   id: string;
   occurredAt: string;
@@ -166,6 +188,25 @@ export function fetchDormantJobs(input?: {
     withQuery("/api/jobs/under-served", {
       category: input?.category,
       q: input?.q,
+      page: input?.page,
+      page_size: input?.pageSize,
+    }),
+    { method: "GET", signal: input?.signal },
+  );
+}
+
+/** 候选人池列表（RBAC operations/admin；真实姓名内部可见）。契约见 docs/09 §3.4。 */
+export function fetchCandidates(input?: {
+  q?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+  signal?: AbortSignal;
+}): Promise<AuthResult<Paged<CandidateView>>> {
+  return request<Paged<CandidateView>>(
+    withQuery("/api/candidates", {
+      q: input?.q,
+      status: input?.status,
       page: input?.page,
       page_size: input?.pageSize,
     }),
