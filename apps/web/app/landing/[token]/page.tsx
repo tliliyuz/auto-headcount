@@ -8,6 +8,13 @@ type MaskedJobView = {
   city: string;
   salaryRange: string;
   summary: string;
+  candidateName: string | null;
+  companyTeaser: {
+    industryPositioning: string | null;
+    companyScale: string | null;
+    benchmarks: string | null;
+    officeLocation: string | null;
+  } | null;
 };
 
 type IntentOption = "A" | "B" | "C" | "opt_out";
@@ -124,7 +131,9 @@ export default function LandingPage() {
 
   return (
     <PageShell>
-      <span className="lp-label">为你精选的职业机会</span>
+      <span className="lp-label">
+        {view.candidateName ? `${view.candidateName}，为你精选的职业机会` : "为你精选的职业机会"}
+      </span>
       <h1 className="lp-title">{view.title}</h1>
       <div className="lp-meta">
         <span>⌖ {view.city}</span>
@@ -132,6 +141,17 @@ export default function LandingPage() {
         <span>某科技企业</span>
       </div>
       <div className="lp-divider" />
+      {view.companyTeaser ? (
+        <div className="lp-teaser">
+          <h3 className="lp-sub">关于这家公司</h3>
+          <ul>
+            {view.companyTeaser.industryPositioning ? <li>行业定位：{view.companyTeaser.industryPositioning}</li> : null}
+            {view.companyTeaser.companyScale ? <li>公司体量：{view.companyTeaser.companyScale}</li> : null}
+            {view.companyTeaser.benchmarks ? <li>对标企业：{view.companyTeaser.benchmarks}</li> : null}
+            {view.companyTeaser.officeLocation ? <li>办公地点：{view.companyTeaser.officeLocation}</li> : null}
+          </ul>
+        </div>
+      ) : null}
       {view.summary ? <p className="lp-desc">{view.summary}</p> : null}
       <h2 className="lp-sub">这份机会与你的经历是否契合？</h2>
       <div className="lp-actions">
@@ -209,6 +229,10 @@ const LANDING_STYLES = `
   .lp-divider { height: 1px; margin: 22px 0; background: #e9edf3; }
   .lp-desc { margin: 0; color: #6f7d92; font-size: 13px; line-height: 1.8; }
   .lp-sub { margin: 22px 0 12px; font-size: 15px; color: #12203a; }
+  .lp-teaser { margin: 0 0 6px; padding: 14px 16px; border-radius: 12px; background: #f5f8fd; }
+  .lp-teaser .lp-sub { margin: 0 0 8px; font-size: 13px; }
+  .lp-teaser ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .lp-teaser li { color: #52627a; font-size: 13px; line-height: 1.6; }
   .lp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
   .lp-action { height: 44px; border: 1px solid #dce3ed; border-radius: 9px; color: #52627a; background: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
   .lp-action.is-selected { border-color: #2864dc; color: #fff; background: #2864dc; }

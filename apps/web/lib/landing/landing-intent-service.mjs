@@ -1,4 +1,7 @@
 import { createNotifier } from "../notifier/notifier.mjs";
+import {
+  findCompanyLandingProfileByCompanyName,
+} from "./company-profile-repository.mjs";
 import { encryptSubmittedContact } from "./landing-contact.mjs";
 import {
   createIntentResponse,
@@ -14,6 +17,7 @@ export const LANDING_LINK_UNAVAILABLE_CODE = "landing_link_unavailable";
 
 /**
  * 公开侧取落地页脱敏职位视图：令牌哈希门禁（存在 + 未过期 + 未撤销）。
+ * 组装脱敏职位字段 + 候选人姓名（本人可见）+ 公司隐性信息 teaser（公司档案，可能为 null）。
  * 失效令牌返回 null（对外统一「链接不可用」，防令牌枚举）。
  */
 export async function getLandingJobView(sql, { token, now }) {
@@ -21,7 +25,23 @@ export async function getLandingJobView(sql, { token, now }) {
     tokenHash: hashLandingToken(token),
     now,
   });
-  return link ? toMaskedJobView(link) : null;
+  if (!link) return null;
+
+  const profile = link.companyName
+    ? await findCompanyLandingProfileByCompanyName(sql, link.companyName)
+    : null;
+  return {
+    ...toMaskedJobView(link),
+    candidateName: link.candidateName ?? null,
+    companyTeaser: profile
+      ? {
+          industryPositioning: profile.industryPositioning,
+          companyScale: profile.companyScale,
+          benchmarks: profile.benchmarks,
+          officeLocation: profile.officeLocation,
+        }
+      : null,
+  };
 }
 
 /**

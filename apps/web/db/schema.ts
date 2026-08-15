@@ -848,6 +848,27 @@ export const intentResponses = pgTable(
   (table) => [uniqueIndex("intent_responses_landing_link_unique").on(table.landingLinkId)],
 );
 
+/** 公司落地页隐性信息档案（ADR-006 落地页切片，docs/03 §8/§10）：按公司名维护，建链自动带出。 */
+export const companyLandingProfiles = pgTable(
+  "company_landing_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** 真实公司名（内部键，不在落地页直接显示；隐性信息是脱敏 teaser）。 */
+    companyName: text("company_name").notNull(),
+    /** 行业定位：「头部互联网大厂」/「细分领域独角兽」。 */
+    industryPositioning: text("industry_positioning"),
+    /** 公司体量：「万人规模上市公司」/「刚完成 D 轮融资的创业公司」。 */
+    companyScale: text("company_scale"),
+    /** 对标企业：「直接竞品是 XX 与 XX」。 */
+    benchmarks: text("benchmarks"),
+    /** 办公地点（模糊化）：「就在北京望京核心区」。 */
+    officeLocation: text("office_location"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("company_landing_profiles_company_name_unique").on(table.companyName)],
+);
+
 export const llmScoreRuns = pgTable(
   "llm_score_runs",
   {

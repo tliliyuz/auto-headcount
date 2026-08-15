@@ -15,16 +15,19 @@ export async function createLandingLink(
   return row;
 }
 
-/** 按令牌哈希查「有效」链接：存在 + 未撤销 + 未过期，并联出脱敏所需职位字段。查无/失效返回 null。 */
+/** 按令牌哈希查「有效」链接：存在 + 未撤销 + 未过期，并联出脱敏职位字段 + 候选人姓名 + 公司名（隐性信息档案键）。查无/失效返回 null。 */
 export async function findValidLandingLinkByTokenHash(sql, { tokenHash, now }) {
   const [row] = await sql`
     select l.id, l.job_id as "jobId", l.candidate_id as "candidateId",
            l.expires_at as "expiresAt", l.revoked_at as "revokedAt",
            j.title, j.category, j.city,
            j.salary_min as "salaryMin", j.salary_max as "salaryMax",
-           j.job_description as "jobDescription"
+           j.job_description as "jobDescription",
+           j.company_name as "companyName",
+           c.display_name as "candidateName"
     from landing_links l
     join jobs j on j.id = l.job_id
+    join candidates c on c.id = l.candidate_id
     where l.token_hash = ${tokenHash}
       and l.revoked_at is null
       and l.expires_at > ${now}

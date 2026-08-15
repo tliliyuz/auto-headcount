@@ -9,6 +9,15 @@ export interface MaskedJobView {
   city: string;
   salaryRange: string;
   summary: string;
+  /** 候选人本人姓名（展示给本人，个性化开场；非打码投影）。 */
+  candidateName: string | null;
+  /** 公司隐性信息 teaser（公司档案维护；无档案为 null，不展示隐性信息段）。 */
+  companyTeaser: {
+    industryPositioning: string | null;
+    companyScale: string | null;
+    benchmarks: string | null;
+    officeLocation: string | null;
+  } | null;
 }
 
 export interface IntentSubmitOk {

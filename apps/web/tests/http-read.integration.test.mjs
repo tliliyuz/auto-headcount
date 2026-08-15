@@ -101,6 +101,27 @@ test(
     assert.equal(landingCreateCross.status, 403, "建链跨源应 403");
     assert.equal((await landingCreateCross.json()).code, "forbidden");
 
+    // 1e2) 公司隐性信息档案维护：无会话 401；跨源写 403。
+    const profileUpsert = await worker.fetch(
+      new Request(`${base}/api/landing-company-profiles`, { method: "PUT" }),
+      env,
+      ctx,
+    );
+    assert.equal(profileUpsert.status, 401, "维护公司档案无会话应 401");
+    assert.equal((await profileUpsert.json()).code, "unauthorized");
+
+    const profileCross = await worker.fetch(
+      new Request(`${base}/api/landing-company-profiles`, {
+        method: "PUT",
+        headers: { origin: "https://evil.example" },
+        body: JSON.stringify({ companyName: "Fixture Co" }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(profileCross.status, 403, "维护公司档案跨源应 403");
+    assert.equal((await profileCross.json()).code, "forbidden");
+
     // 1f) 公开意向提交（独立身份域）：跨源写 403（CSRF）；同源无会话坏请求 400；无加密配置 503。
     const intentCross = await worker.fetch(
       new Request(`${base}/api/landing/sometoken/intent`, {

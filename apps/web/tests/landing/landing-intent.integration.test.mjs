@@ -9,8 +9,13 @@ import {
   normalizeEmail,
   normalizePhone,
 } from "../../lib/landing/landing-contact.mjs";
+import {
+  findCompanyLandingProfileByCompanyName,
+  upsertCompanyLandingProfile,
+} from "../../lib/landing/company-profile-repository.mjs";
 import { createLandingLink } from "../../lib/landing/landing-link-repository.mjs";
 import {
+  getLandingJobView,
   LANDING_LINK_UNAVAILABLE_CODE,
   submitLandingIntent,
 } from "../../lib/landing/landing-intent-service.mjs";
@@ -28,6 +33,7 @@ test("落地页意向：令牌门禁、幂等、联系方式信封加密、通�
     await sql`delete from intent_responses`;
     await sql`delete from landing_links`;
     await sql`delete from candidates`;
+    await sql`delete from company_landing_profiles`;
     await sql`delete from jobs`;
     await sql`delete from source_connections`;
     await sql.end();
@@ -134,7 +140,30 @@ test("落地页意向：令牌门禁、幂等、联系方式信封加密、通�
   assert.equal(bad.ok, false);
   assert.equal(bad.code, LANDING_LINK_UNAVAILABLE_CODE);
 
-  // ⑤ 未配置 webhook → 通知诚实失败（NOTIFIER_NOT_CONFIGURED），意向仍落库
+  // ⑤ 公司隐性信息档案 + 脱敏视图：候选人名 + teaser + 摘要
+  const profile = await upsertCompanyLandingProfile(sql, {
+    companyName: "Fixture Co",
+    industryPositioning: "头部互联网大厂",
+    companyScale: "万人规模上市公司",
+    benchmarks: "直接竞品是 XX 与 YY",
+    officeLocation: "就在北京望京核心区",
+  });
+  assert.equal(profile.companyName, "Fixture Co");
+  const foundProfile = await findCompanyLandingProfileByCompanyName(sql, "Fixture Co");
+  assert.equal(foundProfile.industryPositioning, "头部互联网大厂");
+
+  const view = await getLandingJobView(sql, { token, now });
+  assert.ok(view);
+  assert.equal(view.candidateName, "候选 A", "候选人本人姓名可见");
+  assert.equal(view.companyTeaser.industryPositioning, "头部互联网大厂");
+  assert.equal(view.companyTeaser.officeLocation, "就在北京望京核心区");
+  assert.ok(view.summary, "白名单职责摘要");
+  // 更新档案后重新取视图应反映新值
+  await upsertCompanyLandingProfile(sql, { companyName: "Fixture Co", companyScale: "D 轮创业公司" });
+  const view2 = await getLandingJobView(sql, { token, now });
+  assert.equal(view2.companyTeaser.companyScale, "D 轮创业公司");
+
+  // ⑥ 未配置 webhook → 通知诚实失败（NOTIFIER_NOT_CONFIGURED），意向仍落库
   const token2 = "valid-token-for-no-webhook";
   await createLandingLink(sql, {
     jobId: job.id,

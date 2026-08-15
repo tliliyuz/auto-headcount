@@ -19,6 +19,8 @@ export interface ValidLandingLinkRow extends LandingLinkRow {
   salaryMin: number | null;
   salaryMax: number | null;
   jobDescription: string | null;
+  companyName: string;
+  candidateName: string;
 }
 
 export interface PagedLandingLinks {
