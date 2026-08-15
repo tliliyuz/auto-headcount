@@ -33,17 +33,6 @@ const OPTION_BUTTONS: Array<{ value: IntentOption; label: string; tone?: "primar
   { value: "opt_out", label: OPTION_LABELS.opt_out, tone: "text" },
 ];
 
-/** 纯展示格式化：给纯数字薪资范围加千分位（不做单位/币种推断，docs/07 §3「不推断精确薪资」）。 */
-function formatSalaryRange(range: string): string {
-  const parts = range.split("–").map((part) => part.trim());
-  if (parts.length !== 2) return range;
-  const [min, max] = parts;
-  if (/^\d+$/.test(min) && /^\d+$/.test(max)) {
-    return `${Number(min).toLocaleString()}–${Number(max).toLocaleString()}`;
-  }
-  return range;
-}
-
 export default function LandingPage() {
   const token = useMemo(
     () =>
@@ -160,13 +149,13 @@ export default function LandingPage() {
         <span className="hero-eyebrow">为你精选的职业机会</span>
         <h1 className="hero-greet">{greeting}</h1>
         <p className="hero-lead">
-          {positioning ? `一家${positioning}` : "一家值得你了解的公司"}，正在寻找一位{" "}
-          <strong className="hero-role">{view.title}</strong>
+          {positioning ? `一家${positioning}` : "一家值得你了解的公司"}，正在寻找{" "}
+          <strong className="hero-role">{view.title}方向</strong> 的人才
         </p>
         <div className="hero-chips">
-          <span className="chip">⌖ {view.city}</span>
-          <span className="chip">¥ {formatSalaryRange(view.salaryRange)}</span>
           {view.category ? <span className="chip">{view.category}</span> : null}
+          <span className="chip">⌖ {view.city}</span>
+          <span className="chip hiring"><span className="dot" />招聘中</span>
         </div>
         <div className="hero-scroll">了解这个机会 ↓</div>
       </section>
@@ -199,16 +188,14 @@ export default function LandingPage() {
           <p className="role-summary">{view.summary}</p>
         </section>
 
-        <section className="hero-card">
+        <section className="hero-card salary-card">
           <div className="card-index">03</div>
-          <h2 className="card-title">薪酬与地点</h2>
-          <ul className="meta-list">
-            <li><span>薪资范围</span>¥ {formatSalaryRange(view.salaryRange)}</li>
-            <li><span>工作城市</span>{view.city}</li>
-            {teaser?.officeLocation ? (
-              <li><span>办公地点</span>{teaser.officeLocation}</li>
-            ) : null}
-          </ul>
+          <h2 className="card-title">薪酬</h2>
+          <p className="salary-big">{view.salaryRange}</p>
+          <p className="salary-sub">月薪范围 · 具体以面谈为准</p>
+          {teaser?.officeLocation ? (
+            <p className="salary-location">办公地点：{teaser.officeLocation}</p>
+          ) : null}
         </section>
 
         <section className="hero-card cta-card">
@@ -300,16 +287,23 @@ const HERO_STYLES = `
   .hero-role { color: #f2f4f9; font-weight: 700; }
   .hero-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 30px; }
   .chip { padding: 9px 16px; border-radius: 999px; border: 1px solid rgb(255 255 255 / 10%); background: rgb(255 255 255 / 5%); color: #d7dfee; font-size: 13px; }
+  .chip.hiring { display: inline-flex; align-items: center; gap: 7px; color: #cfe6d8; border-color: rgb(79 196 138 / 30%); background: rgb(79 196 138 / 10%); }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #4fc48a; box-shadow: 0 0 0 3px rgb(79 196 138 / 18%); }
   .hero-scroll { margin-top: 44px; color: #64748f; font-size: 12px; letter-spacing: .08em; }
 
   .hero-body { display: grid; gap: 18px; padding-top: 10px; }
   .hero-card { position: relative; padding: 28px 28px 26px; border-radius: 18px; border: 1px solid rgb(255 255 255 / 9%); background: rgb(255 255 255 / 4%); box-shadow: 0 18px 50px rgb(0 0 0 / 22%); }
   .card-index { position: absolute; top: 22px; right: 26px; font-size: 13px; color: rgb(226 193 132 / 55%); font-weight: 700; letter-spacing: .1em; }
   .card-title { margin: 0 0 14px; font-size: 19px; letter-spacing: -.01em; color: #f2f4f9; }
-  .teaser-list, .meta-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; }
-  .teaser-list li, .meta-list li { display: flex; gap: 14px; align-items: baseline; font-size: 14px; line-height: 1.65; color: #c7d1e3; }
-  .teaser-list li span, .meta-list li span { flex: 0 0 68px; color: #64748f; font-size: 13px; }
+  .teaser-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; }
+  .teaser-list li { display: flex; gap: 14px; align-items: baseline; font-size: 14px; line-height: 1.65; color: #c7d1e3; }
+  .teaser-list li span { flex: 0 0 68px; color: #64748f; font-size: 13px; }
   .role-summary { margin: 0; font-size: 15px; line-height: 1.9; color: #c7d1e3; }
+
+  .salary-card { text-align: center; }
+  .salary-big { margin: 6px 0 4px; font-size: clamp(28px, 4.5vw, 40px); font-weight: 700; letter-spacing: -.01em; background: linear-gradient(180deg, #f5e6c6, #e2c184); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .salary-sub { margin: 0; color: #64748f; font-size: 13px; }
+  .salary-location { margin: 18px 0 0; color: #c7d1e3; font-size: 14px; }
 
   .cta-card { border-color: rgb(226 193 132 / 26%); background: linear-gradient(180deg, rgb(226 193 132 / 7%), rgb(255 255 255 / 3%)); }
   .cta-hint { margin: 0 0 18px; font-size: 14px; color: #8fa0bb; }
