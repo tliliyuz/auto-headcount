@@ -643,18 +643,28 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
         </div>
       </div>
       <aside className="surface-card campaign-detail">
-        <span className={`status-tag status-${selected.status}`}>{selected.status}</span>
-        <h2>{selected.name}</h2>
-        <p>{selected.title ?? "—"} · {selected.company ?? "—"}</p>
-        <div className="campaign-stats">
-          <div><strong>{selected.experienceYears != null ? selected.experienceYears : "—"}</strong><small>年经验</small></div>
-          <div><strong>{selected.city ?? "—"}</strong><small>城市</small></div>
-          <div><strong>{selected.education ?? "—"}</strong><small>学历</small></div>
-          <div><strong>{selected.seniority ?? "—"}</strong><small>职级</small></div>
-        </div>
-        <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p><small>真实姓名按 RBAC 保护，匹配投影（candidate-match-projection）不含联系方式</small></div>
-        <div className="message-preview"><span>候选人摘要</span><p>{selectedSummary}</p></div>
-        <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>{selected.matchCount}</i><p><strong>匹配记录</strong><span>{selected.matchCount} 条 · 匹配状态由 matches 推导</span></p></div></div>
+        {selected ? (
+          <>
+            <span className={`status-tag status-${selected.status}`}>{selected.status}</span>
+            <h2>{selected.name}</h2>
+            <p>{selected.title ?? "—"} · {selected.company ?? "—"}</p>
+            <div className="campaign-stats">
+              <div><strong>{selected.experienceYears != null ? selected.experienceYears : "—"}</strong><small>年经验</small></div>
+              <div><strong>{selected.city ?? "—"}</strong><small>城市</small></div>
+              <div><strong>{selected.education ?? "—"}</strong><small>学历</small></div>
+              <div><strong>{selected.seniority ?? "—"}</strong><small>职级</small></div>
+            </div>
+            <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p><small>真实姓名按 RBAC 保护，匹配投影（candidate-match-projection）不含联系方式</small></div>
+            <div className="message-preview"><span>候选人摘要</span><p>{selectedSummary}</p></div>
+            <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>{selected.matchCount}</i><p><strong>匹配记录</strong><span>{selected.matchCount} 条 · 匹配状态由 matches 推导</span></p></div></div>
+          </>
+        ) : (
+          <>
+            <span className="status-tag">—</span>
+            <h2>{candidatesLoading ? "正在加载候选人池…" : "暂无候选人"}</h2>
+            <p>{candidatesLoading ? "拉取真实画像中" : "先触发「采集人才池候选人」批次入库画像"}</p>
+          </>
+        )}
       </aside>
     </section>
   </>;
