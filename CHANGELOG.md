@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-15 — 浏览器采集可靠性：relay 会话 TTL 回收 + 发现任务重试上限 3→6
+
+> 状态：`verified`。单测 220/220、集成 22/22（含新增「瞬时 relay 故障可重试超过默认 3 次」）、lint/tsc 0 错误。真实采集验证：relay 重启后扩展 2 秒内自动重注册（3 个活跃会话，20 个残留详情会话已清），发现提取 20 条、category「互联网技术其他」。
+
+- **问题**：批次发现任务在瞬时 relay 请求超时（BROWSER_RELAY_UNAVAILABLE）下，默认 3 次指数退避（约 4 分钟）内耗尽即 dead，整批静默失败；且详情提取每开一个 tab 就在 relay 泄漏一个会话（候选人 20 条/批）。
+- Consumer（`sync-scheduler.mjs`）：`browser_job_collect`/`browser_job_batch_discover`/`browser_candidate_collect`/`browser_candidate_discovery` 改用 `BROWSER_MAX_ATTEMPTS=6`；仅 retryable（网络层）失败受影响，契约/会话/业务失败仍立即 failed。
+- Provider（csdn-agent `mcp/server.js`）：新增 `gcSessions` 按最近活跃（poll/register 刷新 updatedAt）回收静默超时（默认 5 分钟）且无挂起请求/轮询的会话，poll/register 节流调用；工具请求超时 `console.warn` 记录 tool/session/pollers/queue。
+- 测试：Consumer 集成测试「瞬时 relay 故障重试至第 6 次才 dead」；Provider bridge.test.js 补 GC 测试（回收静默详情会话、保留活跃列表会话）。
+- 操作流程注记：批次之间**无需重载插件/刷新页面**——列表页内容脚本常驻轮询且每次 poll 先重注册会话；改 `extraction-contracts.js` 才需要重载插件（那是代码变更，不是批次流程）。
+
 ### 2026-08-15 — 候选人采集调度修复：详情任务突发认领 + 真实采集闭环跑通
 
 > 状态：`verified`。单测 220/220、集成 21/21（async-task-sync，含新增 candidate_collect 突发认领）、lint/tsc 0 错误。真实采集验证：管理端触发「采集人才池候选人」批次（20）→ 发现 20 条 → 详情采集 20/20 成功 → `candidate_profiles` 20 条全部含 school/major/current_title。修复前同一批次被调度器串行成每分钟 1 条（20 条要 20 分钟），修复后每 tick 连续认领至多 10 条。

@@ -30,6 +30,10 @@ import {
 /** 默认同步周期：每 6 小时一个幂等槽位。 */
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 3;
+/** 浏览器采集/发现任务重试上限：真实浏览器往返的瞬时网络故障（BROWSER_RELAY_UNAVAILABLE）
+ *  需要更宽的窗口，否则 3 次指数退避（约 4 分钟）内 relay 短暂不可达就把整批打到 dead。
+ *  仅影响 retryable（网络层）失败；契约/会话/业务失败仍立即 failed。 */
+const BROWSER_MAX_ATTEMPTS = 6;
 const RETRY_BASE_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
 /** 任务看门狗阈值：running 任务超过该时长视为崩溃残留，回收为 failed（防去重守卫被永久锁死）。 */
@@ -41,6 +45,14 @@ export const TASK_KIND_BROWSER_JOB_COLLECT = "browser_job_collect";
 export const TASK_KIND_BROWSER_JOB_BATCH_DISCOVER = "browser_job_batch_discover";
 export const TASK_KIND_BROWSER_CANDIDATE_COLLECT = "browser_candidate_collect";
 export const TASK_KIND_BROWSER_CANDIDATE_DISCOVERY = "browser_candidate_discovery";
+
+/** 浏览器采集/发现任务集合：认领调度用更高重试上限（见 BROWSER_MAX_ATTEMPTS）。 */
+const BROWSER_TASK_KINDS = new Set([
+  TASK_KIND_BROWSER_JOB_COLLECT,
+  TASK_KIND_BROWSER_JOB_BATCH_DISCOVER,
+  TASK_KIND_BROWSER_CANDIDATE_COLLECT,
+  TASK_KIND_BROWSER_CANDIDATE_DISCOVERY,
+]);
 
 /** 周期槽位键：now 所在的 interval 序号（纯函数，可单测）。 */
 export function syncPeriodKey(now, intervalMs) {
@@ -437,7 +449,7 @@ export async function processDueTasks(
       status: outcome.status,
       retryable: outcome.retryable,
       attempts: task.attempts,
-      maxAttempts,
+      maxAttempts: BROWSER_TASK_KINDS.has(task.kind) ? BROWSER_MAX_ATTEMPTS : maxAttempts,
     });
     await updateBrowserCollectionItemOutcome(sql, task.payload, outcome, decision, now);
     await updateBrowserCollectionBatchDiscoveryOutcome(sql, task.payload, outcome, decision, now);

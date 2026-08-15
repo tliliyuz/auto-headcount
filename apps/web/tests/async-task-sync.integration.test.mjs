@@ -5,6 +5,7 @@ import test from "node:test";
 import postgres from "postgres";
 
 import { McpDiscoveryError } from "../lib/adapters/mcp-discovery.mjs";
+import { BrowserRelayError } from "../lib/adapters/csdn-browser/relay-client.mjs";
 import { createAsyncTaskRepository } from "../lib/jobs/async-task-repository.mjs";
 import { createBrowserJobBatchRepository } from "../lib/jobs/browser-job-batch-repository.mjs";
 import { createBrowserCandidateBatchRepository } from "../lib/jobs/browser-candidate-repository.mjs";
@@ -1595,6 +1596,69 @@ test(
       }
       await sql`delete from async_tasks where id = any(${taskIds.filter(Boolean)})`;
       await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "浏览器发现任务对瞬时 relay 故障可重试超过默认 3 次（BROWSER_MAX_ATTEMPTS=6）",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = fixtureSource(`cand-retry-${marker}`);
+    const failingRelay = {
+      async getConnectionStatus() {
+        throw new BrowserRelayError("relay unreachable");
+      },
+      async discoverTalentPool() {
+        throw new BrowserRelayError("relay unreachable");
+      },
+    };
+    const env = { APP_ENCRYPTION_KEY: ENC_KEY, APP_ENCRYPTION_KEY_VERSION: "test-v1" };
+    let sourceId;
+    let taskId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      const { taskId: createdTaskId } = await createBrowserCandidateBatchRepository(sql).createAndEnqueue({
+        payload: {
+          sourceConnectionId: sourceId,
+          userId: "fixture-user",
+          deviceId: "fixture-device",
+          contractId: "liebide-talent-pool-list-v1",
+          batchSize: 20,
+          maxPages: 20,
+        },
+        scheduledAt: new Date(),
+      });
+      taskId = createdTaskId;
+
+      // 指数退避：attempt N 失败后 next_attempt_at = now + 60s*2^(N-1)。逐次推进 tick 时间模拟重试窗口。
+      let now = new Date();
+      const retryDelays = [60_000, 120_000, 240_000, 480_000, 960_000];
+      for (let attempt = 1; attempt <= retryDelays.length + 1; attempt += 1) {
+        const summary = await processDueTasks(sql, { env, now, browserRelay: failingRelay });
+        const [row] = await sql`select status, attempts from async_tasks where id = ${taskId}`;
+        if (attempt < 6) {
+          assert.equal(summary.retried, 1, `第 ${attempt} 次失败应 retry`);
+          assert.equal(row.status, "pending", `第 ${attempt} 次失败后任务应 pending（默认 3 次此处已 dead）`);
+        } else {
+          assert.equal(summary.dead, 1, "第 6 次失败才应 dead");
+          assert.equal(row.status, "dead");
+          assert.equal(row.attempts, 6);
+        }
+        if (attempt <= retryDelays.length) {
+          now = new Date(now.getTime() + retryDelays[attempt - 1] + 1_000);
+        }
+      }
+    } finally {
+      const rows = await sql`select id from source_connections where provider = ${source.provider}`;
+      for (const row of rows) {
+        await sql`delete from async_tasks where kind in ('browser_candidate_discovery', 'browser_candidate_collect') and payload->>'sourceConnectionId' = ${row.id}`;
+        await sql`delete from browser_candidate_batches where source_connection_id = ${row.id}`;
+      }
+      await cleanupFixture(sql, { source, taskIds: [taskId].filter(Boolean) });
       await sql.end();
     }
   },
