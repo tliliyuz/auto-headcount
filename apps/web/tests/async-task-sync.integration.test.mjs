@@ -1395,6 +1395,51 @@ test(
 );
 
 test(
+  "browser_candidate_collect 突发认领：同一批次到期详情任务一次认领多条，串行 kind 仍只认领一条",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const now = new Date();
+    const batchKind = "browser_candidate_collect";
+    const serialKind = `fixture-burst-serial:${marker}`;
+    try {
+      const taskRepo = createAsyncTaskRepository(sql);
+      const rows = [
+        { kind: batchKind, key: "c1" },
+        { kind: batchKind, key: "c2" },
+        { kind: batchKind, key: "c3" },
+        { kind: serialKind, key: "s1" },
+        { kind: serialKind, key: "s2" },
+      ];
+      for (const { kind, key } of rows) {
+        await taskRepo.enqueueTask({
+          kind,
+          idempotencyKey: `cand-burst:${marker}:${key}`,
+          payload: {},
+          scheduledAt: new Date(0),
+        });
+      }
+      const claimed = await taskRepo.claimDueTasks({ limit: 10, now });
+      const claimedByKind = (kind) => claimed.filter((t) => t.kind === kind);
+      assert.equal(
+        claimedByKind(batchKind).length,
+        3,
+        "browser_candidate_collect 突发认领全部到期详情任务",
+      );
+      assert.equal(
+        claimedByKind(serialKind).length,
+        1,
+        "串行 kind 仍只认领最早一条",
+      );
+    } finally {
+      await sql`delete from async_tasks where idempotency_key like ${`cand-burst:${marker}%`}`;
+      await sql.end();
+    }
+  },
+);
+
+test(
   "browser 批次列表：按创建时间倒序返回批次、状态与计数",
   { skip: !connectionString },
   async () => {
@@ -1471,7 +1516,7 @@ test(
           realName: isA ? "示例甲" : "示例乙",
           title: isA ? "数据工程师" : "算法工程师",
           company: "虚构科技", yearOfExperience: isA ? 8 : 6,
-          cityName: "北京", school: null, major: null, degree: "本科",
+          cityName: "北京", school: "虚构大学", major: "计算机", degree: "本科",
           completion: 80, recommendationCount: 3,
           workExperiences: [{ company: "虚构科技", title: "数据工程师" }],
         };
@@ -1513,13 +1558,16 @@ test(
       `;
       assert.equal(candCount.n, 2, "两个候选人画像应落库");
       const profiles = await sql`
-        select c.external_id, p.current_title, p.current_company, p.experience_years
+        select c.external_id, p.current_title, p.current_company, p.experience_years,
+               p.school, p.major
         from candidates c left join candidate_profiles p on p.candidate_id = c.id
         where c.source_connection_id = ${sourceId} order by c.external_id
       `;
       assert.equal(profiles.length, 2);
       assert.equal(profiles[0].current_title, "数据工程师");
       assert.equal(profiles[0].current_company, "虚构科技");
+      assert.equal(profiles[0].school, "虚构大学");
+      assert.equal(profiles[0].major, "计算机");
       assert.equal(profiles[1].current_title, "算法工程师");
 
       const [rawCount] = await sql`
@@ -1547,6 +1595,50 @@ test(
       }
       await sql`delete from async_tasks where id = any(${taskIds.filter(Boolean)})`;
       await cleanupFixture(sql, { source, taskIds });
+      await sql.end();
+    }
+  },
+);
+
+test(
+  "候选人批次列表：按创建时间倒序返回批次、状态与计数",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const batchRepo = createBrowserCandidateBatchRepository(sql);
+    const [src] = await sql`
+      insert into source_connections (provider, environment, status, display_name)
+      values (${`fixture-candidate-batch-list-${marker}`}, 'test', 'active', 'Fixture Candidate Batch List Source')
+      returning id
+    `;
+    try {
+      const { batchId } = await batchRepo.createAndEnqueue({
+        payload: {
+          sourceConnectionId: src.id,
+          userId: "fixture-user",
+          deviceId: "fixture-device",
+          contractId: "liebide-talent-pool-list-v1",
+          batchSize: 20,
+          maxPages: 20,
+        },
+        scheduledAt: new Date(),
+      });
+      const result = await batchRepo.listBatches({ page: 1, pageSize: 10 });
+      const mine = result.list.find((row) => row.id === batchId);
+      assert.ok(mine, "listBatches 应返回刚创建的候选批次");
+      assert.equal(mine.status, "pending");
+      assert.equal(mine.discoveredCount, 0);
+      assert.equal(mine.batchSize, 20);
+      assert.equal(mine.maxPages, 20);
+      assert.equal(mine.sourceConnectionId, src.id);
+      assert.ok(mine.createdAt !== null);
+      assert.ok(result.total >= 1);
+      assert.equal(result.totalPages >= 1, true);
+    } finally {
+      await sql`delete from async_tasks where kind = 'browser_candidate_discovery' and payload->>'sourceConnectionId' = ${src.id}`;
+      await sql`delete from browser_candidate_batches where source_connection_id = ${src.id}`;
+      await sql`delete from source_connections where id = ${src.id}`;
       await sql.end();
     }
   },

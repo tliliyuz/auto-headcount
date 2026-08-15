@@ -107,6 +107,8 @@ export function createAsyncTaskRepository(sql) {
      * 串行化（fix3）：同一 kind 同时只跑一个——
      *  - 排除该 kind 已有 running 任务（`not exists running`）；
      *  - 每个 kind 只认领最早的 pending（`not exists earlier` 行比较，取 (scheduled_at,id) 最小）。
+     * 突发豁免：browser_job_collect / browser_candidate_collect 是逐职位/逐候选人详情任务，
+     *   一次 tick 允许认领多条（同一批次连续打开详情页），否则会退化成每 tick 一条的爬虫蜗牛。
      * 用 EXISTS 而非窗口函数/DISTINCT，因 `FOR UPDATE SKIP LOCKED` 无法锁定含窗口函数的子查询
      * （PG 0A000）；EXISTS 子查询可加锁且跨进程原子（SKIP LOCKED 保证同 kind 不双认领）。
      * 不同 kind 可各认领一个。
@@ -130,6 +132,7 @@ export function createAsyncTaskRepository(sql) {
               select 1 from async_tasks earlier
               where earlier.kind = a.kind
                 and a.kind <> 'browser_job_collect'
+                and a.kind <> 'browser_candidate_collect'
                 and earlier.status = 'pending'
                 and (earlier.scheduled_at, earlier.id) < (a.scheduled_at, a.id)
             )

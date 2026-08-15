@@ -84,6 +84,8 @@ export type BrowserBatchView = {
   finishedAt: string | null;
 };
 
+export type CandidateBatchView = BrowserBatchView;
+
 export type AuditLogView = {
   id: string;
   occurredAt: string;
@@ -227,6 +229,19 @@ export function fetchBrowserBatches(input?: {
   );
 }
 
+export function fetchCandidateBatches(input?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<AuthResult<Paged<CandidateBatchView>>> {
+  return request<Paged<CandidateBatchView>>(
+    withQuery("/api/candidate-batches", {
+      page: input?.page,
+      page_size: input?.pageSize,
+    }),
+    { method: "GET" },
+  );
+}
+
 export function fetchAuditLogs(input?: {
   action?: string;
   actorType?: string;
@@ -292,5 +307,16 @@ export function triggerBrowserCollection(input: {
   return request("/api/browser-collections", {
     method: "POST",
     body: JSON.stringify({ ...input, contractId: "liebide-filtered-job-list-v2" }),
+  });
+}
+
+export function triggerCandidateCollection(input: {
+  sourceConnectionId: string;
+  batchSize: number;
+  maxPages: number;
+}): Promise<AuthResult<{ accepted: boolean; batchId: string; taskId: string | null; deduplicated?: boolean }>> {
+  return request("/api/candidate-collections", {
+    method: "POST",
+    body: JSON.stringify({ ...input, contractId: "liebide-talent-pool-list-v1" }),
   });
 }

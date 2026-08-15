@@ -10,6 +10,27 @@
 
 ## [Unreleased]
 
+### 2026-08-15 — 候选人采集调度修复：详情任务突发认领 + 真实采集闭环跑通
+
+> 状态：`verified`。单测 220/220、集成 21/21（async-task-sync，含新增 candidate_collect 突发认领）、lint/tsc 0 错误。真实采集验证：管理端触发「采集人才池候选人」批次（20）→ 发现 20 条 → 详情采集 20/20 成功 → `candidate_profiles` 20 条全部含 school/major/current_title。修复前同一批次被调度器串行成每分钟 1 条（20 条要 20 分钟），修复后每 tick 连续认领至多 10 条。
+
+- **修复根因**：`claimDueTasks` 的「每 kind 每 tick 只认领最早一条」串行化规则（fix3）豁免了 `browser_job_collect`，但 `browser_candidate_collect` 加入时漏加豁免，导致逐候选人详情任务退化成每 tick 一条的蜗牛。现把 `browser_candidate_collect` 一并纳入突发豁免——同一批次到期详情任务一次认领多条（`for` 循环串行执行，浏览器仍是单 tab 操作）。
+- `async-task-repository.mjs` `claimDueTasks`：`not exists earlier` 子查询豁免列表补 `browser_candidate_collect`；docstring 注明突发豁免两类 kind。
+- 测试：`async-task-sync.integration.test.mjs` 新增「browser_candidate_collect 突发认领」镜像测试（3 条 candidate_collect + 2 条串行 kind → candidate_collect 一次认领 3、串行只认领 1）。
+- 真实采集闭环：scheduler 容器重启加载修复后，用户批次 20/20 全部入库，`candidate_profiles.school/major` 全量填充。
+
+### 2026-08-14 — 管理端触发：候选人批次采集 API + ops-client + 数据源页入口
+
+> 状态：`implemented`（lint、tsc 0 错误、单测 202+、集成 43+、Vinext 生产构建）。运营可在数据源页选本批数量后发起「采集人才池候选人」批次，并在「候选人批次」tab 查看进度——候选人采集闭环（人才池发现 → 画像入库）首次可从后台触发。
+
+- `POST /api/candidate-collections`（`operations|admin`）：body 经 `bindBrowserRoute` 注入设备路由 → `parseBrowserCandidateBatchDiscoverTaskPayload`（固定 `liebide-talent-pool-list-v1`）→ `createBrowserCandidateBatchRepository.createAndEnqueue` → 202 `{ accepted, batchId, taskId, deduplicated }`；`candidate.collection.trigger` 审计只存 batch/task ID、去重标记、契约 ID。
+- `GET /api/candidate-batches`：只读分页返回 `browser_candidate_batches`，结构与 `/api/browser-batches` 一致；`candidate-batches.list` 审计。
+- ops-client：`triggerCandidateCollection`/`fetchCandidateBatches` + `CandidateBatchView` 类型。
+- 数据源页新增「人才池候选人采集」卡片（本批数量 10/20/50/100 + 采集按钮 + 入队消息）；批次面板加「候选人批次」tab，职位/候选人/同步三种事件合并展示（候选人复用采集批次字段与状态机，事件类型标签区分「候选人」）。
+- 测试：`async-task-sync.integration.test.mjs` 补候选批次 listBatches 断言；`rendered-html.test.mjs` 静态原型 page-marker 补「人才池候选人采集」「采集人才池候选人」「候选人批次」。
+- **候选人分类证据对齐（跨 Provider，2026-08-14）**：运营确认猎必得人才池候选人分类实际叫「互联网技术其他」，两端 const 从「互联网技术」对齐——Consumer（`parseTalentPoolListExtractionResult` + receipt schema + check 脚本 + Fixture）与 Provider（csdn-agent `runLiebideTalentPoolListContract` 校验 + 回执 `filterEvidence` 改为报告实际提取值 `{ category }`，此前硬编码「互联网技术」是契约跑不起来的主因 + receipt schema + check 脚本 + 测试）。Provider 93/93、Consumer 202/202 + 44/44 + 契约对齐通过，真实采集可跑。
+- 文档：`docs/09-api-contract.md` §3.2 候选人采集任务端点；`docs/10-candidate-collection.md` §3.1 分类证据注记更新（值已对齐；参数化分类为后续待定）。
+
 ### 2026-08-14 — 候选人差分采集：仓储 + 差分调度 + 数据模型（迁移 0010）
 
 > 状态：`implemented`。ESLint、`npx tsc` 0 错误、单测 201/201、集成测试 43/43（`auto_headcount_test` 全新库迁移可应用，含迁移 `0010`）、Provider↔Consumer 契约对齐通过。**注意**：本条目同时修复了「迁移 0010 重复 0009 建 `browser_collection_*` 导致全新库 42P07」的迁移基线缺陷——`drizzle/meta` 缺 `0009_snapshot.json` 使 drizzle-kit 从 0008 快照生成重复建表语句；已重建 0009 快照链并重新生成干净的 `0010_bitter_odin.sql`，集成测试库全量通过。

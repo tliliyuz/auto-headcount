@@ -227,6 +227,8 @@ test("候选人详情回执 → 实体映射：真实姓名进 candidate、近�
   assert.equal(profile.experienceYears, 8);
   assert.equal(profile.location, "北京");
   assert.equal(profile.education, "本科");
+  assert.equal(profile.school, "虚构大学");
+  assert.equal(profile.major, "计算机");
   assert.equal(profile.industry, null);
   assert.equal("mobile" in candidate, false);
   assert.equal("content" in profile, false);

@@ -117,6 +117,13 @@ test("迁移 0010 补候选人来源追溯/近期工作列并新增候选批次�
   assert.match(sql, /CREATE UNIQUE INDEX "browser_candidate_items_batch_external_unique".*batch_id.*external_id/s);
 });
 
+test("迁移 0012 为候选人画像补学校/专业列", async () => {
+  const files = (await readdir(migrationsUrl)).filter((name) => name.endsWith(".sql"));
+  const sql = (await Promise.all(files.map((name) => readFile(new URL(name, migrationsUrl), "utf8")))).join("\n");
+  assert.match(sql, /ALTER TABLE "candidate_profiles" ADD COLUMN "school"/);
+  assert.match(sql, /ALTER TABLE "candidate_profiles" ADD COLUMN "major"/);
+});
+
 test("迁移 0011 建落地页链接/意向回复表：只存令牌哈希、联系方式信封加密、同链接唯一", async () => {
   const files = (await readdir(migrationsUrl)).filter((name) => name.endsWith(".sql"));
   const sql = (await Promise.all(files.map((name) => readFile(new URL(name, migrationsUrl), "utf8")))).join("\n");

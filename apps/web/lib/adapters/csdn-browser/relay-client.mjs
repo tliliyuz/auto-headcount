@@ -20,7 +20,8 @@ import {
   parseTalentPoolListExtractionResult,
 } from "./browser-collection-contract.mjs";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+/** 浏览器采集含新标签页编排（候选人详情），给足加载/提取时间。 */
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class BrowserRelayError extends Error {
   constructor(message, code = "BROWSER_RELAY_UNAVAILABLE") {

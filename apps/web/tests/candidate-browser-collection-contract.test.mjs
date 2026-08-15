@@ -24,7 +24,7 @@ function validTalentPoolListResult(overrides = {}) {
     contractVersion: 1,
     status: "extracted",
     source: { origin: "https://portal.liebide.com", capturedAt: "2026-08-14T09:00:00.000Z" },
-    filterEvidence: { category: "互联网技术" },
+    filterEvidence: { category: "互联网技术其他" },
     items: [
       {
         candidateId: "fixture-cand-001",
@@ -175,7 +175,7 @@ test("解析人才池列表回执：白名单字段、唯一 ID、有界断点�
   assert.equal(parsed.items.length, 2);
   assert.equal(parsed.items[0].candidateId, "fixture-cand-001");
   assert.equal(parsed.items[0].realName, "示例候选人甲");
-  assert.equal(parsed.filterEvidence.category, "互联网技术");
+  assert.equal(parsed.filterEvidence.category, "互联网技术其他");
   assert.equal(parsed.nextPage, 1);
   assert.equal(parsed.nextOffset, 2);
 

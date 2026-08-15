@@ -30,11 +30,14 @@ import {
   fetchSources,
   fetchSyncRuns,
   fetchBrowserBatches,
+  fetchCandidateBatches,
   triggerSync,
   triggerBrowserCollection,
+  triggerCandidateCollection,
   reviewMatch,
   type AuditLogView,
   type BrowserBatchView,
+  type CandidateBatchView,
   type DormantJob,
   type JobDetail,
   type MatchDetailView,
@@ -84,14 +87,15 @@ const BATCH_STATUS_VIEW: Record<string, { label: string; className: string }> = 
   failed: { label: "失败", className: "status-失败" },
 };
 
-/** 数据源页统一批次列表：浏览器采集批次（collection）与 MCP 同步批次（sync）合并为一种事件。 */
+/** 数据源页统一批次列表：浏览器职位/候选人采集批次（collection/candidate）与 MCP 同步批次（sync）合并为一种事件。 */
 type BatchEvent =
   | (BrowserBatchView & { kind: "collection"; key: string; shortId: string })
+  | (CandidateBatchView & { kind: "candidate"; key: string; shortId: string })
   | (SyncRunView & { kind: "sync"; key: string; shortId: string });
 
-/** 按批次种类取状态视图：采集批次与同步批次状态机不同。 */
+/** 按批次种类取状态视图：采集/候选人批次共用批次状态机，同步批次用同步状态机。 */
 function batchEventStatusView(ev: BatchEvent): { label: string; className: string } {
-  const map = ev.kind === "collection" ? BATCH_STATUS_VIEW : SYNC_STATUS_VIEW;
+  const map = ev.kind === "sync" ? SYNC_STATUS_VIEW : BATCH_STATUS_VIEW;
   return map[ev.status] ?? { label: ev.status, className: "" };
 }
 
@@ -520,7 +524,7 @@ function CandidatesPage() {
   return <>
     <PageIntro eyebrow="授权人才池采集的候选人画像" title="候选人池" description="展示采集的候选人画像与匹配状态；真实姓名按 RBAC 保护，匹配投影不含联系方式。" action="采集人才池候选人" />
     <SummaryStrip items={[
-      { label: "候选人总数", value: String(candidateRows.length), note: "互联网技术分类", tone: "blue" },
+      { label: "候选人总数", value: String(candidateRows.length), note: "互联网技术其他分类", tone: "blue" },
       { label: "已匹配", value: String(matchedCount), note: "进入智能匹配池", tone: "green" },
       { label: "待匹配", value: String(candidateRows.length - matchedCount), note: "等待匹配任务", tone: "amber" },
       { label: "本月新增", value: "8", note: "人才池采集（原型假数据）", tone: "violet" },
@@ -603,7 +607,7 @@ function CandidatesPage() {
           <div><strong>{selected.seniority}</strong><small>职级</small></div>
         </div>
         <div className="message-preview"><span>候选人摘要</span><p>{selected.summary}</p><small>真实姓名按 RBAC 保护，匹配投影（candidate-match-projection）不含联系方式</small></div>
-        <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术</span></p></div><div><i>2</i><p><strong>有效推荐</strong><span>{selected.recCount} 次 · 沉睡职位匹配依据</span></p></div></div>
+        <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>2</i><p><strong>有效推荐</strong><span>{selected.recCount} 次 · 沉睡职位匹配依据</span></p></div></div>
         <button className="secondary-button full">加入匹配池</button>
       </aside>
     </section>
@@ -627,8 +631,12 @@ function SourcesPage({
   const [browserBatchSize, setBrowserBatchSize] = useState(20);
   const [browserCollectState, setBrowserCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
   const [browserCollectMessage, setBrowserCollectMessage] = useState<string | null>(null);
-  // 统一批次列表：类型 tabs + 关键词 + 客户端分页 + 详情选中（采集批次与同步批次合并）
-  const [batchType, setBatchType] = useState<"all" | "collection" | "sync">("all");
+  const [candidateBatches, setCandidateBatches] = useState<CandidateBatchView[]>([]);
+  const [candidateBatchSize, setCandidateBatchSize] = useState(20);
+  const [candidateCollectState, setCandidateCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
+  const [candidateCollectMessage, setCandidateCollectMessage] = useState<string | null>(null);
+  // 统一批次列表：类型 tabs + 关键词 + 客户端分页 + 详情选中（职位/候选人采集批次与同步批次合并）
+  const [batchType, setBatchType] = useState<"all" | "collection" | "sync" | "candidate">("all");
   const [batchQuery, setBatchQuery] = useState("");
   const [batchPage, setBatchPage] = useState(1);
   const [batchJumpValue, setBatchJumpValue] = useState("");
@@ -637,10 +645,11 @@ function SourcesPage({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [sourcesResult, runsResult, batchesResult] = await Promise.all([
+      const [sourcesResult, runsResult, batchesResult, candidateBatchesResult] = await Promise.all([
         fetchSources({ pageSize: 50 }),
         fetchSyncRuns({ pageSize: 100 }),
         fetchBrowserBatches({ pageSize: 100 }),
+        fetchCandidateBatches({ pageSize: 100 }),
       ]);
       if (cancelled) return;
       // 会话中途失效：退回登录页，不滞留空工作台。
@@ -671,6 +680,15 @@ function SourcesPage({
       } else {
         setBrowserBatches(batchesResult.data.list);
       }
+      if (!candidateBatchesResult.ok) {
+        if (candidateBatchesResult.status === 401 || candidateBatchesResult.code === "password_change_required") {
+          onAuthExpired();
+          return;
+        }
+        setSourcesError((current) => current ?? "候选人批次加载失败，请稍后重试");
+      } else {
+        setCandidateBatches(candidateBatchesResult.data.list);
+      }
     })().finally(() => {
       if (!cancelled) setSourcesLoading(false);
     });
@@ -682,12 +700,14 @@ function SourcesPage({
   // 统一批次列表刷新：入队成功后立即调用一次，随后每 10 秒轮询，让采集批次
   // pending→discovering→collecting→终态、同步批次 running→终态无需手动刷新即可看到。
   const refreshBatches = useCallback(async () => {
-    const [runsResult, batchesResult] = await Promise.all([
+    const [runsResult, batchesResult, candidateBatchesResult] = await Promise.all([
       fetchSyncRuns({ pageSize: 100 }),
       fetchBrowserBatches({ pageSize: 100 }),
+      fetchCandidateBatches({ pageSize: 100 }),
     ]);
     if (runsResult.ok) setSyncRuns(runsResult.data.list);
     if (batchesResult.ok) setBrowserBatches(batchesResult.data.list);
+    if (candidateBatchesResult.ok) setCandidateBatches(candidateBatchesResult.data.list);
   }, []);
   useEffect(() => {
     let cancelled = false;
@@ -730,7 +750,32 @@ function SourcesPage({
     }
   };
 
-  // —— 统一批次列表（采集 + 同步）数据派生 ——
+  const collectCandidates = async () => {
+    if (!primarySource) {
+      setCandidateCollectMessage("请先启用职位数据源");
+      return;
+    }
+    setCandidateCollectState("triggering");
+    setCandidateCollectMessage(null);
+    // maxPages 提到 API 上限（20）：人才池发现合同翻页直到凑满本批数量或列表到底。
+    const result = await triggerCandidateCollection({ sourceConnectionId: primarySource.id, batchSize: candidateBatchSize, maxPages: 20 });
+    if (result.ok) {
+      setCandidateCollectState("queued");
+      setCandidateCollectMessage(result.data.deduplicated ? "已有采集批次在执行，已返回现有批次" : `批次已入队：${result.data.batchId.slice(0, 8)}`);
+      void refreshBatches();
+      window.setTimeout(() => {
+        setCandidateCollectState((current) => (current === "queued" ? "idle" : current));
+      }, 6000);
+    } else if (result.status === 401 || result.code === "password_change_required") {
+      setCandidateCollectState("idle");
+      onAuthExpired();
+    } else {
+      setCandidateCollectState("failed");
+      setCandidateCollectMessage("采集触发失败，请检查浏览器连接与设备路由");
+    }
+  };
+
+  // —— 统一批次列表（职位/候选人采集 + 同步）数据派生 ——
   const allEvents = useMemo<BatchEvent[]>(() => {
     const collections: BatchEvent[] = browserBatches.map((b) => ({
       ...b,
@@ -738,18 +783,25 @@ function SourcesPage({
       key: `collection:${b.id}`,
       shortId: `BATCH-${b.id.slice(0, 8)}`,
     }));
+    const candidates: BatchEvent[] = candidateBatches.map((b) => ({
+      ...b,
+      kind: "candidate",
+      key: `candidate:${b.id}`,
+      shortId: `CAND-${b.id.slice(0, 8)}`,
+    }));
     const syncs: BatchEvent[] = syncRuns.map((r) => ({
       ...r,
       kind: "sync",
       key: `sync:${r.id}`,
       shortId: `SYNC-${r.id.slice(0, 8)}`,
     }));
-    return [...collections, ...syncs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [browserBatches, syncRuns]);
+    return [...collections, ...candidates, ...syncs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [browserBatches, candidateBatches, syncRuns]);
 
   const filteredEvents = allEvents.filter((ev) => {
     if (batchType === "collection" && ev.kind !== "collection") return false;
     if (batchType === "sync" && ev.kind !== "sync") return false;
+    if (batchType === "candidate" && ev.kind !== "candidate") return false;
     const q = batchQuery.trim().toLowerCase();
     if (!q) return true;
     if (ev.id.toLowerCase().includes(q) || ev.shortId.toLowerCase().includes(q)) return true;
@@ -821,18 +873,28 @@ function SourcesPage({
           <button className="secondary-button" disabled={browserCollectState === "triggering" || browserCollectState === "queued"} onClick={() => void collectFilteredJobs()}>{browserCollectState === "triggering" ? "正在入队…" : browserCollectState === "queued" ? "批次已入队" : "采集当前筛选结果"}</button>
           {browserCollectMessage && <p className={browserCollectState === "failed" ? "source-message error" : "source-message"}>{browserCollectMessage}</p>}
         </article>
+        <article className="source-card browser-source">
+          <header><span className="source-logo browser">C</span><div><h2>人才池候选人采集</h2><p>人才池列表 → 候选人画像批量入库</p></div><em><i />固定合同</em></header>
+          <p className="source-description">先在猎必得人才池页设好「互联网技术其他」分类筛选，然后选择本批数量。本批数量 = 本批要采集的“新增 + 画像变化”候选人画像数：已入库且画像未变的候选人自动跳过，系统翻页直到凑满该数量或列表到底；候选人详情在新标签页提取后关闭回列表。</p>
+          <div className="browser-route-fields">
+            <label>本批数量<select value={candidateBatchSize} onChange={(event) => setCandidateBatchSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
+          </div>
+          <button className="secondary-button" disabled={candidateCollectState === "triggering" || candidateCollectState === "queued"} onClick={() => void collectCandidates()}>{candidateCollectState === "triggering" ? "正在入队…" : candidateCollectState === "queued" ? "批次已入队" : "采集人才池候选人"}</button>
+          {candidateCollectMessage && <p className={candidateCollectState === "failed" ? "source-message error" : "source-message"}>{candidateCollectMessage}</p>}
+        </article>
         <button className="add-source"><span>＋</span><strong>连接新的授权数据源</strong><small>支持 MCP 或经审核的导入适配器</small></button>
       </section>
 
       <section className="workspace-grid">
         <div className="jobs-card">
           <div className="card-header">
-            <div><h2>采集与同步批次</h2><span>浏览器职位采集批次与 MCP 同步批次统一查看，最近记录优先</span></div>
+            <div><h2>采集与同步批次</h2><span>浏览器职位/候选人采集批次与 MCP 同步批次统一查看，最近记录优先</span></div>
             <button className="more-button" aria-label="更多操作">•••</button>
           </div>
           <div className="category-tabs" role="tablist" aria-label="批次类型">
             <button role="tab" aria-selected={batchType === "all"} className={batchType === "all" ? "active" : ""} onClick={() => { setBatchType("all"); setBatchPage(1); }}>全部<span>{allEvents.length}</span></button>
             <button role="tab" aria-selected={batchType === "collection"} className={batchType === "collection" ? "active" : ""} onClick={() => { setBatchType("collection"); setBatchPage(1); }}>采集批次<span>{browserBatches.length}</span></button>
+            <button role="tab" aria-selected={batchType === "candidate"} className={batchType === "candidate" ? "active" : ""} onClick={() => { setBatchType("candidate"); setBatchPage(1); }}>候选人批次<span>{candidateBatches.length}</span></button>
             <button role="tab" aria-selected={batchType === "sync"} className={batchType === "sync" ? "active" : ""} onClick={() => { setBatchType("sync"); setBatchPage(1); }}>同步批次<span>{syncRuns.length}</span></button>
           </div>
           <div className="table-tools">
@@ -844,15 +906,17 @@ function SourcesPage({
               <tbody>
                 {pageEvents.map((ev) => {
                   const statusView = batchEventStatusView(ev);
+                  // 职位/候选人采集批次共用批次字段；同步批次用 stats/errorCode 形态
+                  const isCollectionLike = ev.kind === "collection" || ev.kind === "candidate";
                   return (
                     <tr key={ev.key} className={displayedEvent?.key === ev.key ? "selected" : ""} onClick={() => setSelectedEventKey(ev.key)}>
-                      <td><span className={`event-kind ${ev.kind}`}><i />{ev.kind === "collection" ? "采集" : "同步"}</span></td>
+                      <td><span className={`event-kind ${ev.kind}`}><i />{ev.kind === "collection" ? "采集" : ev.kind === "candidate" ? "候选人" : "同步"}</span></td>
                       <td><strong>{ev.shortId}</strong><small className="job-updated"><span className="job-external-id" title={ev.id}>{ev.id}</span><span className="job-updated-at"> · {formatDateTime(ev.createdAt)}</span></small></td>
                       <td><em className={`status-tag ${statusView.className}`}>{statusView.label}</em></td>
-                      <td>{ev.kind === "collection"
+                      <td>{isCollectionLike
                         ? <><strong>{ev.discoveredCount} 发现</strong><small>{ev.succeededCount} 入库 / {ev.failedCount} 失败</small></>
                         : <><strong>{ev.stats?.persisted ?? 0} 入库</strong><small>{ev.stats?.skipped ?? 0} 跳过 · {ev.stats?.failed ?? 0} 失败</small></>}</td>
-                      <td>{ev.kind === "collection"
+                      <td>{isCollectionLike
                         ? ev.status === "succeeded" && ev.discoveredCount === 0
                           ? "无新增（全部已知）"
                           : ev.status === "pending"
@@ -861,7 +925,7 @@ function SourcesPage({
                               ? <code>{ev.stopReason}</code>
                               : formatDuration(ev.createdAt, ev.finishedAt)
                         : ev.errorCode ? <code>{ev.errorCode}</code> : `${ev.stats?.skipped ?? 0} 异常`}</td>
-                      <td>{formatDuration(ev.kind === "collection" ? ev.createdAt : ev.startedAt, ev.finishedAt)}</td>
+                      <td>{formatDuration(isCollectionLike ? ev.createdAt : ev.startedAt, ev.finishedAt)}</td>
                       <td><button aria-label={`查看 ${ev.shortId}`} onClick={() => setSelectedEventKey(ev.key)}>›</button></td>
                     </tr>
                   );
@@ -899,17 +963,17 @@ function SourcesPage({
           {displayedEvent ? (
             <>
               <div className="panel-heading">
-                <span className="role-icon">{displayedEvent.kind === "collection" ? "B" : "M"}</span>
+                <span className="role-icon">{displayedEvent.kind === "collection" ? "B" : displayedEvent.kind === "candidate" ? "C" : "M"}</span>
                 <div>
-                  <span className="status-pill"><i />{displayedEvent.kind === "collection" ? "浏览器采集" : "MCP 同步"}</span>
+                  <span className="status-pill"><i />{displayedEvent.kind === "collection" ? "浏览器采集" : displayedEvent.kind === "candidate" ? "候选人采集" : "MCP 同步"}</span>
                   <h2>{displayedEvent.shortId}</h2>
-                  <p>{displayedEvent.kind === "collection" ? "筛选列表 → 批量详情复核" : `${displayedEvent.sourceDisplayName} · ${displayedEvent.sourceProvider}`}</p>
+                  <p>{displayedEvent.kind === "collection" ? "筛选列表 → 批量详情复核" : displayedEvent.kind === "candidate" ? "人才池列表 → 候选人画像批量入库" : `${displayedEvent.sourceDisplayName} · ${displayedEvent.sourceProvider}`}</p>
                 </div>
               </div>
               <div className="panel-section">
                 <div className="section-title"><h3>运行统计</h3><em className={`status-tag ${batchEventStatusView(displayedEvent).className}`}>{batchEventStatusView(displayedEvent).label}</em></div>
                 <div className="campaign-stats">
-                  {displayedEvent.kind === "collection" ? (
+                  {displayedEvent.kind === "collection" || displayedEvent.kind === "candidate" ? (
                     <>
                       <div><strong>{displayedEvent.discoveredCount}</strong><small>发现（新增+变更）</small></div>
                       <div><strong>{displayedEvent.succeededCount}</strong><small>入库</small></div>
@@ -929,7 +993,7 @@ function SourcesPage({
               <div className="panel-section">
                 <div className="section-title"><h3>批次信息</h3></div>
                 <div className="detail-meta">
-                  {displayedEvent.kind === "collection" ? (
+                  {displayedEvent.kind === "collection" || displayedEvent.kind === "candidate" ? (
                     <>
                       <div><span>本批数量</span><b>{displayedEvent.batchSize}</b></div>
                       <div><span>上限页数</span><b>{displayedEvent.maxPages}</b></div>
@@ -942,10 +1006,10 @@ function SourcesPage({
                   )}
                   <div><span>创建时间</span><b>{formatDateTime(displayedEvent.createdAt)}</b></div>
                   <div><span>完成时间</span><b>{formatDateTime(displayedEvent.finishedAt)}</b></div>
-                  <div><span>耗时</span><b>{formatDuration(displayedEvent.kind === "collection" ? displayedEvent.createdAt : displayedEvent.startedAt, displayedEvent.finishedAt)}</b></div>
+                  <div><span>耗时</span><b>{formatDuration(displayedEvent.kind === "sync" ? displayedEvent.startedAt : displayedEvent.createdAt, displayedEvent.finishedAt)}</b></div>
                 </div>
               </div>
-              <div className="panel-note"><span>i</span><p>{displayedEvent.kind === "collection" ? "采集批次按断点续采：已入库未变的职位自动跳过，翻页直到凑满本批数量或列表到底。" : "同步任务由调度 tick 异步认领执行；同步完成会自动刷新职位列表。"}</p></div>
+              <div className="panel-note"><span>i</span><p>{displayedEvent.kind === "collection" ? "采集批次按断点续采：已入库未变的职位自动跳过，翻页直到凑满本批数量或列表到底。" : displayedEvent.kind === "candidate" ? "候选人批次按断点续采：已入库且画像未变的候选人自动跳过，详情在新标签页提取后关闭回列表。" : "同步任务由调度 tick 异步认领执行；同步完成会自动刷新职位列表。"}</p></div>
             </>
           ) : (
             <>
@@ -988,9 +1052,11 @@ const AUDIT_ACTION_VIEW: Record<string, string> = {
   "sources.list": "数据源访问",
   "sync-runs.list": "同步批次访问",
   "browser-batches.list": "采集批次访问",
+  "candidate-batches.list": "候选人批次访问",
   "sync.run": "同步执行",
   "sync.trigger": "触发同步",
   "browser.collection.trigger": "触发浏览器采集",
+  "candidate.collection.trigger": "触发候选人采集",
   "audit-logs.list": "审计日志访问",
   "match-exceptions.list": "匹配异常访问",
   "matches.list": "匹配列表访问",

@@ -231,11 +231,12 @@ export function createBrowserCandidateCollectionRepository(sql, { encryption }) 
         `;
         await tx`
           insert into candidate_profiles (
-            candidate_id, experience_years, location, education, seniority, industry,
+            candidate_id, experience_years, location, education, school, major, seniority, industry,
             current_title, current_company, activity_updated_at
           ) values (
             ${savedCandidate.id}, ${profile.experienceYears ?? null}, ${profile.location ?? null},
-            ${profile.education ?? null}, ${profile.seniority ?? null}, ${profile.industry ?? null},
+            ${profile.education ?? null}, ${profile.school ?? null}, ${profile.major ?? null},
+            ${profile.seniority ?? null}, ${profile.industry ?? null},
             ${profile.currentTitle ?? null}, ${profile.currentCompany ?? null},
             ${profile.activityUpdatedAt ? new Date(profile.activityUpdatedAt) : null}
           )
@@ -244,6 +245,8 @@ export function createBrowserCandidateCollectionRepository(sql, { encryption }) 
             experience_years = excluded.experience_years,
             location = excluded.location,
             education = excluded.education,
+            school = excluded.school,
+            major = excluded.major,
             seniority = excluded.seniority,
             industry = excluded.industry,
             current_title = excluded.current_title,

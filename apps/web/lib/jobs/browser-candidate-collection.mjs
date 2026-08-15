@@ -165,6 +165,8 @@ export function mapCandidateRecordToEntities(record) {
       experienceYears: record.yearOfExperience,
       location: record.cityName,
       education: record.degree,
+      school: record.school ?? null,
+      major: record.major ?? null,
       seniority: record.title ?? null,
       industry: null,
       currentTitle: record.title ?? null,

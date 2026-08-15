@@ -77,6 +77,8 @@ test("候选人画像详情事务：真实姓名入 candidates、画像入 candi
       experienceYears: record.yearOfExperience,
       location: record.cityName,
       education: record.degree,
+      school: record.school,
+      major: record.major,
       seniority: record.title,
       industry: null,
       currentTitle: record.title,
@@ -92,8 +94,9 @@ test("候选人画像详情事务：真实姓名入 candidates、画像入 candi
   assert.match(all, /insert into candidates[\s\S]*display_name/);
   // raw_records 以 entity_type='candidate' 存加密快照
   assert.match(all, /entity_type[\s\S]*'candidate'/);
-  // 画像近期工作列落 candidate_profiles
+  // 画像近期工作列 + 学校/专业落 candidate_profiles
   assert.match(all, /current_title|current_company/);
+  assert.match(all, /school|major/);
   // 联系方式/简历正文键绝不进入任何 SQL
   assert.doesNotMatch(all, /mobile|email|wechat|selfEvaluation|projectExperiences|content/i);
   // 加密用的是 AES-256-GCM 密文字节 + keyVersion

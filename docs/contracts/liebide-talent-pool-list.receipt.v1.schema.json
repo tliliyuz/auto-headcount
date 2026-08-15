@@ -36,7 +36,7 @@
       "required": ["category"],
       "properties": {
         "category": {
-          "const": "互联网技术"
+          "const": "互联网技术其他"
         }
       }
     },

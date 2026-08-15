@@ -344,7 +344,7 @@ export function parseTalentPoolListExtractionResult(input, limits) {
   const source = { origin: input.source.origin, capturedAt: requireIsoDate(input.source.capturedAt, "result.source.capturedAt") };
   requirePlainObject(input.filterEvidence, "result.filterEvidence");
   requireOnlyKeys(input.filterEvidence, TALENT_POOL_FILTER_KEYS, "result.filterEvidence");
-  if (input.filterEvidence.category !== "互联网技术") throw invalid("result filter evidence is not the approved talent pool category");
+  if (input.filterEvidence.category !== "互联网技术其他") throw invalid("result filter evidence is not the approved talent pool category");
   if (!Array.isArray(input.items)) throw invalid("result.items must be an array");
   const batchSize = requireBoundedInteger(limits?.batchSize, "limits.batchSize", 1, 100);
   const maxPages = requireBoundedInteger(limits?.maxPages, "limits.maxPages", 1, 20);

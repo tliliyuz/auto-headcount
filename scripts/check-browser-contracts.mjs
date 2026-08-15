@@ -237,8 +237,8 @@ function verifyCandidateSchemas({
   );
   assert.equal(
     poolReceiptSchema.properties.filterEvidence?.properties?.category?.const,
-    "互联网技术",
-    "talent pool receipt must pin the internet-tech category evidence",
+    "互联网技术其他",
+    "talent pool receipt must pin the internet-tech-other category evidence",
   );
   assert.equal(poolRequestSchema.additionalProperties, false);
   assert.equal(poolReceiptSchema.additionalProperties, false);

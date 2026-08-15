@@ -555,6 +555,10 @@ export const candidateProfiles = pgTable(
     education: text("education"),
     seniority: text("seniority"),
     industry: text("industry"),
+    /** 毕业院校（详情页，迁移 0012；docs/10 §2 画像字段）。 */
+    school: text("school"),
+    /** 专业（详情页，迁移 0012；docs/10 §2 画像字段）。 */
+    major: text("major"),
     /** 近期工作（候选人画像采集，docs/10 §2）：投影生成回退用（current_title ?? seniority）。 */
     currentTitle: text("current_title"),
     currentCompany: text("current_company"),

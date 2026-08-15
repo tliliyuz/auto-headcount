@@ -217,7 +217,7 @@ test("Relay 客户端只调用固定提取工具并解析结构化结果", async
     contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
     expectedExternalId: "fixture-job-001",
   });
-  assert.equal(request.timeoutMs, 30000);
+  assert.equal(request.timeoutMs, 60000);
   assert.equal(calls[0].init.headers.authorization, "Bearer fixture-relay-token");
 });
 

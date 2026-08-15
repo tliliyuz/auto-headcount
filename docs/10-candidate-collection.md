@@ -34,7 +34,8 @@
 ### 3.1 `liebide-talent-pool-list-v1`（发现）
 
 - **输入**：`userId`、`deviceId`、`batchSize`（≤100）、`maxPages`（≤20）、可选 `startPage`/`startOffset`。
-- **筛选证据**：人才池页 + 「互联网技术」分类选中（固定证据，与职位列表合同同款校验）。
+- **筛选证据**：人才池页 + 「互联网技术其他」分类选中（固定证据，与职位列表合同同款校验；2026-08-14 运营确认真实分类名为「互联网技术其他」，Provider/Consumer 两端 const 已对齐）。
+  - **局限（参数化待定）**：合同把分类写死为单一「互联网技术其他」，运营当前只能采集这一个候选人分类。若候选池要覆盖多样的沉睡职位（产品设计/市场销售等），应把分类参数化（运营每次选分类、证据校验"所设分类"、批次记录分类）——见 §5 与决策记录。
 - **回执条目**（白名单）：`candidateId`、`realName`、`title`、`company`、`yearOfExperience`、`age`、`gender`、`city`、`education`（最高学历）、`pageNumber`、`position`。
 - **断点**：`page{startPage,startOffset,endPage,pagesVisited,nextPage,nextOffset,stopReason}` + `contentHash`。
 - **分页**：20 条/页页码断点，`stopReason ∈ {batch_size, max_pages, end_of_results}`。
@@ -48,7 +49,7 @@
 ## 4. 数据模型映射
 
 - `candidates`：`external_id`=人才池 candidateId（唯一 `(source_connection_id, external_id)`，迁移 0010）；`source_connection_id`=来源追溯（对齐 jobs），`raw_record_id`=加密原始快照引用；`display_name`=**真实姓名**（候选人画像属敏感业务：RBAC operations/admin + 应用层加密 + 审计，不写日志/审计/任务载荷）；`summary`=派生摘要（≤150 字，用于展示，不含联系方式）。
-- `candidate_profiles`：`experience_years`、`location`（city）、`education`（最高学历枚举映射）、`seniority`（由 title 或年限派生）、`industry`（分类来源，本阶段可空）、`activity_updated_at`（简历 `updated`）+ 近期工作 `current_title`/`current_company`（迁移 0010；匹配投影 `display_summary` 取 `currentTitle ?? seniority` 回退）。
+- `candidate_profiles`：`experience_years`、`location`（city）、`education`（最高学历枚举映射）、`school`/`major`（迁移 0012，毕业院校/专业）、`seniority`（由 title 或年限派生）、`industry`（分类来源，本阶段可空）、`activity_updated_at`（简历 `updated`）+ 近期工作 `current_title`/`current_company`（迁移 0010；匹配投影 `display_summary` 取 `currentTitle ?? seniority` 回退）。
 - 原始快照：候选人画像按职位同款「加密原始区 → 内容哈希去重 → 幂等 upsert」入库 `raw_records`（`entity_type='candidate'`），存候选人画像（含姓名，加密 + RBAC）；**不落联系方式/简历正文**。
 
 ## 5. 任务与调度

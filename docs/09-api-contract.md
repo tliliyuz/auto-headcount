@@ -109,6 +109,7 @@
 | 审计（M1） | `GET /api/audit-logs` | 已设计（见 §2.3） |
 | 匹配（M3） | `GET /api/matches`、`GET /api/matches/:id`、`POST /api/matches/:id/review`、`GET /api/match-exceptions` | 已设计（见 §2.5；正常匹配由后台自动编排） |
 | 浏览器采集控制（M2） | `POST /api/browser-collections` | 批量发现任务为运营主入口；兼容单职位任务仅供诊断/受控重跑 |
+| 浏览器候选人采集（M2） | `POST /api/candidate-collections`、`GET /api/candidate-batches` | 人才池「互联网技术其他」候选人画像批次采集（见 §3.2） |
 | 浏览器受控直传（M2） | `POST /api/browser-ingestion/:ticket` | `ADR-005` 已指定边界，路径/Schema 待 RED 前定稿 |
 | 触达活动（M4） | `GET/POST /api/campaigns`、`POST /api/campaigns/:id/approve` | 待设计 |
 | 跟进任务（M5） | `GET/POST /api/followups` | 待设计 |
@@ -127,3 +128,10 @@
 - `POST /api/browser-ingestion/:ticket` 不接受管理端 Cookie，以 ticket 作为独立身份域；必须校验 HTTPS、到期/撤销/已消费、任务、契约版本、来源域/设备声明、内容类型、载荷大小、Schema 和内容哈希后，先加密再持久化。
 - 成功响应只返回 receipt ID、接受/拒绝计数、内容哈希和下一游标；错误只返回机器码。任何响应、审计或普通日志都不得回显 ticket、Cookie、完整简历或联系方式。
 - 具体请求/响应 Schema、签名/重放防护和来源证明必须在实现前补齐并以失败测试锁定；本节不得作为“端点已可用”的声明。
+
+### 3.2 浏览器候选人采集任务（实现切片）
+
+- 候选人数源锚定猎必得人才池页（`#/candidates/firmCandidate`，运营预置「互联网技术其他」分类筛选，2026-08-14 确认真实分类名），发现/详情合同见 [`10-candidate-collection.md`](10-candidate-collection.md) §3：`liebide-talent-pool-list-v1`（人才池发现，固定分类证据 + 数字断点）与 `liebide-candidate-detail-v1`（画像详情，**新标签页**确定性导航 → 提取 → 关闭回列表）。
+- `POST /api/candidate-collections` 由管理端会话 + `operations|admin` 创建人才池候选人**批次发现**任务。批量请求只接受 `sourceConnectionId`、固定 `contractId=liebide-talent-pool-list-v1`、`batchSize`、`maxPages` 和可选数字断点；服务端生成 `batchId`，并从 `BROWSER_RELAY_USER_ID`/`BROWSER_RELAY_DEVICE_ID` 注入路由。缺少服务端路由配置返回 `503 browser_route_config_required` 且不入队；请求体 `userId/deviceId` 不得覆盖部署绑定。成功返回 `202 { accepted:true, batchId, taskId }`；同一路由已有活跃发现批次时返回其 ID 并标记 `deduplicated:true`。`batchSize` 为差分目标：发现任务读取该来源已入库候选人集合，跳过已入库且 `current_title` 未变的候选人，按合同断点向后翻页直到凑满 `batchSize` 个「新增 + 画像变化」候选人或结果末尾，再为这些候选人创建 `browser_candidate_collect` 详情任务。写路由执行同源 CSRF 和 `candidate.collection.trigger` 审计，审计只保存 batch/task ID、是否去重、契约 ID，不保存用户/设备/候选人完整值。
+- `GET /api/candidate-batches` 由管理端会话 + `operations|admin` 只读返回 `browser_candidate_batches` 批次列表（`page/page_size` 分页），结构与 `GET /api/browser-batches` 一致；审计 `candidate-batches.list` 只保存页码/条数/总数。
+- 候选人详情回执含**真实姓名**（内部 `candidates`，RBAC + 加密 + 审计保护），但**联系方式/简历正文白名单外键失败关闭**，绝不进 HTTP 响应、任务载荷、审计或日志；`candidate-match-projection.v1` 的脱敏职责在匹配侧另行保证（见 [10-matching-contracts](10-matching-contracts.md)）。
