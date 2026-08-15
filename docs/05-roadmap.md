@@ -213,7 +213,7 @@ MCP/Web 并列数据源经统一适配后的职位、候选人和简历数据流
 
 ### 当前状态
 
-已用完全虚构 Fixture 验证 `ADR-005` 两阶段主路径：不可变职位/候选人投影、残留 PII 拒绝、确定性硬过滤、符合 v1 Schema 的 Fake LLM 七维输出、`aggregation/v1` 本地汇总、版本束幂等、匹配追溯写入以及列表/详情/审核/异常 API。`match_projection_filter`（阶段一投影+硬过滤）与 `match_pipeline_v2`（阶段二评分）均已接周期自动编排并同受 `MATCH_AUTOMATION_ENABLED` 门禁；阶段二实现稳定预排序、每职位 Top-K 与单轮全局预算；MatchingPage 已接真实 API，职位页已移除人工创建入口。真实候选人输入和批准的生产 LLM 适配器仍未实现，PostgreSQL 整体闭环需在提供数据库的环境复验。
+已用完全虚构 Fixture 验证 `ADR-005` 两阶段主路径：不可变职位/候选人投影、残留 PII 拒绝、确定性硬过滤、符合 v1 Schema 的 Fake LLM 七维输出、`aggregation/v1` 本地汇总、版本束幂等、匹配追溯写入以及列表/详情/审核/异常 API。`match_projection_filter`（阶段一投影+硬过滤）与 `match_pipeline_v2`（阶段二评分）均已接周期自动编排并同受 `MATCH_AUTOMATION_ENABLED` 门禁；阶段二实现稳定预排序、每职位 Top-K 与单轮全局预算；MatchingPage 已接真实 API，职位页已移除人工创建入口。**真实候选人输入已接线（2026-08-16）**：`candidate-redaction-loader` 把采集的 raw_records 工作经历组装为脱敏 career_history（公司名泛化「某公司」），`match_projection_filter` 已能从真实 40 候选人生成候选投影并跑 (job, candidate) 硬过滤。真实库垂直切片：40 名候选人全部产出消费态候选投影、0 PII 拒绝（顺带修正 `detailed_address` 正则误伤——原 `*` 允许零字符跟随，把「北京市」「市场经理」等误判为详细地址，改 `+` 后仅真实街道/楼栋地址触发）。**职位侧数据缺口**：42 个可操作真实职位的 `job_requirements` 全空（JD 结构化提取未接真实数据），硬过滤按 `REQUIRED_FIELD_MISSING` fail-closed 拒绝全部组合，「每职位命中 5~10 人」的垂直切片验收需先补齐真实职位硬要求。批准的生产 LLM 适配器仍未实现；PostgreSQL 整体闭环需在提供数据库的环境复验。
 
 > **成本上界（2026-08-13，已实现默认机制）**：硬过滤通过者先做稳定本地预排序，再执行每职位 Top-K（默认 10）与单轮全局预算（默认 20）；预算外组合留待后续周期。真实通过量与费用数据到位后再校准默认值。
 
@@ -270,6 +270,7 @@ MCP/Web 并列数据源经统一适配后的职位、候选人和简历数据流
 - [x] ADR-006 已接受（2026-08-14）：意向反馈实时通知的数据流、必要性、最小化 payload、授权边界与审计已固化。
 - [x] 落地页核心切片验收场景与接口契约已确认（`specified`）：令牌门禁/脱敏白名单/意向幂等/通知审计见 [验收标准](07-acceptance-criteria.md) §3 与 [API 契约](09-api-contract.md) §3.3。
 - [x] 意向事件表、令牌门禁、脱敏职位页、意向提交与飞书通知（notifier 适配器）已实现（`verified`：单测 212、集成 46、构建通过、浏览器实测脱敏页/意向提交/幂等去重，真实职位 + 完全虚构候选人 Fixture）。
+- [x] 落地页多屏 hero 叙事流 + AI 匹配评价已实现（`verified`，2026-08-16）：6 屏整屏叙事（开场/薪酬/雇主/岗位/AI 匹配/意向）、薪资月薪 k 展示、P5 投影 approved 匹配维度分（白名单标签，evidence 不泄漏）；见 [验收标准](07-acceptance-criteria.md) §3 多屏小节与 [数据模型](03-data-model.md) §10。
 
 ### 范围内工作
 

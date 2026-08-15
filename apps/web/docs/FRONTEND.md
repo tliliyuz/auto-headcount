@@ -2,7 +2,7 @@
 
 本文档是前端页面的**地图与接线状态**，不是业务规范。业务行为（沉睡规则、匹配分档、脱敏要求、触达门禁）以 [`docs/01-mvp-requirements.md`](../../../docs/01-mvp-requirements.md) 与 [`docs/07-acceptance-criteria.md`](../../../docs/07-acceptance-criteria.md) 为准；模块边界与数据所有权见 [`docs/02-architecture.md`](../../../docs/02-architecture.md)。
 
-当前前端仍由 `apps/web/app/operations-dashboard.tsx` 集中承载登录视图和业务页面，`apps/web/app/globals.css` 承载全局样式；已接线页面通过 `lib/*-client.ts` 访问管理 API。
+当前前端仍由 `apps/web/app/operations-dashboard.tsx` 集中承载登录视图和业务页面，`apps/web/app/globals.css` 承载全局样式；已接线页面通过 `lib/*-client.ts` 访问管理 API。沉睡职位详情页为独立路由 `app/jobs/[id]/`（不在管理端 SPA 内），服务端 `prototypeView` 门禁 + 客户端 `job-detail-page.tsx` 经 `/api/jobs/:id` 拉取详情。
 
 默认初始视图为**登录页**（`LoginPage`）；请求头 `x-prototype-view: app` 可强制初始进入工作台（供服务端渲染测试覆盖两个视图）。
 
@@ -10,6 +10,7 @@
 
 - 框架：Vinext（React Server Components），文件顶部 `"use client"`，单页应用。
 - 单文件现状：全部管理端页面组件集中在 `operations-dashboard.tsx`；登录、沉睡职位巡检、智能匹配、数据源、审计日志五处已接真实 API；触达活动、跟进任务、转化漏斗、候选人仍为静态原型（假数据）。
+- 独立路由：`app/jobs/[id]/` 为沉睡职位详情页（非工作台内嵌），服务端 `prototypeView` 门禁 + 客户端经 `/api/jobs/:id` 拉详情。
 - **公开落地页（M4 切片）**：`app/landing/[token]/page.tsx` 是**独立公开路由**（不在管理端 SPA 内、无会话），令牌门禁 + 脱敏职位页 + A/B/C/退订 + 联系方式提交，走公开 API `GET /api/landing/:token`、`POST /api/landing/:token/intent`（独立身份域，见 [API 契约](../../../docs/09-api-contract.md) §3.3 与 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)）。
 - 已建 API 层：认证 `/api/auth/*`（§2.1）与业务只读 `/api/jobs/under-served`、`/api/sources`、`/api/sync-runs`（§2.2，会话 + RBAC `operations|admin`）。
 - 样式：Tailwind 引入 + `globals.css` 自定义类 + `:root` 设计 token。
@@ -18,7 +19,8 @@
 
 | 页面 | 组件 | 数据来源 | 状态 |
 |---|---|---|---|
-| 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md) + [`GET /api/jobs/:id`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/洞察/脱敏预览；洞察面板按选中职位拉取完整 JD 展示「职位详情」；匹配池为 M3 占位） |
+| 沉睡职位巡检 | `OperationsDashboard` 内联 | 真实 [`GET /api/jobs/under-served`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（列表/分页/类别 tabs/同步状态；行点击切换右侧面板选中；职位标题/`›` 跳独立详情页；右侧面板保留匹配与公开预览卡片；匹配池为 M3 占位） |
+| 职位详情 | `app/jobs/[id]/job-detail-page.tsx`（独立路由 `app/jobs/[id]/page.tsx`） | 真实 [`GET /api/jobs/:id`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（头部岗位/公司/分类·城市、标签、完整 JD；未登录重定向 `/`） |
 | 智能匹配 | `MatchingPage` | 真实 `/api/matches`、`/api/matches/:id`、`/api/matches/:id/review`、`/api/match-exceptions` | 已接真实数据（待审核列表/详情/七维追溯/审核/异常；无 Mock 回落） |
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
@@ -36,7 +38,7 @@
   - 登录表单 `POST /api/auth/login`（含 TOTP 校验位）；统一失败文案由服务端返回，连续失败锁定由后端 `429` 驱动（无本地计数）。
   - `passwordChangeRequired` 时进入「设置新口令」步，`POST /api/auth/password` 改密成功后进入工作台。
   - 侧边栏「退出登录」`POST /api/auth/logout` 后回登录页。
-- **会话门禁分层**：SSR（`page.tsx`）按 `x-prototype-view: app` 请求头或 `session_token` Cookie 存在性渲染视图（不查库）；客户端挂载后无条件 `GET /api/auth/me` 核实会话——`200` 用真实用户刷新资料区，`401`（过期/撤销/禁用）退回登录页。会话 Cookie 为 HttpOnly，JS 无法探测，因此不能用 `document.cookie` 判断登录态。
+- **会话门禁分层**：SSR 按 `x-prototype-view: app` 请求头或 `session_token` Cookie 存在性渲染视图（不查库）；门禁函数 `prototypeView()` 位于 `lib/server/prototype-view.ts`（`/` 与 `/jobs/[id]` 共用）。客户端挂载后无条件 `GET /api/auth/me` 核实会话——`200` 用真实用户刷新资料区，`401`（过期/撤销/禁用）退回登录页。会话 Cookie 为 HttpOnly，JS 无法探测，因此不能用 `document.cookie` 判断登录态。
 - **客户端会话心跳**：工作台视图下每 5 分钟静默 `GET /api/auth/me` 续期服务端会话空闲窗口（服务端空闲 30 分钟/最长 12 小时，空闲窗口仅在 API 请求时刷新）；tab 开着即保持登录，会话真正失效（`401`）才回落登录页。心跳不产生审计。
 - 客户端认证封装见 [`lib/auth-client.ts`](../lib/auth-client.ts)。
 
@@ -77,16 +79,24 @@
 - 列表固定贴合容器宽度：`.table-wrap` 移除 `overflow-x:auto`，改用 `table-layout:fixed` + 各列显式宽度 + 表头 `nowrap`，移动端 `min-width` 一并移除，不再出现横向滚动条。「职位」列「ID · 更新于 时间」行为 flex 单行：ID 过长时省略号截断（`title` 悬浮可看全量），时间始终同行；右侧洞察面板 314→296px 为表格让宽。
 - **类别 tabs 与标题推断**：源 `category` 为空（MCP 同步源 `item.category` 实测空串、浏览器采集合同未定义该字段）时，按职位标题关键词推断粗桶（`lib/job-category.mjs` 的 `inferCoarseBucketFromTitle` / `jobCoarseBucket`，源有真实细分类时优先权威映射）。推断为启发式非权威，若后续数据侧提供权威 category，`jobCoarseBucket` 自动切回权威值。
 
+### 沉睡职位详情独立页（2026-08-16）
+
+- **右侧「职位详情（完整 JD）」卡片迁出**：完整 JD 不再在工作台右侧内联展示，迁到独立详情页 `/jobs/[id]`；右侧 `insight-panel` **保留**「自动匹配状态」与「候选人看到的内容」卡片及预览弹窗，选中态 `selectedId` 维持——列表行点击切换右侧面板选中职位，职位标题（`.job-detail-link`）与行尾 `›` 按钮用 `useRouter` 跳转详情页。
+- **独立路由**：`app/jobs/[id]/page.tsx`（服务端，复用 `lib/server/prototype-view.ts` 的 `prototypeView` SSR 门禁，未登录 `redirect("/")`）+ `app/jobs/[id]/job-detail-page.tsx`（客户端，挂载后 `GET /api/auth/me` 核实会话 + `GET /api/jobs/:id` 拉详情；`401`/改密回落登录，`403` 无权限，`404` 已下架）。
+- **页面布局**：头部卡片（岗位名称、公司名称、`jobCoarseBucket` 粗桶·城市、状态 pill）；`.jd-tags` 标签区（职位分类、城市、薪资范围、沉睡时长，≥27 天高亮）；复用 `.sleeping-alert` 展示沉睡上下文；主体 `.jd-main` 完整 JD，缺省显示「暂无详情」。
+- **标签仅用现有接口字段**（`companyName` 属内部投影，RBAC operations/admin 可见）；`job_requirements`（期望候选人条件结构化数据）无读接口且生产无写入方，暂不暴露，待其有生产数据后再补。
+
 ### 数据源页：统一批次列表与审计日志（2026-08-14）
 
 - **批次列表不再两个容器平铺**：原「最近采集批次」与「最近同步批次」两个面板合并为一个列表（`workspace-grid` 左列表 + 右侧详情面板，复用沉睡职位样式）。类型 tabs（全部/采集批次/同步批次，带计数）+ 关键词搜索（批次 ID / 来源）+ 每页 10 条 page-jump 分页；行点击后右侧 `insight-panel` 展示该批次的运行统计（采集：发现/入库/失败/跳过；同步：入库/跳过/失败/查询）与批次信息（本批数量/上限页数 或 同步类型/错误码、创建/完成时间、耗时）。列表数据来源不变：`/api/browser-batches` + `/api/sync-runs`（各取最近 100 条，每 10 秒轮询合并刷新）；连接健康改为列表下方的 `health-strip`。
 - **审计日志改为 jobs 风格列表**：原 `data-table` 网格改为 `.table-wrap` 表格 + 结果分类 tabs（全部/成功/失败/已拒绝，走 `result` 过滤）+ 搜索框（`q` 模糊匹配事件/操作人/关联 ID，350ms 防抖）+ 「≡ 筛选」下拉（事件类型 `action`、操作人 `actor_type`）+ **每页 10 条** page-jump 分页（与批次列表/沉睡职位统一）。`q` 为 [`/api/audit-logs`](../../../docs/09-api-contract.md) 新增参数（匹配 `action`/`actor_id`/`request_id`/`resource_id` 子串）。
 - **数据源卡片撑满容器**：`.source-card` 改 flex 纵向排布（按钮 `margin-top:auto` 贴底）、`min-height` 提升，按钮等高 42px 并 `flex:1` 等分填充整行，h2/meta/描述/浏览器采集下拉全部放大字号，消除卡片底部留白。
 
-### 公开落地页（M4 切片，2026-08-15）
+### 公开落地页（M4 切片，2026-08-15；多屏叙事 2026-08-16）
 
-- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染标题/类别/城市/薪资范围/去标识化职责摘要/「某科技企业」+ A/B/C/退订 + 手机号/邮箱表单。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
-- 公开 API 走独立身份域（无会话，令牌即能力凭证）：`POST /api/landing/:token/intent` 提交后意向落库（联系方式信封加密），notifier 尽力投递（飞书/假/未配置），提交与通知结果写审计。脱敏边界见 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)；**职责摘要当前一律省略**（原始 JD 截断可能泄漏公司/品牌名，见 `docs/03-data-model.md` §10）。
+- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染 **6 屏整屏 hero 叙事流**：开场（候选人个性化称呼 + 标题「正在寻找 X方向 的人才」 + 岗位大类/城市/招聘中 tags）→ 薪酬（月薪 k 大号展示）→ 关于雇主（公司档案隐性信息，缺失时安全占位）→ 岗位内容（白名单职责摘要）→ AI 匹配分析（已审核匹配维度分，缺失/未审核时安全占位）→ 意向填写（A/B/C/退订 + 手机号/邮箱表单）。右侧进度导航高亮当前屏（IntersectionObserver + 实时布局判定，不依赖 scroll 事件）。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
+- 公开 API 走独立身份域（无会话，令牌即能力凭证）：`POST /api/landing/:token/intent` 提交后意向落库（联系方式信封加密），notifier 尽力投递（飞书/假/未配置），提交与通知结果写审计。脱敏边界见 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)。
+- AI 匹配评价数据路径：`GET /api/landing/:token` 的 DTO 含 `aiEvaluation`，由 `landing-intent-service.getLandingJobView` 经 `findApprovedMatchForJobCandidate`（`matches.status='approved'`）+ `toAiEvaluation`（白名单维度标签，`lib/landing/landing-mask.mjs`）投影；evidence/风险原文不进入 DTO。薪资 k 展示见 `formatMonthlySalaryK`（脏值降级「薪资面议」）。
 - 运营侧建链端点为 `POST /api/landing-links`（会话 + RBAC `operations|admin`，返回含明文令牌的 URL，仅此一次）；管理端建链 UI 属后续接线（当前可经 API/脚本触发）。
 
 > 安全提醒：`jobs` 数组含伪造的公司名、公司别名与详细地址。这些字段**只用于 Mock，禁止进入渲染输出或 Fixture**；对外展示必须经过 `toPublicJobView` 脱敏投影（渲染测试已守卫公司名/详细地址不泄漏）。接真实数据后，原始载荷与规范化数据的脱敏边界以 `03-data-model.md` 与 `04-mcp-integration.md` 为准。
@@ -98,7 +108,7 @@
 - 通用表格：`data-table` + `data-row` / `data-head` + `status-tag`；变体见 `globals.css` 的 campaign / performance / sync / audit 表。
 - 候选人样式：`candidate-avatar`、`match-score`、`score-badge`。
 - 跟进看板：`kanban` / `kanban-column`。
-- 脱敏预览模态框：`preview-modal`（候选人对职位落地页的预览）。
+- 职位详情页：`job-detail-page` / `job-detail-header` / `jd-tags` / `jd-tag` / `jd-section` / `jd-main`（`/jobs/[id]` 独立页样式，复用 `role-icon` / `status-pill` / `section-title` / `internal-label` / `sleeping-alert`）。
 
 ## 5. 设计 Token（`globals.css` `:root`）
 

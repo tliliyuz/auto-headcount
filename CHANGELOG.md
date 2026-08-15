@@ -10,6 +10,36 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — M3 阶段一真实候选人输入桥：raw_records 工作经历 → 脱敏 career_history
+
+> 状态：`verified`。单测 229/229、集成 53/53、build/tsc/lint/schemas 0 错误；真实 dev 库垂直切片：40 名真实候选人的加密工作经历全部组装为脱敏 career_history 并产出消费态候选投影（`candidate_match_projections` 0 → 40）、`piiRejected` 0；对 2 个真实可操作沉睡职位跑阶段一投影+硬过滤，`job_requirements` 为空导致 80/80 `REQUIRED_FIELD_MISSING` fail-closed（M3 职位侧数据缺口，见下）。修复了此前调度路径 `match_projection_filter` 不传脱敏详情、所有真实候选人被当「无详情来源」跳过的断点。
+
+- **候选人脱敏详情桥（新 `lib/jobs/candidate-redaction-loader.mjs`）**：解密 `raw_records`（`entity_type='candidate'`）载荷的 `workExperiences[{company,title}]` → `career_history = "某公司 · title"`（公司名完全泛化为固定占位，采集侧 industry 恒 null 无法泛化行业/规模）、`project_highlights=[]`；纯函数 `buildRedactedCareerHistory` 去重/排序/截断 30 条/单条 ≤1000 字符；无 raw_record/解密失败/无有效工作经历的候选人不进 Map（保持「无脱敏详情来源 → piiRejected」语义）。新增 `.d.mts`。
+- **调度接线（`sync-scheduler.mjs`）**：`match_projection_filter` 任务现用 `loadCandidateRedactedDetails` 注入脱敏 Map 再跑 `runProjectionFilterSync`（签名不变，直调测试不受影响）；`projection-filter-sync.mjs` `loadCandidatePool` 补 `current_title/current_company`（`display_summary` 现职/现司更准确，不进 LLM、不改 input_hash）。
+- **`detailed_address` 正则修正（`candidate-projection.mjs`）**：`(?:省|市|区|路|号|栋|单元|层)\s*[\dA-Za-z-]*` 的 `*` 允许零字符跟随，真实城市名「北京市/杭州市…」与常见 title「市场经理」「区域经理」被字符级误判为详细地址（真实库 38/40 误拒）；改 `+` 后仅关键字后跟 ASCII 数字/字母（真实街道/楼栋地址如「解放路5号」）触发，真实详细地址仍 fail-closed。精度修复，不放宽保护。
+- 测试：`tests/candidate-redaction-loader.unit.test.mjs`（泛化/去重排序/截断/长度守卫/PII 交互——城市名与「市场」「区域」不误触发、真实地址仍触发）、`tests/candidate-redaction-loader.integration.test.mjs`（loader 组装与过滤语义 + 调度路径收敛为真实 (job, candidate) 匹配池：候选投影 consumable、过滤通过行、审计 `candidatesProjected=1`/`piiRejected=0`）。
+- **M3 职位侧数据缺口（如实记录）**：42 个可操作真实沉睡职位的 `job_requirements` 全空（JD 结构化提取未接真实数据），硬过滤按 `REQUIRED_FIELD_MISSING` fail-closed 拒绝全部组合，「每职位命中 5~10 人」垂直切片验收需先补齐真实职位硬要求（后续切片）。
+
+### 2026-08-16 — 落地页多屏 hero 叙事流 + AI 匹配评价（P5）
+
+> 状态：`verified`。unit 222/222、integration 51/51、lint/tsc 0 错误、build 通过；浏览器验证两条预览链接（林小满↔虾皮、预览候选人↔媒介负责人）6 屏渲染与进度导航。产品口径（月薪 k / 年包缺口 / AI 匹配白名单投影）已同步 [01 §1.5](docs/01-mvp-requirements.md)、[03 §10](docs/03-data-model.md)、[07 §3](docs/07-acceptance-criteria.md)。
+
+- **落地页改 6 屏整屏 hero 叙事流**（`app/landing/[token]/page.tsx`）：开场（个性化称呼 + 岗位大类/城市/招聘中 tags）→ 薪酬 → 关于雇主（公司档案隐性信息）→ 岗位内容（白名单摘要）→ AI 匹配分析 → 意向填写；右侧进度导航（IntersectionObserver + 实时布局判定，不依赖 scroll 事件）。修复 `.hero-shell overflow-x:hidden` 使滚动容器错误化与 scroll-snap 与滚动目标打架两处交互问题。
+- **薪资按月薪 k 展示**（`formatMonthlySalaryK`，`¥50k–70k`）：源 `salary_min/max` 视为月薪元；>100 万/月脏数据、边界缺失/倒挂降级「薪资面议」，不推断、不转成年薪。年包/薪资结构为浏览器采集数据缺口。
+- **新增 P5 AI 匹配评价**：DTO 含 `aiEvaluation { score, bandLabel, dimensions[] }`，只投影 `matches.status='approved'` 的维度分；白名单维度标签 `MATCH_DIMENSION_LABELS`（技能/行业/职级/经验/城市/薪资/活跃度）+ band 白名单，evidence/风险/assessable 原文不进入 DTO（结构性去标识化）。`findApprovedMatchForJobCandidate` 读取（`match-repository.mjs`）、`toAiEvaluation` 投影（`landing-mask.mjs`）、`getLandingJobView` 接线。
+- 测试：unit `toAiEvaluation` 白名单投影/剔除 evidence；integration 未审核不展示、approved 展示且不泄漏 evidence 原文。
+
+### 2026-08-16 — 沉睡职位详情独立页 /jobs/[id]：右侧「职位详情」卡片迁出
+
+> 状态：`verified`。lint/tsc/build 0 错误；集成测试 5/5（rendered-html 4/4 含新增 `/jobs/[id]` SSR 冒烟 + http-read 1/1）。`npm test` 的 unit 阶段 222/223——唯一失败为并行工作中新加的 `candidate-redaction-loader.unit.test.mjs`（RED：目标模块 `candidate-redaction-loader.mjs` 尚未实现，与本次改动无关）。
+
+- **移除右侧「职位详情（完整 JD）」卡片**：完整 JD 不再在工作台右侧内联展示（原来按选中职位经 `GET /api/jobs/:id` 拉取），迁到独立详情页；右侧 `insight-panel` 保留「自动匹配状态」与「候选人看到的内容」卡片及预览弹窗，选中态 `selectedId` 维持（行点击切换选中）。
+- **新增独立路由 `/jobs/[id]`**：`app/jobs/[id]/page.tsx`（服务端：`await params` 取 id、复用 `prototypeView` SSR 门禁、未登录 `redirect("/")`、`generateMetadata`）+ `app/jobs/[id]/job-detail-page.tsx`（客户端：`/api/auth/me` 核实会话 + `GET /api/jobs/:id` 拉详情；`401`/改密回落登录、`403` 无权限、`404` 已下架）。
+- 详情页布局：头部卡片（岗位名称、公司名称、粗桶·城市、状态 pill）；`jd-tags` 标签区（职位分类、城市、薪资范围、沉睡时长，≥27 天高亮）；复用 `sleeping-alert`；主体 `jd-main` 完整 JD，缺省「暂无详情」。标签仅用现有接口字段（`companyName` 内部投影 RBAC 可见），`job_requirements` 无读接口且生产无写入方，暂不暴露。
+- 列表接线：行点击切换右侧面板选中职位；职位标题（`job-detail-link`）与行尾 `›` 按钮用 `useRouter` 跳转 `/jobs/[id]`。
+- 抽取 `prototypeView()` 到 `lib/server/prototype-view.ts`（`/` 与 `/jobs/[id]` 共用）。
+- 测试：`rendered-html.test.mjs` 参数化 `render(path)`，运营后台泄漏断言改 jobs-card 头文案，静态标记测试拼接 `operations-dashboard.tsx` 与 `job-detail-page.tsx`，新增 `/jobs/[id]` SSR 冒烟。
+
 ### 2026-08-15 — 候选人详情 + 工作经历：GET /api/candidates/:id 解密 raw_records
 
 > 状态：`verified`。单测 220/220、集成（ops-read 补 getCandidateById 解密断言）、lint/tsc 0 错误。真实候选人工作经历解密验证：高枫 4 条（阿里高德·无线开发专家、美团·大前端工程师）、魏纬来 2 条、皓匀 4 条。

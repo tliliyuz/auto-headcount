@@ -123,6 +123,35 @@ export async function replaceMatchDimensions(sql, { matchId, dimensions }) {
 }
 
 /**
+ * 已审核匹配读取（含维度分）：仅 `approved` 匹配可向候选人展示 AI 匹配评价
+ * （docs/03 §9 触达门禁、docs/07 §3 P5）。查无/未审核返回 null。
+ */
+export async function findApprovedMatchForJobCandidate(sql, { jobId, candidateId }) {
+  const rows = await sql`
+    select m.id, m.score, m.band,
+      coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'dimension', md.dimension,
+            'score', md.score,
+            'assessable', md.assessable
+          ) order by md.id
+        ) filter (where md.id is not null),
+        '[]'
+      ) as dimensions
+    from matches m
+    left join match_dimensions md on md.match_id = m.id
+    where m.job_id = ${jobId}
+      and m.candidate_id = ${candidateId}
+      and m.status = 'approved'
+    group by m.id
+    order by m.updated_at desc
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
+/**
  * 审核状态流转（docs/03 §9）：仅从 `generated`/`pending_review` 可流转到 `approved`/`rejected`。
  * 已审核的匹配返回 null（路由 409）；只有 approved 的匹配可进入触达（M3 门禁）。
  */

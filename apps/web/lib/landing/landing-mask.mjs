@@ -22,6 +22,54 @@ export function formatMonthlySalaryK(salaryMin, salaryMax) {
  * （结构性去标识化，见 landing-summary.mjs）。年包/薪资结构（14薪+期权+绩效）MCP 无此字段，
  * 属未来浏览器采集数据缺口（见 docs/03 §10 注记）。
  */
+
+/** AI 匹配评价白名单维度标签（docs/03 §8、docs/07 §3 P5）：只展示标签与数字分，evidence/风险/事实原文绝不进入 DTO。 */
+export const MATCH_DIMENSION_LABELS = Object.freeze({
+  skills: "技能匹配",
+  industry: "行业背景",
+  seniority: "职级经验",
+  experience: "经验年限",
+  location: "城市匹配",
+  salary: "薪资预期",
+  activity: "活跃度",
+});
+
+/** AI 匹配评价 band 白名单（聚合规则 aggregation/v1，docs/10 §5）。 */
+export const MATCH_BAND_LABELS = Object.freeze({
+  high: "高度匹配",
+  medium: "匹配",
+  low: "需进一步了解",
+});
+
+const MATCH_DIMENSION_LABEL_ORDER = Object.values(MATCH_DIMENSION_LABELS);
+
+/**
+ * 已审核匹配 → 候选人对内展示的 AI 匹配评价（docs/07 §3 P5）：只投影总分、band 白名单标签、
+ * 白名单维度标签 + 数字分；evidence/risk/assessable/事实原文一律剔除（结构性去标识化，与职责摘要同源）。
+ * 无可展示维度或无匹配 → null。
+ */
+export function toAiEvaluation(match) {
+  if (!match) return null;
+  const dimensions = (match.dimensions ?? [])
+    .filter(
+      (d) =>
+        d.assessable !== false &&
+        MATCH_DIMENSION_LABELS[d.dimension] &&
+        Number.isFinite(d.score),
+    )
+    .map((d) => ({ label: MATCH_DIMENSION_LABELS[d.dimension], score: Math.round(d.score) }))
+    .sort(
+      (a, b) =>
+        MATCH_DIMENSION_LABEL_ORDER.indexOf(a.label) -
+        MATCH_DIMENSION_LABEL_ORDER.indexOf(b.label),
+    );
+  if (dimensions.length === 0) return null;
+  return {
+    score: Number.isFinite(match.score) ? Math.round(match.score) : null,
+    bandLabel: MATCH_BAND_LABELS[match.band] ?? null,
+    dimensions,
+  };
+}
 export function toMaskedJobView(job) {
   return {
     title: job.title,

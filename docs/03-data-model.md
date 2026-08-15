@@ -301,7 +301,11 @@ notify_pending → notify_succeeded | notify_failed
 
 ## 10. 候选人落地页投影
 
-落地页不得直接序列化 `jobs` 或 `job_requirements`。服务端必须生成独立的白名单 DTO，最多包含职位名称、类别、城市、薪资范围、职责摘要、要求摘要和候选人可执行操作。**职责摘要由模板 + 白名单词库自动生成**（2026-08-15，落地页切片）：大类桶模板 + 从 JD 命中的通用能力词/行业词变量（`lib/landing/landing-summary.mjs`），变量只可能来自白名单词库 → 公司/产品专名结构性无法进入（规避原始 JD 截断泄漏品牌名的实测教训）；确定性纯函数、无存储、LLM 改写留作增强路径。
+落地页不得直接序列化 `jobs` 或 `job_requirements`。服务端必须生成独立的白名单 DTO，最多包含职位名称、类别、城市、薪资范围、职责摘要、要求摘要、AI 匹配评价（已审核匹配的白名单维度投影）和候选人可执行操作。**职责摘要由模板 + 白名单词库自动生成**（2026-08-15，落地页切片）：大类桶模板 + 从 JD 命中的通用能力词/行业词变量（`lib/landing/landing-summary.mjs`），变量只可能来自白名单词库 → 公司/产品专名结构性无法进入（规避原始 JD 截断泄漏品牌名的实测教训）；确定性纯函数、无存储、LLM 改写留作增强路径。
+
+**薪资展示口径（2026-08-16）**：源 `salary_min/max` 视为**月薪元**，统一按 k 展示（`¥50k–70k`，`lib/landing/landing-mask.mjs` 的 `formatMonthlySalaryK`）；>100 万/月视为源脏数据、边界缺失/倒挂均降级「薪资面议」，不推断、不转成年薪。年包/薪资结构（14 薪+期权+绩效）MCP 无字段，属浏览器采集数据缺口（供应方落地页有），MVP 落地页不展示。
+
+**AI 匹配评价（2026-08-16，P5）**：DTO 可含 `aiEvaluation { score, bandLabel, dimensions[] }`，只投影 `matches.status='approved'` 的维度分；维度标签走白名单 `MATCH_DIMENSION_LABELS`（技能/行业/职级/经验/城市/薪资/活跃度，7 类），band 走 `MATCH_BAND_LABELS`（高/中/低）。evidence、risk、assessable 与候选人事实原文禁止进入 DTO（结构性去标识化，`lib/landing/landing-mask.mjs` 的 `toAiEvaluation`）。
 
 以下字段始终禁止进入落地页响应和客户端埋点：公司名称及别名、详细地址、内部职位编号、客户联系人、招聘负责人、原始 JD 和供应商原始载荷。
 

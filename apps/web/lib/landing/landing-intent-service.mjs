@@ -8,8 +8,9 @@ import {
   findIntentResponseByLinkId,
   markIntentNotifyResult,
 } from "./intent-repository.mjs";
+import { findApprovedMatchForJobCandidate } from "../jobs/match-repository.mjs";
 import { findValidLandingLinkByTokenHash } from "./landing-link-repository.mjs";
-import { toMaskedJobView } from "./landing-mask.mjs";
+import { toAiEvaluation, toMaskedJobView } from "./landing-mask.mjs";
 import { hashLandingToken } from "./landing-token.mjs";
 
 export const LANDING_INTENT_OPTIONS = ["A", "B", "C", "opt_out"];
@@ -17,7 +18,8 @@ export const LANDING_LINK_UNAVAILABLE_CODE = "landing_link_unavailable";
 
 /**
  * 公开侧取落地页脱敏职位视图：令牌哈希门禁（存在 + 未过期 + 未撤销）。
- * 组装脱敏职位字段 + 候选人姓名（本人可见）+ 公司隐性信息 teaser（公司档案，可能为 null）。
+ * 组装脱敏职位字段 + 候选人姓名（本人可见）+ 公司隐性信息 teaser（公司档案，可能为 null）
+ * + AI 匹配评价（已审核匹配投影，可能为 null，docs/07 §3 P5）。
  * 失效令牌返回 null（对外统一「链接不可用」，防令牌枚举）。
  */
 export async function getLandingJobView(sql, { token, now }) {
@@ -30,6 +32,10 @@ export async function getLandingJobView(sql, { token, now }) {
   const profile = link.companyName
     ? await findCompanyLandingProfileByCompanyName(sql, link.companyName)
     : null;
+  const match = await findApprovedMatchForJobCandidate(sql, {
+    jobId: link.jobId,
+    candidateId: link.candidateId,
+  });
   return {
     ...toMaskedJobView(link),
     candidateName: link.candidateName ?? null,
@@ -41,6 +47,7 @@ export async function getLandingJobView(sql, { token, now }) {
           officeLocation: profile.officeLocation,
         }
       : null,
+    aiEvaluation: toAiEvaluation(match),
   };
 }
 

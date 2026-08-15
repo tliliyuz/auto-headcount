@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { toMaskedJobView } from "../../lib/landing/landing-mask.mjs";
+import { toAiEvaluation, toMaskedJobView } from "../../lib/landing/landing-mask.mjs";
 
 const LONG_JD = "【岗位背景】 Lovart 致力于通过 AI 重塑创意工作流。".repeat(40);
 
@@ -61,4 +61,55 @@ test("职责摘要为白名单生成：原始 JD 内嵌品牌名绝不进入 DTO
   assert.ok("summary" in view, "DTO 含白名单生成的摘要");
   assert.ok(!JSON.stringify(view).includes("Lovart"), "摘要不含品牌名");
   assert.ok(!JSON.stringify(view).includes("【岗位背景】"), "不含原始 JD 文本");
+});
+
+test("AI 匹配评价投影：白名单维度标签 + 数字分，剔除 evidence/非白名单维度，按规范序排列", () => {
+  const evaluation = toAiEvaluation({
+    score: 86,
+    band: "high",
+    dimensions: [
+      { dimension: "salary", score: 55, assessable: true, evidence: "薪资区间无重叠" },
+      { dimension: "location", score: 100, assessable: true, evidence: "城市一致" },
+      { dimension: "hacked_dim", score: 99, assessable: true, evidence: "不应出现" },
+      { dimension: "skills", score: 90, assessable: true, evidence: "命中 3/3 必备技能" },
+    ],
+  });
+  assert.deepEqual(evaluation, {
+    score: 86,
+    bandLabel: "高度匹配",
+    dimensions: [
+      { label: "技能匹配", score: 90 },
+      { label: "城市匹配", score: 100 },
+      { label: "薪资预期", score: 55 },
+    ],
+  });
+  const json = JSON.stringify(evaluation);
+  assert.ok(!json.includes("evidence"), "不暴露证据字段名");
+  assert.ok(!json.includes("命中"), "不暴露 evidence 原文");
+  assert.ok(!json.includes("hacked_dim"), "非白名单维度被剔除");
+  assert.ok(!json.includes("assessable"), "不暴露内部可评估性字段");
+});
+
+test("AI 匹配评价投影：band 映射齐全、无可展示维度或无匹配 → null", () => {
+  assert.equal(toAiEvaluation(null), null);
+  assert.equal(toAiEvaluation(undefined), null);
+  // 无可展示维度（score 缺失/空数组）→ 无 AI 评价
+  assert.equal(
+    toAiEvaluation({ score: 80, band: "medium", dimensions: [{ dimension: "skills", score: null }] }),
+    null,
+  );
+  assert.equal(toAiEvaluation({ score: 80, band: "medium", dimensions: [] }), null);
+  // band 白名单映射：有可展示维度时携带 bandLabel
+  const medium = toAiEvaluation({
+    score: 80,
+    band: "medium",
+    dimensions: [{ dimension: "skills", score: 80 }],
+  });
+  assert.equal(medium.bandLabel, "匹配");
+  const low = toAiEvaluation({
+    score: 70,
+    band: "low",
+    dimensions: [{ dimension: "location", score: 70 }],
+  });
+  assert.equal(low.bandLabel, "需进一步了解");
 });

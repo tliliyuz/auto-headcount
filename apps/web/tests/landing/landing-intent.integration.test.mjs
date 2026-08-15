@@ -32,6 +32,7 @@ test("落地页意向：令牌门禁、幂等、联系方式信封加密、通�
   t.after(async () => {
     await sql`delete from intent_responses`;
     await sql`delete from landing_links`;
+    await sql`delete from matches`;
     await sql`delete from candidates`;
     await sql`delete from company_landing_profiles`;
     await sql`delete from jobs`;
@@ -60,6 +61,13 @@ test("落地页意向：令牌门禁、幂等、联系方式信封加密、通�
   const [candidate] = await sql`
     insert into candidates (source_connection_id, external_id, display_name)
     values (${source.id}, 'landing-intent-cand', '候选 A')
+    returning id
+  `;
+
+  // 匹配：先落 pending_review（未审核，落地页不展示 AI 匹配评价）
+  const [match] = await sql`
+    insert into matches (job_id, candidate_id, score, band, status, rule_version, score_status)
+    values (${job.id}, ${candidate.id}, 86, 'high', 'pending_review', 1, 'local_computed')
     returning id
   `;
 
@@ -162,6 +170,37 @@ test("落地页意向：令牌门禁、幂等、联系方式信封加密、通�
   await upsertCompanyLandingProfile(sql, { companyName: "Fixture Co", companyScale: "D 轮创业公司" });
   const view2 = await getLandingJobView(sql, { token, now });
   assert.equal(view2.companyTeaser.companyScale, "D 轮创业公司");
+
+  // 未审核匹配 → 不展示 AI 匹配评价
+  assert.equal(view.aiEvaluation, null, "pending_review 不向候选人展示 AI 匹配评价");
+
+  // 审核通过 + 维度分 → AI 匹配评价只投影白名单标签与数字分，绝不泄漏 evidence 原文
+  await sql`update matches set status = 'approved' where id = ${match.id}`;
+  await sql`
+    insert into match_dimensions (match_id, dimension, score, evidence, assessable, confidence)
+    values
+      (${match.id}, 'skills', 90, '命中必备技能', true, 0.8),
+      (${match.id}, 'location', 100, '城市一致', true, 0.9),
+      (${match.id}, 'salary', 55, '薪资区间无重叠', true, 0.7)
+  `;
+  const view3 = await getLandingJobView(sql, { token, now });
+  assert.ok(view3.aiEvaluation, "approved 匹配向候选人展示 AI 匹配评价");
+  assert.equal(view3.aiEvaluation.score, 86);
+  assert.equal(view3.aiEvaluation.bandLabel, "高度匹配");
+  assert.deepEqual(
+    view3.aiEvaluation.dimensions.map((d) => d.label),
+    ["技能匹配", "城市匹配", "薪资预期"],
+    "维度按规范序展示且只含白名单标签",
+  );
+  assert.equal(view3.aiEvaluation.dimensions[0].score, 90);
+  assert.ok(
+    !JSON.stringify(view3).includes("命中必备技能"),
+    "AI 匹配评价不泄漏 LLM evidence 原文",
+  );
+  assert.ok(
+    !JSON.stringify(view3).includes("薪资区间无重叠"),
+    "AI 匹配评价不泄漏风险/证据 prose",
+  );
 
   // ⑥ 未配置 webhook → 通知诚实失败（NOTIFIER_NOT_CONFIGURED），意向仍落库
   const token2 = "valid-token-for-no-webhook";
