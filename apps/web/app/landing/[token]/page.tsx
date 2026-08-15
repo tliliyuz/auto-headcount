@@ -122,10 +122,11 @@ export default function LandingPage() {
     });
   }, []);
 
+  // 2026-08-16 放开联系方式：仅选项 A（有兴趣请联系我）必填联系方式，B/C/退订可选。
   const canSubmit = useCallback(
     () =>
       option !== null &&
-      (phone.trim() !== "" || email.trim() !== "") &&
+      (option !== "A" || phone.trim() !== "" || email.trim() !== "") &&
       !submitting,
     [option, phone, email, submitting],
   );
@@ -356,7 +357,7 @@ export default function LandingPage() {
                 inputMode="tel"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                placeholder="用于与你联系"
+                placeholder="用于与你联系（选填）"
                 autoComplete="tel"
               />
             </label>
@@ -372,6 +373,9 @@ export default function LandingPage() {
               />
             </label>
           </div>
+          {option === "A" && phone.trim() === "" && email.trim() === "" ? (
+            <p className="cta-required-hint">「有兴趣，请联系我」需要留下手机号或邮箱</p>
+          ) : null}
           {submitState === "error" ? <p className="cta-error">提交失败，请稍后再试。</p> : null}
           <button
             className="cta-submit"
@@ -486,6 +490,7 @@ const HERO_STYLES = `
   .cta-submit:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 14px 34px rgb(226 193 132 / 26%); }
   .cta-submit:disabled { background: #3a4560; color: #7b88a2; cursor: not-allowed; }
   .cta-error { margin: 16px 0 0; color: #e08a80; font-size: 13px; text-align: center; }
+  .cta-required-hint { margin: 12px 0 0; color: #e2c184; font-size: 12px; text-align: center; }
   .hero-privacy { display: block; margin-top: 16px; color: #64748f; font-size: 12px; text-align: center; }
 
   /* 屏间提示 */

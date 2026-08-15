@@ -18,6 +18,12 @@ export interface MaskedJobView {
     benchmarks: string | null;
     officeLocation: string | null;
   } | null;
+  /** AI 匹配评价（已审核匹配维度分投影；无/未审核为 null，P5，docs/03 §10）。 */
+  aiEvaluation: {
+    score: number | null;
+    bandLabel: string | null;
+    dimensions: Array<{ label: string; score: number }>;
+  } | null;
 }
 
 export interface IntentSubmitOk {

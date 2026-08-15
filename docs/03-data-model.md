@@ -242,7 +242,7 @@ erDiagram
 | 触达 | `campaigns` | `job_id, channel, status, approved_by` |
 | 触达 | `campaign_recipients` | `campaign_id, candidate_id, status, idempotency_key` |
 | 触达 | `landing_links` | `job_id, candidate_id, token_hash, expires_at, revoked_at, revoked_by, created_by, created_at`（不存明文令牌；2026-08-14 修订：活动/收件人流转未建前，按职位+候选人直接建链，替代原 `recipient_id` 草案） |
-| 触达 | `intent_responses` | `landing_link_id, option, contact_ciphertext, contact_nonce, contact_key_version, contact_phone_hmac, contact_email_hmac, consent_snapshot, notify_status, notify_error_code, created_at`（A/B/C/退订；联系方式 `{phone?,email?}` 单信封 `encryptJsonPayload` 加密；同链唯一幂等；notify 尽力投递状态） |
+| 触达 | `intent_responses` | `landing_link_id, option, contact_ciphertext, contact_nonce, contact_key_version, contact_phone_hmac, contact_email_hmac, consent_snapshot, notify_status, notify_error_code, created_at`（A/B/C/退订；联系方式 `{phone?,email?}` 单信封 `encryptJsonPayload` 加密；**2026-08-16 放开：仅选项 A 必填联系方式，B/C/退订可无联系方式提交，`contact_ciphertext/nonce/key_version` 三列可空**；同链唯一幂等；notify 尽力投递状态） |
 | 漏斗 | `funnel_events` | `event_type, job_id, candidate_id, campaign_id, occurred_at`（追加写） |
 | 漏斗 | `follow_up_tasks` | `candidate_id, job_id, owner_id, status, outcome` |
 | 推荐 | `recommendations` | `job_id, candidate_id, external_id, status`（外部幂等键） |

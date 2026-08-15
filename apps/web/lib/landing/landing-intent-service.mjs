@@ -54,6 +54,8 @@ export async function getLandingJobView(sql, { token, now }) {
 /**
  * 提交意向（ADR-006）：令牌门禁 → 同链接幂等 → 联系方式信封加密落库 →
  * notifier 适配器尽力投递（有界超时，失败不影响意向真源）→ notify 状态落库。
+ * 联系方式可选（2026-08-16 放开）：无联系方式时跳过加密、contact 列为空，仍尽力投递；
+ * 选项 A 必须留联系方式的校验在公开路由层（docs/07 §3）。
  * 返回统一结果；`landing_link_unavailable` 表示令牌不存在/过期/撤销。
  */
 export async function submitLandingIntent(
@@ -79,18 +81,22 @@ export async function submitLandingIntent(
     };
   }
 
-  const encrypted = await encryptSubmittedContact(
-    { phone, email },
-    { key: config.encryptionKey, keyVersion: config.encryptionKeyVersion },
-  );
+  // 2026-08-16 放开：选项 A 必填联系方式，B/C/退订可选 → 无联系方式时不加密，contact 列为空。
+  const hasContact = Boolean((phone ?? "").trim() || (email ?? "").trim());
+  const encrypted = hasContact
+    ? await encryptSubmittedContact(
+        { phone, email },
+        { key: config.encryptionKey, keyVersion: config.encryptionKeyVersion },
+      )
+    : null;
   const { response, deduplicated } = await createIntentResponse(sql, {
     landingLinkId: link.id,
     option,
-    ciphertext: encrypted.ciphertext,
-    nonce: encrypted.nonce,
-    keyVersion: encrypted.keyVersion,
-    phoneHmac: encrypted.phoneHmac,
-    emailHmac: encrypted.emailHmac,
+    ciphertext: encrypted?.ciphertext ?? null,
+    nonce: encrypted?.nonce ?? null,
+    keyVersion: encrypted?.keyVersion ?? null,
+    phoneHmac: encrypted?.phoneHmac ?? null,
+    emailHmac: encrypted?.emailHmac ?? null,
     consentSnapshot,
   });
 

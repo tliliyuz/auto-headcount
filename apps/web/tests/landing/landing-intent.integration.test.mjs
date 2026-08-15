@@ -228,4 +228,35 @@ test("落地页意向：令牌门禁、幂等、联系方式信封加密、通�
   `;
   assert.equal(persisted.notify_status, "failed");
   assert.equal(persisted.notify_error_code, "NOTIFIER_NOT_CONFIGURED");
+
+  // ⑦ 放开联系方式（2026-08-16）：B/退订等非 A 选项可无联系方式提交，contact 列为空，仍尽力投递
+  const token3 = "valid-token-option-b-no-contact";
+  await createLandingLink(sql, {
+    jobId: job.id,
+    candidateId: candidate.id,
+    tokenHash: hashLandingToken(token3),
+    expiresAt: new Date(now.getTime() + 86400000),
+    createdBy: null,
+  });
+  const noContact = await submitLandingIntent(sql, {
+    token: token3,
+    option: "B",
+    consentSnapshot: CONSENT,
+    config: { encryptionKey: ENC_KEY, encryptionKeyVersion: ENC_KEY_VERSION, channel: "fake" },
+    now,
+  });
+  assert.equal(noContact.ok, true);
+  assert.equal(noContact.deduplicated, false);
+  assert.equal(noContact.notifyStatus, "succeeded", "无联系方式仍尽力投递（仅意向+职位+时间）");
+  const [noContactRow] = await sql`
+    select contact_ciphertext, contact_nonce, contact_key_version,
+      contact_phone_hmac, contact_email_hmac, option
+    from intent_responses where id = ${noContact.responseId}
+  `;
+  assert.equal(noContactRow.contact_ciphertext, null, "无联系方式时联系加密列为空");
+  assert.equal(noContactRow.contact_nonce, null);
+  assert.equal(noContactRow.contact_key_version, null);
+  assert.equal(noContactRow.contact_phone_hmac, null);
+  assert.equal(noContactRow.contact_email_hmac, null);
+  assert.equal(noContactRow.option, "B");
 });

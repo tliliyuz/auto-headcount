@@ -830,10 +830,11 @@ export const intentResponses = pgTable(
       .notNull()
       .references(() => landingLinks.id, { onDelete: "restrict" }),
     option: intentOption("option").notNull(),
-    /** 联系方式信封：encryptJsonPayload({ phone?, email? })；明文不落日志/审计（docs/06 §高敏感）。 */
-    contactCiphertext: bytea("contact_ciphertext").notNull(),
-    contactNonce: bytea("contact_nonce").notNull(),
-    contactKeyVersion: text("contact_key_version").notNull(),
+    /** 联系方式信封：encryptJsonPayload({ phone?, email? })；明文不落日志/审计（docs/06 §高敏感）。
+     *  2026-08-16 放开：选项 A 必填联系方式，B/C/退订可选 → 无联系方式时三列为空。 */
+    contactCiphertext: bytea("contact_ciphertext"),
+    contactNonce: bytea("contact_nonce"),
+    contactKeyVersion: text("contact_key_version"),
     /** 规范化手机号/邮箱 HMAC，仅用于去重/抑制（docs/03 §11）。 */
     contactPhoneHmac: text("contact_phone_hmac"),
     contactEmailHmac: text("contact_email_hmac"),

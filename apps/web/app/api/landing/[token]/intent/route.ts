@@ -12,8 +12,9 @@ import { withAudit } from "../../../../../lib/server/with-audit";
 const INTENT_OPTION_SET = new Set<string>(LANDING_INTENT_OPTIONS);
 
 /**
- * 公开侧意向提交（独立身份域，令牌门禁，无会话）：A/B/C 或退订 + 联系方式（至少一个）。
- * 意向真源落库（联系方式信封加密）→ notifier 尽力投递（失败不影响意向）→ 成功/失败审计。
+ * 公开侧意向提交（独立身份域，令牌门禁，无会话）：A/B/C 或退订 + 联系方式。
+ * 联系方式规则（2026-08-16 放开）：仅选项 A（有兴趣请联系我）必填，B/C/退订可无联系方式提交。
+ * 意向真源落库（联系方式信封加密，无联系方式时列为空）→ notifier 尽力投递（失败不影响意向）→ 成功/失败审计。
  * 审计元数据白名单仅 responseId/deduplicated/notifyStatus，**不含联系方式正文**（ADR-006）。
  */
 const handler = withAudit(
@@ -55,10 +56,11 @@ const handler = withAudit(
     }
     const hasPhone = typeof phone === "string" && phone.trim() !== "";
     const hasEmail = typeof email === "string" && email.trim() !== "";
-    if (!hasPhone && !hasEmail) {
+    // 2026-08-16 放开：仅选项 A（有兴趣请联系我）必填联系方式；B/C/退订可无联系方式提交。
+    if (option === "A" && !hasPhone && !hasEmail) {
       return {
         response: jsonResponse(
-          { code: "invalid_request", message: "请至少提供一种联系方式" },
+          { code: "invalid_request", message: "选择「有兴趣，请联系我」需要留下联系方式" },
           400,
         ),
       };

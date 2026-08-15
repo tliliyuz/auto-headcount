@@ -155,7 +155,7 @@
 | 接口 | 方法 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|
 | `GET /api/landing/:token` | GET | 令牌哈希 | 无 | `200` 脱敏职位 DTO；令牌不存在/已过期/已撤销 `404 { code: "landing_link_unavailable" }` |
-| `POST /api/landing/:token/intent` | POST | 令牌哈希 | `{ option, phone?, email?, consentSnapshot? }` | `200 { responseId, option, deduplicated? }`；无效令牌 `404`；option 非法/无联系方式 `400` |
+| `POST /api/landing/:token/intent` | POST | 令牌哈希 | `{ option, phone?, email?, consentSnapshot? }` | `200 { responseId, option, deduplicated? }`；无效令牌 `404`；option 非法 `400`；**仅选项 A 无联系方式 `400`（2026-08-16 放开：B/C/退订可无联系方式提交）** |
 
 - 公开侧响应（页面/DTO）只含白名单字段：职位标题、类别、城市、薪资范围、去标识化职责摘要、意向操作；**永不包含**公司名称/简称、内部职位编号、客户联系人、招聘负责人、详细地址或原始 JD（见 [`03-data-model.md`](03-data-model.md) §10）。职责摘要由**模板 + 白名单词库**自动生成（`lib/landing/landing-summary.mjs`）：大类桶模板 + 从 JD 命中的通用能力词/行业词变量，公司/产品专名结构性无法进入；确定性纯函数，LLM 改写留作增强路径。
 - 薪资只展示上下限范围；边界缺失时安全降级文案，不推断精确薪资。

@@ -99,6 +99,13 @@
       "when": 1786799996728,
       "tag": "0013_fixed_shocker",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786817274677,
+      "tag": "0014_familiar_terrax",
+      "breakpoints": true
     }
   ]
 }

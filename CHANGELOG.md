@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 放开意向提交联系方式：A 必填，B/C/退订可选
+
+> 状态：`verified`。unit 229/229、integration 53/53（含 B 无联系方式提交 + A 无联系方式 400 路由断言）、lint/tsc 0 错误、build 通过；浏览器实测 B 无联系方式提交成功、A 无联系方式禁用+提示，dev 库 contact 列落空。
+
+- **意向提交联系方式放开**（迁移 0014）：`intent_responses.contact_ciphertext/nonce/key_version` 三列可空；选项 A（有兴趣请联系我）必填联系方式，B/C/退订可无联系方式提交——无联系方式时跳过信封加密、contact 列为空，仍尽力投递通知（仅意向+职位+时间）。路由校验改为「仅 A 无联系方式 400」；前端 canSubmit 放开非 A 选项 + 选 A 未留联系方式时提示并禁用提交。
+- 服务 `submitLandingIntent` 空联系方式处理（`hasContact` 守卫，`createIntentResponse` 传 null）；补 `landing-intent-service.d.mts` 的 `aiEvaluation` 字段（上一轮遗留）。
+- 测试：integration B 无联系方式提交（contact 列空 + 通知尽力投递）；http-read 路由断言 A 无联系方式 400、B 无联系方式不被联系方式规则拒绝。
+- 文档：docs/01 §1.5、03 §8、07 §3、09 §3.3、FRONTEND、CHANGELOG。
+
 ### 2026-08-16 — M3 阶段一真实候选人输入桥：raw_records 工作经历 → 脱敏 career_history
 
 > 状态：`verified`。单测 229/229、集成 53/53、build/tsc/lint/schemas 0 错误；真实 dev 库垂直切片：40 名真实候选人的加密工作经历全部组装为脱敏 career_history 并产出消费态候选投影（`candidate_match_projections` 0 → 40）、`piiRejected` 0；对 2 个真实可操作沉睡职位跑阶段一投影+硬过滤，`job_requirements` 为空导致 80/80 `REQUIRED_FIELD_MISSING` fail-closed（M3 职位侧数据缺口，见下）。修复了此前调度路径 `match_projection_filter` 不传脱敏详情、所有真实候选人被当「无详情来源」跳过的断点。

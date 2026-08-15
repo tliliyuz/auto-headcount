@@ -147,6 +147,35 @@ test(
     assert.equal(intentBadBody.status, 400, "意向坏请求体应 400");
     assert.equal((await intentBadBody.json()).code, "invalid_request");
 
+    // 意向联系方式规则（2026-08-16 放开）：选项 A 必须留联系方式；B/C/退订可选
+    const intentANoContact = await worker.fetch(
+      new Request(`${base}/api/landing/sometoken/intent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: base },
+        body: JSON.stringify({ option: "A" }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(intentANoContact.status, 400, "选项 A 无联系方式应 400");
+    assert.equal((await intentANoContact.json()).code, "invalid_request");
+
+    const intentBNoContact = await worker.fetch(
+      new Request(`${base}/api/landing/sometoken/intent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: base },
+        body: JSON.stringify({ option: "B" }),
+      }),
+      env,
+      ctx,
+    );
+    assert.notEqual(intentBNoContact.status, 400, "选项 B 无联系方式不被联系方式规则拒绝");
+    assert.notEqual(
+      (await intentBNoContact.json()).code,
+      "invalid_request",
+      "选项 B 无联系方式不返回 invalid_request",
+    );
+
     // 2) 空/畸形会话 Cookie → 401（parseSessionToken 拒绝，同样不触 DB）
     for (const cookie of ["session_token=", "session_token", "foo=bar"]) {
       const res = await worker.fetch(

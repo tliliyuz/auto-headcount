@@ -94,7 +94,7 @@
 
 ### 公开落地页（M4 切片，2026-08-15；多屏叙事 2026-08-16）
 
-- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染 **6 屏整屏 hero 叙事流**：开场（候选人个性化称呼 + 标题「正在寻找 X方向 的人才」 + 岗位大类/城市/招聘中 tags）→ 薪酬（月薪 k 大号展示）→ 关于雇主（公司档案隐性信息，缺失时安全占位）→ 岗位内容（白名单职责摘要）→ AI 匹配分析（已审核匹配维度分，缺失/未审核时安全占位）→ 意向填写（A/B/C/退订 + 手机号/邮箱表单）。右侧进度导航高亮当前屏（IntersectionObserver + 实时布局判定，不依赖 scroll 事件）。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
+- 路由 `app/landing/[token]/page.tsx`（客户端组件）：从 URL 解析令牌 → `GET /api/landing/:token` 取脱敏职位 DTO → 渲染 **6 屏整屏 hero 叙事流**：开场（候选人个性化称呼 + 标题「正在寻找 X方向 的人才」 + 岗位大类/城市/招聘中 tags）→ 薪酬（月薪 k 大号展示）→ 关于雇主（公司档案隐性信息，缺失时安全占位）→ 岗位内容（白名单职责摘要）→ AI 匹配分析（已审核匹配维度分，缺失/未审核时安全占位）→ 意向填写（A/B/C/退订 + 手机号/邮箱表单；**2026-08-16 放开联系方式：仅选项 A 必填，B/C/退订可选，选 A 未留联系方式时提示并禁用提交**）。右侧进度导航高亮当前屏（IntersectionObserver + 实时布局判定，不依赖 scroll 事件）。失效令牌显示「链接不可用」；提交后显示成功态（重复提交显示「你已经提交过意向，无需重复提交」）。
 - 公开 API 走独立身份域（无会话，令牌即能力凭证）：`POST /api/landing/:token/intent` 提交后意向落库（联系方式信封加密），notifier 尽力投递（飞书/假/未配置），提交与通知结果写审计。脱敏边界见 [ADR-006](../../../docs/decisions/ADR-006-landing-intent-notifier.md)。
 - AI 匹配评价数据路径：`GET /api/landing/:token` 的 DTO 含 `aiEvaluation`，由 `landing-intent-service.getLandingJobView` 经 `findApprovedMatchForJobCandidate`（`matches.status='approved'`）+ `toAiEvaluation`（白名单维度标签，`lib/landing/landing-mask.mjs`）投影；evidence/风险原文不进入 DTO。薪资 k 展示见 `formatMonthlySalaryK`（脏值降级「薪资面议」）。
 - 运营侧建链端点为 `POST /api/landing-links`（会话 + RBAC `operations|admin`，返回含明文令牌的 URL，仅此一次）；管理端建链 UI 属后续接线（当前可经 API/脚本触发）。
