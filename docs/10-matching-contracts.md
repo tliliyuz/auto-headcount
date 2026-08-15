@@ -51,6 +51,8 @@
 
 城市、工作年限、教育层级、技能、证书、行业、职级、薪资期望和职业经历可保留，但职业经历中不得保留可直接识别个人的项目、客户或联系信息。公司名默认泛化为行业/规模；仅当公司名是已确认的必要匹配证据且模型区域/数据条款允许时，才能通过新契约版本放行；`v1` 不放行。
 
+> **实现状态（2026-08-16）**：真实候选人输入桥已接线——`lib/jobs/candidate-redaction-loader.mjs` 解密采集的 `raw_records`（`entity_type='candidate'`）载荷，把 `workExperiences[{company,title}]` 组装成脱敏 `career_history`。因采集侧 `industry` 恒 null，公司名 v1 泛化为字面「某公司」（完全替换，真实公司名永不进入 career_history）；`project_highlights` 无数据源恒 `[]`。`match_projection_filter` 调度路径注入该 Map 后产出真实 (job, candidate) 匹配池（真实库 40 候选人全部产出消费态候选投影、0 PII 拒绝）。`detailed_address` 正则已修正（2026-08-16）：原 `(?:省|市|区|路|号|栋|单元|层)\s*[\dA-Za-z-]*` 的 `*` 允许零字符跟随，真实城市名「北京市」与常见 title「市场经理」「区域经理」被字符级误判为详细地址（38/40 误拒）；改 `+` 后仅关键字后跟 ASCII 数字/字母（真实街道/楼栋地址如「解放路5号」）才触发，真实街道级地址仍 fail-closed 拒绝（计 `piiRejected`，不进 LLM）。
+
 ### 4.2 摘要不是真源
 
 `display_summary` 是版本化投影的一部分，不再直接相信供应方 `candidate_summary`。现有 `candidates.summary` 只作迁移期缓存/兼容字段，新匹配必须引用 `candidate_match_projections.projection_id`。

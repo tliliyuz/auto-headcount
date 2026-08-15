@@ -36,7 +36,7 @@ const PII_PATTERNS = [
   { category: "phone", pattern: /(?:^|[^0-9])(1[3-9]\d{9})(?:[^0-9]|$)/ },
   { category: "email", pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/ },
   { category: "id_number", pattern: /\b\d{17}[\dXx]\b/ },
-  { category: "detailed_address", pattern: /(?:省|市|区|路|号|栋|单元|层)\s*[\dA-Za-z-]*/ },
+  { category: "detailed_address", pattern: /(?:省|市|区|路|号|栋|单元|层)\s*[\dA-Za-z-]+/ },
 ];
 
 /**

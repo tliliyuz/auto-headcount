@@ -16,6 +16,7 @@ import {
   MATCH_PIPELINE_TASK_KIND,
   runAutomaticMatchPipeline,
 } from "./automatic-match-pipeline.mjs";
+import { loadCandidateRedactedDetails } from "./candidate-redaction-loader.mjs";
 import {
   DEFAULT_GENERATOR_VERSION,
   PROJECTION_FILTER_SYNC_TYPE,
@@ -281,7 +282,8 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
     }
     if (task.kind === PROJECTION_FILTER_SYNC_TYPE) {
       // 阶段一：投影生成 + 硬过滤。增量选择需（重新）投影的可操作沉睡职位；
-      // 候选人为 0 时只产出职位投影（filter 结果 0），任务正常 succeeded。
+      // 从本地采集候选人组装脱敏 career_history（公司名泛化）作为匹配输入；
+      // 候选人为 0 / 无详情来源时只产出职位投影（filter 结果 0），任务正常 succeeded。
       const encryption = {
         key: env.APP_ENCRYPTION_KEY,
         keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
@@ -295,6 +297,9 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
         };
       }
       const jobIds = await selectJobsNeedingProjection(sql, DEFAULT_GENERATOR_VERSION);
+      const candidateRedactedDetails = await loadCandidateRedactedDetails(sql, {
+        encryption,
+      });
       return runProjectionFilterSync({
         sql,
         source: {
@@ -307,6 +312,7 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
         },
         jobIds,
         generatorVersion: DEFAULT_GENERATOR_VERSION,
+        candidateRedactedDetails,
         encryption,
         now: () => now,
       });

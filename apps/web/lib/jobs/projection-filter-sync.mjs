@@ -267,6 +267,8 @@ async function loadCandidatePool(sql) {
       c.id as "id",
       c.external_id as "externalId",
       c.display_name as "displayName",
+      p.current_title as "currentTitle",
+      p.current_company as "currentCompany",
       p.skills,
       p.experience_years as "experienceYears",
       p.location,
