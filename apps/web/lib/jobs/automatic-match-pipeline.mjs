@@ -62,9 +62,12 @@ export async function runAutomaticMatchPipeline({
         nonce: item.redactedDetailNonce,
         keyVersion: item.keyVersion,
       }, { key: encryption.key });
+      // 同 JD 多城市职位合并为代表：把代表投影的 locations 覆盖为组内城市并集
+      // （城市已非硬门槛，跨城市候选人由 location 评分维度评估；requestHash 覆盖后计算如实记录实际发送内容）。
+      const jobProjection = withMergedLocations(item.jobRequirements, item.groupCities);
       const request = {
         requestItemId: `item_${item.combinedInputHash.slice(0, 24)}`,
-        jobProjection: item.jobRequirements,
+        jobProjection,
         candidateProjection: { profile: item.candidateProfile, redactedDetail },
       };
       const requestHash = await hashCanonical(request);
@@ -138,19 +141,55 @@ export function selectBudgetedCandidates(items, { maxCandidatesPerJob, globalBud
 
 async function loadPendingCandidates(sql, metadata, maxAttempts) {
   const rows = await sql`
-    select fr.id as "filterResultId", fr.filter_rule_version as "filterRuleVersion",
-      fr.combined_input_hash as "combinedInputHash",
-      jp.id as "jobProjectionId", jp.job_id as "jobId", jp.requirements as "jobRequirements",
-      cp.id as "candidateProjectionId", cp.candidate_id as "candidateId", cp.profile as "candidateProfile",
-      cp.redacted_detail_ciphertext as "redactedDetailCiphertext",
-      cp.redacted_detail_nonce as "redactedDetailNonce", cp.key_version as "keyVersion"
-    from match_filter_results fr
-    join job_match_projections jp on jp.id = fr.job_projection_id
-    join candidate_match_projections cp on cp.id = fr.candidate_projection_id
-    where fr.passed = true and jp.status = 'consumable' and cp.status = 'consumable'
+    with job_group as (
+      select j.id as "jobId", j.city as "city",
+        case
+          when j.job_description is null or btrim(j.job_description) = '' then null
+          else encode(sha256(convert_to(btrim(j.job_description), 'UTF8')), 'hex')
+        end as "jdHash"
+      from jobs j
+      where j.status = 'active'
+    ),
+    eligible as (
+      select fr.id as "filterResultId", fr.filter_rule_version as "filterRuleVersion",
+        fr.combined_input_hash as "combinedInputHash",
+        jp.id as "jobProjectionId", jp.job_id as "jobId", jp.requirements as "jobRequirements",
+        cp.id as "candidateProjectionId", cp.candidate_id as "candidateId", cp.profile as "candidateProfile",
+        cp.redacted_detail_ciphertext as "redactedDetailCiphertext",
+        cp.redacted_detail_nonce as "redactedDetailNonce", cp.key_version as "keyVersion",
+        jg."jdHash" as "jdHash"
+      from match_filter_results fr
+      join job_match_projections jp on jp.id = fr.job_projection_id
+      join candidate_match_projections cp on cp.id = fr.candidate_projection_id
+      join job_group jg on jg."jobId" = jp.job_id
+      where fr.passed = true and jp.status = 'consumable' and cp.status = 'consumable'
+    ),
+    representative as (
+      select eligible.*,
+        row_number() over (
+          partition by coalesce("jdHash", 'job:' || "jobId"), "candidateProjectionId"
+          order by "jobId"
+        ) as "rn"
+      from eligible
+    )
+    select r."filterResultId", r."filterRuleVersion", r."combinedInputHash",
+      r."jobProjectionId", r."jobId", r."jobRequirements",
+      r."candidateProjectionId", r."candidateId", r."candidateProfile",
+      r."redactedDetailCiphertext", r."redactedDetailNonce", r."keyVersion",
+      r."jdHash",
+      (
+        select coalesce(
+          array_agg(distinct g2."city" order by g2."city") filter (where g2."city" <> ''),
+          '{}'::text[]
+        )
+        from job_group g2
+        where g2."jdHash" = r."jdHash"
+      ) as "groupCities"
+    from representative r
+    where r."rn" = 1
       and not exists (
         select 1 from llm_score_runs run
-        where run.filter_result_id = fr.id and run.status = 'succeeded'
+        where run.filter_result_id = r."filterResultId" and run.status = 'succeeded'
           and run.adapter_id = ${metadata.adapterId}
           and run.adapter_version = ${metadata.adapterVersion}
           and run.model_id = ${metadata.modelId}
@@ -161,7 +200,7 @@ async function loadPendingCandidates(sql, metadata, maxAttempts) {
       )
       and not exists (
         select 1 from llm_score_runs terminal
-        where terminal.filter_result_id = fr.id and terminal.status = 'failed'
+        where terminal.filter_result_id = r."filterResultId" and terminal.status = 'failed'
           and terminal.adapter_id = ${metadata.adapterId}
           and terminal.adapter_version = ${metadata.adapterVersion}
           and terminal.model_id = ${metadata.modelId}
@@ -173,7 +212,7 @@ async function loadPendingCandidates(sql, metadata, maxAttempts) {
       )
       and (
         select count(*) from llm_score_runs retry
-        where retry.filter_result_id = fr.id
+        where retry.filter_result_id = r."filterResultId"
           and retry.adapter_id = ${metadata.adapterId}
           and retry.adapter_version = ${metadata.adapterVersion}
           and retry.model_id = ${metadata.modelId}
@@ -192,15 +231,43 @@ async function loadPendingCandidates(sql, metadata, maxAttempts) {
         and schema_version = ${metadata.schemaVersion}
         and parameters ->> 'aggregationRuleVersion' = ${AGGREGATION_RULE_VERSION}
     `;
-    return { ...item, attempt: attemptRow.attempt, preRank: preRank(item.jobRequirements, item.candidateProfile) };
+    return {
+      ...item,
+      attempt: attemptRow.attempt,
+      preRank: preRank(item.jobRequirements, item.candidateProfile, item.groupCities),
+    };
   }));
 }
 
-function preRank(job, candidate) {
+/**
+ * 同 JD 职位城市并集覆盖：groupCities 非空时克隆 jobRequirements 并把
+ * `hard_requirements.locations` 覆盖为组内城市并集（代表职位吸收全组城市，
+ * 跨城市候选人由 location 评分维度评估）；空/undefined 返回原对象不覆盖。
+ */
+export function withMergedLocations(jobRequirements, groupCities) {
+  if (!Array.isArray(groupCities) || groupCities.length === 0) return jobRequirements;
+  return {
+    ...jobRequirements,
+    hard_requirements: {
+      ...(jobRequirements?.hard_requirements ?? {}),
+      locations: groupCities,
+    },
+  };
+}
+
+/**
+ * 稳定预排序：技能命中 + 城市命中。城市命中优先用组内城市并集（groupCities），
+ * 空则回退 job.locations（保持无去重时的原行为）。
+ */
+export function preRank(job, candidate, groupCities) {
   const required = job?.hard_requirements?.required_skills ?? [];
   const skills = (candidate?.skills ?? []).map((value) => String(value).toLowerCase());
   const skillHits = required.filter((value) => skills.includes(String(value).toLowerCase())).length;
-  const cityHit = (job?.hard_requirements?.locations ?? []).includes(candidate?.city) ? 1 : 0;
+  const locations =
+    Array.isArray(groupCities) && groupCities.length > 0
+      ? groupCities
+      : (job?.hard_requirements?.locations ?? []);
+  const cityHit = locations.includes(candidate?.city) ? 1 : 0;
   return skillHits * 10 + cityHit;
 }
 

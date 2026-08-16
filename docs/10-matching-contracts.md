@@ -122,6 +122,9 @@ LLM 适配器的持久化调用包络至少包含：
 
 失败时 `matches.score`/`band` 不写入新权威值，不回退为供应商分数，不自动触达。旧的已审核匹配不被新失败运行覆盖。
 
+> **同 JD 多城市职位去重（2026-08-16，「合并为代表」）**：阶段二 `loadPendingCandidates` 按 `sha256(btrim(job_description))`（查询时计算，PG17 内置，**无 schema 改动**）把同 JD 的城市变体合并——每 (JD组, 候选人) 选**组内最小 job_id** 为代表（每候选人各自最小，避免只过非最小变体硬过滤的候选人被整丢）；代表职位的 `hard_requirements.locations` 覆盖为**组内城市并集**（配合城市非硬门槛 v3，跨城市候选人由 `location` 评分维度评估）；只产出一条 match（挂代表职位），**变体不单独出 match**。`preRank` 的 cityHit 用城市并集。空 JD 判 null 不分组（各自独立评分）。代表选举先于幂等过滤（防止重跑落到变体 job 造成跨 job 重复 match）。真实复验：17 城「知识图谱/Text2SQL」374 个过滤通过 → 去重后 22 pending → Top-K(10) 内 scored 10，LLM 调用从「每变体一次」收敛为「每组一次」。
+> **已知取舍**：同组薪资差异以代表职位为准（硬过滤 salary 维度 + LLM salary 维度用代表薪资）；去重前的历史变体 matches 保留在库（随审核/拒绝老化）。
+
 ## 7. 本地汇总与可复核性
 
 - 汇总器只消费通过 Schema 校验并持久化的 LLM 输出；使用 `aggregation_rule_version` 中的固定权重、缺失维度处理和阈值。

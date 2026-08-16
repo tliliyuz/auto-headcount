@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 职位去重：同 JD 多城市合并为代表——LLM 调用从每变体收敛为每组一次
+
+> 状态：`verified`。单测 270/270、集成 59/59（含 projection-filter 新增去重断言）、build/tsc/lint/schemas 全绿。真实复验：「知识图谱/Text2SQL」17 城同 JD 组 374 个过滤通过 → 去重后 22 pending → Top-K(10) 内 scored 10、matches 全落代表职位；对比去重前 17 变体各自 Top-K 上限 170 次 LLM 调用。同 JD 多城市职位（猎必得批量挂岗）不再每个城市变体各调一次评分。
+
+- **阶段二 `loadPendingCandidates` 去重（`automatic-match-pipeline.mjs`）**：按 `sha256(btrim(job_description))`（查询时计算，PG17 内置，无 schema 改动）把同 JD 城市变体合并——每 (JD组, 候选人) 选组内最小 job_id 为代表（每候选人各自最小，避免只过非最小变体硬过滤的候选人被整丢）；空 JD 判 null 不分组（各自独立评分）；代表选举**先于**幂等过滤（防重跑落到变体 job 造成跨 job 重复 match）。
+- **代表职位城市并集**：`withMergedLocations` 把代表投影 `hard_requirements.locations` 覆盖为组内城市并集（配合城市非硬门槛 v3，跨城市候选人由 `location` 评分维度评估）；`preRank` 的 cityHit 用城市并集。requestHash 覆盖后计算（如实记录实际发送内容）；幂等键（filter_result/adapter/model/prompt/schema 版本 + match (job_id,candidate_id,rule_version)）不含 locations，不受影响。
+- **变体语义（用户定）**：同 JD 城市变体按一个逻辑职位处理，只产出一条 match（挂代表职位），变体不单独出 match；`selectBudgetedCandidates` 在去重后的代表项上作用（Top-K/预算每组算一次）。
+- 测试：`automatic-match-pipeline-dedup.unit.test.mjs`（preRank 城市并集/withMergedLocations 覆盖与不覆盖）；projection-filter 集成补「同 JD 两变体 → 1 次 LLM、代表出 match、locations 并集、幂等重跑不新增跨 job match」（RED→GREEN）。
+- 文档：`docs/10` §6 同 JD 去重语义 + 真实复验数字（已知取舍：同组薪资以代表为准、去重前历史变体 matches 保留在库随审核老化）。
+
 ### 2026-08-16 — 落地页岗位大类 tag 修复：类别取运营粗桶（空 category 标题推断）
 
 > 状态：`verified`。unit 266/266、integration 58/58、lint/tsc 0 错误、build 通过；真实数据链接（real-kg-chenyi）三 tag 齐全「数据智能 / ⌖ 杭州市 / 招聘中」。

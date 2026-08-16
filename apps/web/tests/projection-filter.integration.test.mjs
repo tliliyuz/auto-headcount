@@ -6,6 +6,7 @@ import postgres from "postgres";
 
 import { runProjectionFilterSync } from "../lib/jobs/projection-filter-sync.mjs";
 import { runAutomaticMatchPipeline } from "../lib/jobs/automatic-match-pipeline.mjs";
+import { createFakeDetailScoringAdapter } from "../lib/matching/fake-detail-scoring-adapter.mjs";
 import {
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -393,6 +394,138 @@ test(
         90,
         "新投影反映最新源内容（薪资上界 90）",
       );
+    } finally {
+      await cleanup(sql, { sourceId, candidateIds, jobIds });
+    }
+  },
+);
+
+test(
+  "职位去重：同 JD 多城市合并为代表——1 次 LLM、代表出 match、locations 城市并集、幂等",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = {
+      provider: `fixture-pf-dedup-${marker}`,
+      environment: "test",
+      displayName: "Fixture Projection Filter Dedup",
+    };
+    let sourceId;
+    const candidateIds = [];
+    const jobIds = [];
+    const JD_TEXT = "岗位职责：负责大模型应用与数据智能系统开发。任职要求：熟悉 Node.js 与 PostgreSQL。";
+    const REQUIREMENTS = {
+      skills: ["Node.js", "PostgreSQL"],
+      seniority: "高级",
+      education: "本科",
+      salaryMin: 30,
+      salaryMax: 60,
+      minExperienceYears: 5,
+    };
+
+    async function seedJobWithJd(externalId, city) {
+      const runId = await startSyncRun(sql, sourceId, "under_served_jobs");
+      const { jobId } = await persistUnderServedJob(sql, {
+        sourceId,
+        syncRunId: runId,
+        rawPayload: { job_id: externalId },
+        job: { ...fixtureJob(externalId, 9), city },
+        encryption,
+        operabilityStatus: "actionable",
+      });
+      await sql`update jobs set job_description = ${JD_TEXT} where id = ${jobId}`;
+      await sql`
+        insert into job_requirements (job_id, skills, seniority, education, salary_min, salary_max, constraints)
+        values (${jobId}, ${sql.json(REQUIREMENTS.skills)}, ${REQUIREMENTS.seniority},
+                ${REQUIREMENTS.education}, ${REQUIREMENTS.salaryMin}, ${REQUIREMENTS.salaryMax},
+                ${sql.json({ min_experience_years: REQUIREMENTS.minExperienceYears })}) on conflict (job_id) do nothing
+      `;
+      await finishSyncRun(sql, runId, { processed: 1, persisted: 1 });
+      return jobId;
+    }
+
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      jobIds.push(await seedJobWithJd(`dedup-j1-${marker}`, "上海"));
+      jobIds.push(await seedJobWithJd(`dedup-j2-${marker}`, "广州"));
+
+      const candidateId = await seedCandidate(sql, {
+        sourceConnectionId: sourceId,
+        externalId: `dedup-c1-${marker}`,
+        displayName: "张**",
+        profile: {
+          skills: ["Node.js", "PostgreSQL", "React"],
+          experienceYears: 7,
+          location: "广州",
+          education: "硕士",
+          seniority: "高级",
+          industry: "互联网",
+          expectedSalaryMin: 35,
+          expectedSalaryMax: 55,
+          activityUpdatedAt: new Date(Date.now() - 10 * 86400000),
+          summary: "示例公司-高级工程师",
+        },
+      });
+      candidateIds.push(candidateId);
+      const redactedDetails = new Map([
+        [candidateId, { career_history: ["某互联网公司后端开发（公司名已泛化）"], project_highlights: [] }],
+      ]);
+
+      const phase1 = await runProjectionFilterSync({
+        sql,
+        source,
+        jobIds,
+        candidateRedactedDetails: redactedDetails,
+        encryption,
+      });
+      assert.equal(phase1.status, "succeeded");
+      assert.equal(phase1.stats.filterPassed, 2, "v3 城市不硬门槛 → 两个城市变体都通过硬过滤");
+
+      const base = createFakeDetailScoringAdapter();
+      const seen = [];
+      const cap = {
+        metadata: base.metadata,
+        async score(input) {
+          seen.push(input);
+          return base.score(input);
+        },
+      };
+      const env = { APP_ENV: "test", APP_ENCRYPTION_KEY: encryption.key, APP_ENCRYPTION_KEY_VERSION: encryption.keyVersion };
+      const outcome = await runAutomaticMatchPipeline({ sql, env, adapter: cap });
+      assert.equal(outcome.status, "succeeded");
+
+      assert.equal(seen.length, 1, "同 JD 两个变体只应调 1 次 LLM");
+      assert.deepEqual(
+        [...seen[0].jobProjection.hard_requirements.locations].sort(),
+        ["广州", "上海"].sort(),
+        "代表职位 locations 应为组内城市并集（顺序无关）",
+      );
+
+      const matchCounts = await sql`
+        select job_id, count(*)::int as n from matches
+        where job_id = any(${jobIds}) group by job_id
+      `;
+      assert.equal(matchCounts.length, 1, "只有代表职位出 match");
+      assert.equal(matchCounts[0].n, 1);
+
+      const [runs] = await sql`
+        select count(*)::int as n from llm_score_runs
+        where filter_result_id in (
+          select fr.id from match_filter_results fr
+          join job_match_projections jp on jp.id = fr.job_projection_id
+          where jp.job_id = any(${jobIds})
+        )
+      `;
+      assert.equal(runs.n, 1, "只对代表 filter_result 落 1 条 run");
+
+      // 幂等重跑：scored=0，组内 match 总数仍 1（防代表先成功→下一轮落到变体的 fall-through）
+      const again = await runAutomaticMatchPipeline({ sql, env, adapter: cap });
+      assert.equal(again.stats.scored, 0);
+      const [matchTotal] = await sql`
+        select count(*)::int as n from matches where job_id = any(${jobIds})
+      `;
+      assert.equal(matchTotal.n, 1, "幂等重跑不新增跨 job match");
     } finally {
       await cleanup(sql, { sourceId, candidateIds, jobIds });
     }
