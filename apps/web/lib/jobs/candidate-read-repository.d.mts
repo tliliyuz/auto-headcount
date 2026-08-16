@@ -37,6 +37,7 @@ export function listCandidates(
 ): Promise<PageResult<CandidateRow>>;
 
 export type CandidateDetailRow = CandidateRow & {
+  skills: string[];
   workExperiences: Array<{
     company: string | null;
     title: string | null;

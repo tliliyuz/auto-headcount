@@ -8,7 +8,8 @@
  * 候选人都被 `runProjectionFilterSync` 计为 piiRejected 跳过。
  *
  * 脱敏语义（docs/10 §4.1）：
- * - 公司名**完全替换**为固定占位「某公司」（采集侧 industry 恒 null，无法泛化为行业/规模）；
+ * - 公司名**完全替换**为固定占位「某公司」（采集侧 `company` 保留真实公司，仅投影层泛化；
+ *   `industry` 取详情页职业方向 title-text，不包含公司名，避免经投影泄漏给匹配 LLM）；
  * - 保留职位名 title（非直接身份标识）；
  * - `project_highlights` 恒 `[]`（无数据源，顺延 ingestion ticket 阶段）；
  * - 候选投影生成器还会再做一次确定性残留 PII 扫描（`scanResidualPii`），

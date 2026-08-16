@@ -328,6 +328,7 @@ const CANDIDATE_RECORD_KEYS = new Set([
   "candidateId", "realName", "title", "company", "yearOfExperience", "cityName",
   "school", "major", "degree", "completion", "recommendationCount",
   "workExperiences", "projects", "education",
+  "skills", "industry",
 ]);
 const WORK_EXPERIENCE_KEYS = new Set(["company", "title", "city", "period", "duration", "description"]);
 const PROJECT_KEYS = new Set(["name", "description"]);
@@ -442,6 +443,13 @@ export function parseCandidateDetailExtractionResult(input) {
       duration: requireString(entry.duration, `result.record.education[${index}].duration`, true),
     };
   }) : [];
+  // 匹配输入：skills（技能标签数组）+ industry（行业）。缺失降级为空/ null，
+  // 匹配引擎对空技能/行业按中性分处理（见 lib/matching/score.mjs）。
+  const skills = Array.isArray(record.skills) ? record.skills.map((entry, index) =>
+    requireString(entry, `result.record.skills[${index}]`),
+  ) : [];
+  // industry 为新增可选字段：旧版扩展不回传（undefined）视为 null，新版传 string/null 则校验。
+  const industry = record.industry == null ? null : requireString(record.industry, "result.record.industry");
   const contentHash = requireString(input.contentHash, "result.contentHash");
   if (!/^[a-f0-9]{64}$/.test(contentHash)) throw invalid("result.contentHash must be lowercase sha256 hex");
   return {
@@ -461,6 +469,8 @@ export function parseCandidateDetailExtractionResult(input) {
     workExperiences,
     projects,
     education,
+    skills,
+    industry,
   };
 }
 

@@ -40,5 +40,8 @@ export function mapCandidateRecordToEntities(
   record: Record<string, unknown>,
 ): { candidate: Record<string, unknown>; profile: Record<string, unknown> };
 
+/** 简历正文技能推断（启发式）：返回去重后的词表命中项。 */
+export function inferSkillsFromResume(record: Record<string, unknown>): string[];
+
 export function runBrowserCandidateCollection(options: Record<string, unknown>): Promise<Record<string, unknown>>;
 export function runBrowserCandidateBatchDiscovery(options: Record<string, unknown>): Promise<Record<string, unknown>>;

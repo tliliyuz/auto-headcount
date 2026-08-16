@@ -177,4 +177,4 @@
 
 | `/api/candidates/:id` | GET | 会话 + `operations\|admin` | 无 | `200` 候选人详情（画像字段 + 工作经历）；非 UUID `400`；查无 `404 { code: "candidate_not_found" }` |
 
-- 详情端点把 `GET /api/candidates` 的画像字段 + 从 raw_records 加密载荷解密的工作经历一并返回（`workExperiences: [{ company, title }]`）；加密 key 由服务端 env 注入，解密失败静默回落空列表不阻塞画像展示。
+- 详情端点把 `GET /api/candidates` 的画像字段（含 `skills` 数组、`industry` 职业方向）+ 从 raw_records 加密载荷解密的工作经历一并返回（`workExperiences: [{ company, title, city, period, duration, description }]`、`projects`、`educationHistory`）；加密 key 由服务端 env 注入，解密失败静默回落空列表不阻塞画像展示。`skills` 为简历正文启发式推断（详情页无技能标签），`industry` 取详情页职业标签（不含公司名）。

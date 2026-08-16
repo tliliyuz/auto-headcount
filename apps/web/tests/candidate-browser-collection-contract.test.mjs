@@ -86,6 +86,8 @@ function validCandidateDetailResult(overrides = {}) {
       education: [
         { school: "虚构大学", major: "计算机", degree: "硕士", period: "2012.09-2015.04", duration: "（2年7个月）" },
       ],
+      skills: ["Python", "Spark", "数据平台建设"],
+      industry: "互联网技术",
     },
     contentHash: "d".repeat(64),
     ...overrides,
@@ -225,6 +227,8 @@ test("解析候选人详情回执：白名单画像、真实姓名保留、联�
   ]);
   assert.deepEqual(parsed.projects, [{ name: "基础组件容器化", description: "kafka/haproxy 容器化\n方案设计与实施" }]);
   assert.deepEqual(parsed.education, [{ school: "虚构大学", major: "计算机", degree: "硕士", period: "2012.09-2015.04", duration: "（2年7个月）" }]);
+  assert.deepEqual(parsed.skills, ["Python", "Spark", "数据平台建设"]);
+  assert.equal(parsed.industry, "互联网技术");
 
   // 联系方式 / 简历正文必须失败关闭（不进 candidates，也不进 LLM 投影）
   const forbiddenKeys = ["mobile", "email", "wechat", "content", "selfEvaluation", "projectExperiences"];
@@ -254,4 +258,14 @@ test("解析候选人详情回执：白名单画像、真实姓名保留、联�
     () => parseCandidateDetailExtractionResult(validCandidateDetailResult({ contractVersion: 2 })),
     BrowserCollectionContractError,
   );
+});
+
+test("解析候选人详情回执：旧版扩展未回传 skills/industry 时降级为空数组/null（不 fail-closed）", () => {
+  const { record: oldRecord, ...rest } = validCandidateDetailResult();
+  const legacyRecord = { ...oldRecord };
+  delete legacyRecord.skills;
+  delete legacyRecord.industry;
+  const parsed = parseCandidateDetailExtractionResult({ ...rest, record: legacyRecord });
+  assert.deepEqual(parsed.skills, []);
+  assert.equal(parsed.industry, null);
 });

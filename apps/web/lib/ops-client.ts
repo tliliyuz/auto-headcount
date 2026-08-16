@@ -216,6 +216,7 @@ export function fetchCandidates(input?: {
 
 /** 候选人详情 = 列表画像字段 + 完整简历（从 raw_records 加密载荷解密，内部运营可见）。契约见 docs/09 §3.4。 */
 export type CandidateDetailView = CandidateView & {
+  skills: string[];
   workExperiences: Array<{
     company: string | null;
     title: string | null;

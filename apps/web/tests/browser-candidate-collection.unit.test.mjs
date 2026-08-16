@@ -269,3 +269,25 @@ test("候选人详情回执 → 实体映射：真实姓名进 candidate、近�
   assert.equal("mobile" in candidate, false);
   assert.equal("content" in profile, false);
 });
+
+test("候选人详情回执 → skills 简历正文推断：工作/项目描述匹配技术栈关键词，industry 透传", () => {
+  const record = detailRecord({
+    industry: "腾讯PM",
+    workExperiences: [
+      { company: "虚构科技", title: "数据工程师", description: "负责数据仓库与大数据平台建设，使用 Spark 和 Kafka 做实时计算，Java 开发" },
+    ],
+    projects: [
+      { name: "推荐系统优化", description: "基于 Flink 和 Elasticsearch 的实时推荐，MySQL 存储，机器学习排序" },
+    ],
+  });
+  const { profile } = mapCandidateRecordToEntities(record);
+  for (const skill of ["Java", "Spark", "Kafka", "Flink", "Elasticsearch", "MySQL", "数据仓库", "大数据", "机器学习"]) {
+    assert.ok(profile.skills.includes(skill), `推断 skills 应包含 ${skill}`);
+  }
+  assert.equal(profile.industry, "腾讯PM");
+});
+
+test("候选人详情回执 → skills 推断：简历无命中时为空数组", () => {
+  const { profile } = mapCandidateRecordToEntities(detailRecord());
+  assert.deepEqual(profile.skills, []);
+});

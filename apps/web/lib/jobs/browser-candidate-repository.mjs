@@ -231,10 +231,10 @@ export function createBrowserCandidateCollectionRepository(sql, { encryption }) 
         `;
         await tx`
           insert into candidate_profiles (
-            candidate_id, experience_years, location, education, school, major, seniority, industry,
+            candidate_id, skills, experience_years, location, education, school, major, seniority, industry,
             current_title, current_company, activity_updated_at
           ) values (
-            ${savedCandidate.id}, ${profile.experienceYears ?? null}, ${profile.location ?? null},
+            ${savedCandidate.id}, ${tx.json(profile.skills ?? [])}, ${profile.experienceYears ?? null}, ${profile.location ?? null},
             ${profile.education ?? null}, ${profile.school ?? null}, ${profile.major ?? null},
             ${profile.seniority ?? null}, ${profile.industry ?? null},
             ${profile.currentTitle ?? null}, ${profile.currentCompany ?? null},
@@ -242,6 +242,7 @@ export function createBrowserCandidateCollectionRepository(sql, { encryption }) 
           )
           on conflict (candidate_id)
           do update set
+            skills = excluded.skills,
             experience_years = excluded.experience_years,
             location = excluded.location,
             education = excluded.education,

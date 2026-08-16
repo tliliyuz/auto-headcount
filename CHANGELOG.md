@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 候选人匹配输入：skills 简历正文推断 + industry 职业标签提取
+
+> 状态：`verified`。Provider 73/73、schema check 通过；Consumer 单测 264/264、集成 58/58、lint/tsc 0 错误、build 通过、跨仓契约对齐检查通过。真实 DOM 收敛（2026-08-16）：详情页无技能标签，skills 走简历正文启发式推断（标注技术债，同 category 标题推断兜底）；industry 取头部职业标签 `p.company .title-text`（职业方向，不含公司名——公司名进 industry 会经匹配投影泄漏给 LLM，公司泛化由 redaction loader 负责）。
+
+- **Provider 职业标签 → industry**（csdn-agent）：`runLiebideCandidateDetailContract` 从 `p.company .title-text`（如「产品技术传播」「PM」「整合营销总监」）提取职业方向入 `record.industry`；仅取 title-text 不取 company-text，公司名保持在 `current_company`（redaction 泛化为某公司）。receipt schema 补 `industry` + 补齐 `projects`/`education` 富字段（此前 schema 落后于 record 实际形状）。
+- **Consumer skills 简历正文推断（启发式）**：`inferSkillsFromResume`（`lib/jobs/browser-candidate-collection.mjs`）从工作/项目标题与描述匹配技术栈词表——ASCII 用词界正则（避免 Java 误伤 JavaScript）、CJK 用子串，覆盖语言/框架/中间件/AI/数据/职能约百词；去重封顶 40，无命中为空数组。详情回执权威 `record.skills` 非空时优先，否则推断。
+- **industry 透传 + 落库**：详情白名单/解析器加 `industry`；`mapCandidateRecordToEntities` 透传；`browser-candidate-repository` persist SQL 补 `skills` 列（`candidate_profiles.skills` 列 0007 已有）；读侧 `getCandidateById` 返回 skills，`/api/candidates/[id]` 透传。
+- **匹配链路打通**：`projection-filter-sync.loadCandidatePool` 已读 `p.skills`/`p.industry`，此前 skills 全空、industry 恒 null（技能/行业维度恒中性 50）；现推断 skills 与职业方向进入匹配投影。
+- 测试：Provider candidate 合同 7/7 + schema；Consumer 合同/映射/推断单测（技能命中/无命中/industry 透传）。
+- **兼容性修复**：`industry` 为新增可选字段——旧版扩展未回传（undefined）时按 null 降级（不 fail-closed 整批拒绝）；发现真实批次 CAND-c769bcce 20 个全 `BROWSER_COLLECTION_CONTRACT_INVALID` 即源于新消费端严格校验旧扩展无 industry 字段。
+- 技术债：skills 推断启发式非权威，权威技能源到位后替换；行业标签缺失的候选 industry 仍为 null（匹配行业维度中性降级），池分类兜底未实施。
+
 ### 2026-08-16 — M3 职位侧数据缺口：确定性 JD 结构化提取写入 job_requirements
 
 > 状态：`verified`。lint/tsc 0 错误；unit 262/262（含提取器 12 + 调度幂等键）；integration 58/58（含 job-requirements-sync 2 + async-task-sync 更新为 3 任务）；真实 dev 库 `sync:job-requirements` 首次 42/42 写入、再跑 jobsQueried=0 幂等——27 个职位提取出技能（不再 `REQUIRED_FIELD_MISSING` 全拒），6 个学历、5 个年限、0 薪资（真实 JD 多为年薪/面议，按「不推断」留空，消费端本就优先 `jobs.salary`）。候选人侧 skills/industry 为下一步缺口。

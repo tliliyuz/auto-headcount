@@ -97,6 +97,11 @@
           "type": ["integer", "null"],
           "minimum": 0
         },
+        "industry": {
+          "type": ["string", "null"],
+          "description": "详情页头部职业标签（如「腾讯PM」「阿里巴巴PM」），无独立行业字段时作为行业/职业身份信号；null 表示页面无标签。",
+          "maxLength": 200000
+        },
         "workExperiences": {
           "type": "array",
           "items": {
@@ -109,6 +114,70 @@
                 "maxLength": 200000
               },
               "title": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "city": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "period": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "duration": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200000
+              }
+            }
+          }
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200000
+              }
+            }
+          }
+        },
+        "education": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["school"],
+            "properties": {
+              "school": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "major": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "degree": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "period": {
+                "type": "string",
+                "maxLength": 200000
+              },
+              "duration": {
                 "type": "string",
                 "maxLength": 200000
               }

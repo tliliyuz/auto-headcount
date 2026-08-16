@@ -157,6 +157,73 @@ export async function runBrowserCandidateBatchDiscovery({ task: rawTask, relayCl
   }
 }
 
+/** 技能推断词表（启发式，非权威）：覆盖互联网技术人才池常见技术栈与职能。
+ *  详情页无技能标签（2026-08-16 确认），skills 从简历正文匹配此词表兜底——
+ *  与 category 标题推断兜底同理（见 memory: category-data-missing-tech-debt），
+ *  推断结果是匹配输入的下界信号，不假装权威；权威数据源到位后应替换。 */
+const SKILL_LEXICON_ASCII = [
+  "Java", "Python", "Go", "Golang", "C++", "C#", "PHP", "JavaScript",
+  "TypeScript", "Node.js", "Spring Boot", "Spring", "MyBatis", "React",
+  "Vue", "Angular", "Flutter", "Swift", "Objective-C", "Kotlin", "Ruby",
+  "Rust", "Scala", "Django", "Flask", "Redis", "MySQL", "PostgreSQL",
+  "MongoDB", "Kafka", "RabbitMQ", "RocketMQ", "Flink", "Spark", "Hadoop",
+  "Hive", "Elasticsearch", "ClickHouse", "Doris", "SQL", "ETL", "Docker",
+  "Kubernetes", "Nginx", "Jenkins", "CI/CD", "DevOps", "Android", "iOS", "BI",
+];
+const SKILL_LEXICON_CJK = [
+  "微服务", "分布式", "高并发", "容器化", "云计算", "系统架构", "消息队列",
+  "中间件", "监控", "运维", "机器学习", "深度学习", "神经网络", "自然语言处理",
+  "推荐系统", "算法", "大模型", "提示词", "数据挖掘", "数据仓库", "数据治理",
+  "数据分析", "数据建模", "数据可视化", "数据平台", "大数据", "报表",
+  "前端", "后端", "全栈", "客户端", "移动端", "项目管理", "项目经理",
+  "产品经理", "产品设计", "交互设计", "用户体验", "用户研究", "运营",
+  "用户运营", "内容运营", "数据运营", "增长", "投放", "商业化",
+  "测试", "自动化测试", "质量保障", "安全", "风控", "供应链", "整合营销", "品牌营销",
+];
+const MAX_INFERRED_SKILLS = 40;
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** ASCII 词表预编译：仅以非 ASCII 词符为邻才命中，避免 Java 误伤 JavaScript、
+ *  C++ 前的 CJK 字符阻断词界等混排误判。 */
+const SKILL_ASCII_PATTERNS = SKILL_LEXICON_ASCII.map((label) => ({
+  label,
+  regex: new RegExp(
+    `(?<![A-Za-z0-9_])${escapeRegex(label)}(?![A-Za-z0-9_])`,
+    "i",
+  ),
+}));
+
+/**
+ * 从简历正文（工作/项目标题与描述）推断技能标签。纯函数可单测。
+ * 返回去重后的词表命中项，封顶 MAX_INFERRED_SKILLS。
+ */
+export function inferSkillsFromResume(record) {
+  const parts = [];
+  for (const entry of record.workExperiences ?? []) {
+    parts.push(entry.title, entry.description);
+  }
+  for (const entry of record.projects ?? []) {
+    parts.push(entry.name, entry.description);
+  }
+  const text = parts.filter(Boolean).join("\n");
+  const matched = new Set();
+  for (const { label, regex } of SKILL_ASCII_PATTERNS) {
+    if (regex.test(text)) matched.add(label);
+  }
+  for (const label of SKILL_LEXICON_CJK) {
+    if (text.includes(label)) matched.add(label);
+  }
+  return [...matched].slice(0, MAX_INFERRED_SKILLS);
+}
+
+/** 候选画像 skills：优先详情回执权威 skills；详情页无技能标签时为空，回落简历正文推断。 */
+function inferCandidateSkills(record) {
+  const authoritative = Array.isArray(record.skills)
+    ? record.skills.map((skill) => skill.trim()).filter(Boolean)
+    : [];
+  if (authoritative.length > 0) return authoritative;
+  return inferSkillsFromResume(record);
+}
+
 /** 把候选人详情回执映射为 candidates/candidate_profiles 写参；真实姓名入 candidates，联系方式已失败关闭。 */
 export function mapCandidateRecordToEntities(record) {
   return {
@@ -172,7 +239,8 @@ export function mapCandidateRecordToEntities(record) {
       school: record.school ?? null,
       major: record.major ?? null,
       seniority: record.title ?? null,
-      industry: null,
+      industry: record.industry?.trim() ? record.industry : null,
+      skills: inferCandidateSkills(record),
       currentTitle: record.title ?? null,
       currentCompany: record.company ?? null,
       activityUpdatedAt: record.capturedAt,
