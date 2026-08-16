@@ -591,7 +591,7 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>候选人</th><th>当前职位</th><th>公司 / 城市</th><th>经验</th><th>学历 / 职级</th><th>行业 / 技能</th><th>状态</th><th /></tr></thead>
+            <thead><tr><th>候选人</th><th>当前职位</th><th>公司 / 城市</th><th>经验</th><th>学历</th><th>行业</th><th>状态</th><th /></tr></thead>
             <tbody>
               {pageCandidates.map((c) => (
                 <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => setSelectedId(c.id)}>
@@ -599,13 +599,8 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
                   <td><button className="candidate-title-link" onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>{c.title ?? "—"}</button></td>
                   <td><strong>{c.company ?? "—"}</strong><small>{c.city ?? "—"}</small></td>
                   <td><span>{c.experienceYears != null ? `${c.experienceYears} 年` : "—"}</span></td>
-                  <td><span>{c.education ?? "—"}{c.seniority ? ` · ${c.seniority}` : ""}</span></td>
-                  <td>
-                    {c.industry && <span className="industry-cell">{c.industry}</span>}
-                    {c.skills?.length > 0 && (
-                      <div className="mini-skills">{c.skills.slice(0, 3).map((skill) => <span key={skill} className="mini-skill">{skill}</span>)}</div>
-                    )}
-                  </td>
+                  <td><span>{c.education ?? "—"}</span></td>
+                  <td>{c.industry && <span className="industry-cell">{c.industry}</span>}</td>
                   <td><span className={`status-tag status-${c.status}`}>{c.status}</span></td>
                   <td><button aria-label={`查看 ${c.name}`} onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>›</button></td>
                 </tr>
@@ -662,6 +657,9 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
             </div>
             <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p></div>
             <div className="message-preview"><span>候选人摘要</span><p>{selectedSummary}</p></div>
+            {(selected.skills?.length ?? 0) > 0 && (
+              <div className="message-preview"><span>技能标签</span><div className="skill-tags">{selected.skills.map((skill) => <span key={skill} className="skill-tag">{skill}</span>)}</div></div>
+            )}
             <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>{selected.matchCount}</i><p><strong>匹配记录</strong><span>{selected.matchCount} 条 · 匹配状态由 matches 推导</span></p></div></div>
           </>
         ) : (
