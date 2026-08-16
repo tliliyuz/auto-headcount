@@ -290,6 +290,35 @@ export function fetchSyncRuns(input?: {
   );
 }
 
+export type JobJdBackfillView = {
+  id: string;
+  jobId: string;
+  sourceConnectionId: string;
+  externalId: string;
+  jobTitle: string | null;
+  contractId: string;
+  outcome: "filled" | "no_provider_jd" | "failed";
+  jdLength: number;
+  contentHash: string | null;
+  errorCode: string | null;
+  createdAt: string;
+};
+
+export function fetchJobJdBackfills(input?: {
+  outcome?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<AuthResult<Paged<JobJdBackfillView>>> {
+  return request<Paged<JobJdBackfillView>>(
+    withQuery("/api/job-jd-backfills", {
+      outcome: input?.outcome,
+      page: input?.page,
+      page_size: input?.pageSize,
+    }),
+    { method: "GET" },
+  );
+}
+
 export function fetchBrowserBatches(input?: {
   page?: number;
   pageSize?: number;

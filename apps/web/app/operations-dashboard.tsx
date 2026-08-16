@@ -32,6 +32,7 @@ import {
   fetchBrowserBatches,
   fetchCandidateBatches,
   fetchCandidates,
+  fetchJobJdBackfills,
   triggerSync,
   triggerBrowserCollection,
   triggerJdBackfill,
@@ -41,6 +42,7 @@ import {
   type BrowserBatchView,
   type CandidateBatchView,
   type CandidateView,
+  type JobJdBackfillView,
   type DormantJob,
   type MatchDetailView,
   type MatchExceptionView,
@@ -109,9 +111,27 @@ function batchEventStatusView(ev: BatchEvent): { label: string; className: strin
   return map[ev.status] ?? { label: ev.status, className: "" };
 }
 
-/** 事件种类展示名：批次为原子事件（发现 + 入库在一个事件里），标签直接区分职位/候选人/周期同步。 */
-function batchKindLabel(kind: BatchEvent["kind"]): string {
-  return kind === "collection" ? "职位采集" : kind === "candidate" ? "候选人采集" : "周期同步";
+/** 事件种类展示名：批次为原子事件（发现 + 入库在一个事件里），标签直接区分职位/候选人/周期同步；JD 回填单列。 */
+function batchKindLabel(kind: BatchEvent["kind"], ev?: BatchEvent): string {
+  if (kind === "collection") return "职位采集";
+  if (kind === "candidate") return "候选人采集";
+  if (ev?.kind === "sync" && ev.syncType === "browser_job_jd_backfill") return "JD 回填";
+  return "周期同步";
+}
+
+/** 回填运行统计摘要（sync_runs.stats）：succeeded 显示 filled/noProviderJd/persisted，预检失败只显预检计数。 */
+function backfillRunStatsLabel(stats: Record<string, number>): string {
+  if (typeof stats.filled === "number") {
+    return `${stats.filled} 填 · ${stats.noProviderJd ?? 0} 无数据 · ${stats.persisted ?? 0} 记录`;
+  }
+  return `预检 ${stats.preflight ?? 0}`;
+}
+
+/** JD 回填台账 outcome 标签与状态样式（复用既有 status-tag 色阶）。 */
+function jdBackfillStatus(outcome: JobJdBackfillView["outcome"]): { label: string; className: string } {
+  if (outcome === "filled") return { label: "已回填", className: "status-成功" };
+  if (outcome === "no_provider_jd") return { label: "供应方无数据", className: "status-排队中" };
+  return { label: "失败", className: "status-失败" };
 }
 
 /**
@@ -703,6 +723,12 @@ function SourcesPage({
   const [backfillState, setBackfillState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
   const [backfillLimit, setBackfillLimit] = useState(50);
+  const [jdBackfills, setJdBackfills] = useState<JobJdBackfillView[]>([]);
+  const [jdBackfillsTotal, setJdBackfillsTotal] = useState(0);
+  const [jdBackfillsLoading, setJdBackfillsLoading] = useState(true);
+  const [jdBackfillOutcome, setJdBackfillOutcome] = useState<"all" | "filled" | "no_provider_jd" | "failed">("all");
+  const [jdBackfillPage, setJdBackfillPage] = useState(1);
+  const [jdBackfillsReload, setJdBackfillsReload] = useState(0);
   const [candidateBatches, setCandidateBatches] = useState<CandidateBatchView[]>([]);
   const [candidateBatchSize, setCandidateBatchSize] = useState(20);
   const [candidateForceRefresh, setCandidateForceRefresh] = useState(false);
@@ -714,6 +740,29 @@ function SourcesPage({
   const [batchPage, setBatchPage] = useState(1);
   const [batchJumpValue, setBatchJumpValue] = useState("");
   const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
+
+  // JD 回填台账：按 outcome 过滤 + 分页加载（outcome/page/reload 变化时重新拉取）。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setJdBackfillsLoading(true);
+      const result = await fetchJobJdBackfills({
+        outcome: jdBackfillOutcome === "all" ? undefined : jdBackfillOutcome,
+        page: jdBackfillPage,
+        pageSize: 20,
+      });
+      if (cancelled) return;
+      setJdBackfillsLoading(false);
+      if (result.ok) {
+        setJdBackfills(result.data.list);
+        setJdBackfillsTotal(result.data.total);
+      } else {
+        setJdBackfills([]);
+        setJdBackfillsTotal(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [jdBackfillOutcome, jdBackfillPage, jdBackfillsReload]);
 
   useEffect(() => {
     let cancelled = false;
@@ -996,6 +1045,53 @@ function SourcesPage({
       <section className="workspace-grid">
         <div className="jobs-card">
           <div className="card-header">
+            <div><h2>JD 回填台账</h2><span>浏览器详情回填可操作职位 JD 的逐次结论（已回填 / 供应方无数据 / 失败）；记录追加写，删除台账行可强制重试</span></div>
+            <div>
+              <button className="secondary-button" onClick={() => setJdBackfillsReload((n) => n + 1)}>刷新台账</button>
+            </div>
+          </div>
+          <div className="category-tabs" role="tablist" aria-label="回填结果">
+            <button role="tab" aria-selected={jdBackfillOutcome === "all"} className={jdBackfillOutcome === "all" ? "active" : ""} onClick={() => { setJdBackfillOutcome("all"); setJdBackfillPage(1); }}>全部</button>
+            <button role="tab" aria-selected={jdBackfillOutcome === "filled"} className={jdBackfillOutcome === "filled" ? "active" : ""} onClick={() => { setJdBackfillOutcome("filled"); setJdBackfillPage(1); }}>已回填</button>
+            <button role="tab" aria-selected={jdBackfillOutcome === "no_provider_jd"} className={jdBackfillOutcome === "no_provider_jd" ? "active" : ""} onClick={() => { setJdBackfillOutcome("no_provider_jd"); setJdBackfillPage(1); }}>供应方无数据</button>
+            <button role="tab" aria-selected={jdBackfillOutcome === "failed"} className={jdBackfillOutcome === "failed" ? "active" : ""} onClick={() => { setJdBackfillOutcome("failed"); setJdBackfillPage(1); }}>失败</button>
+          </div>
+          <div className="table-wrap batches-wrap">
+            <table>
+              <thead><tr><th>职位</th><th>结果</th><th>详情</th><th>时间</th></tr></thead>
+              <tbody>
+                {jdBackfills.map((row) => {
+                  const status = jdBackfillStatus(row.outcome);
+                  return (
+                    <tr key={row.id}>
+                      <td><strong>{row.jobTitle ?? row.externalId}</strong><small className="job-updated"><span className="job-external-id">{row.externalId}</span></small></td>
+                      <td><em className={`status-tag ${status.className}`}>{status.label}</em></td>
+                      <td>{row.outcome === "filled" ? `${row.jdLength} 字` : row.outcome === "failed" ? (row.errorCode ? <code>{row.errorCode}</code> : "失败") : "无 JD 文本"}</td>
+                      <td>{formatDateTime(row.createdAt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {jdBackfillsLoading ? (
+              <div className="empty-state">正在加载台账…</div>
+            ) : (
+              jdBackfills.length === 0 && <div className="empty-state">没有符合条件的回填记录</div>
+            )}
+          </div>
+          <div className="table-footer">
+            <span>共 {jdBackfillsTotal} 条</span>
+            <div>
+              <button disabled={jdBackfillPage <= 1} onClick={() => setJdBackfillPage((p) => p - 1)} aria-label="上一页">‹</button>
+              <button disabled={jdBackfillPage * 20 >= jdBackfillsTotal} onClick={() => setJdBackfillPage((p) => p + 1)} aria-label="下一页">›</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="workspace-grid">
+        <div className="jobs-card">
+          <div className="card-header">
             <div><h2>采集与同步批次</h2><span>浏览器职位/候选人采集批次与 MCP 同步批次统一查看，最近记录优先</span></div>
             <button className="more-button" aria-label="更多操作">•••</button>
           </div>
@@ -1018,7 +1114,7 @@ function SourcesPage({
                   const isCollectionLike = ev.kind === "collection" || ev.kind === "candidate";
                   return (
                     <tr key={ev.key} className={displayedEvent?.key === ev.key ? "selected" : ""} onClick={() => setSelectedEventKey(ev.key)}>
-                      <td><span className={`event-kind ${ev.kind}`}><i />{batchKindLabel(ev.kind)}</span></td>
+                      <td><span className={`event-kind ${ev.kind}`}><i />{batchKindLabel(ev.kind, ev)}</span></td>
                       <td><strong>{ev.shortId}</strong><small className="job-updated"><span className="job-external-id" title={ev.id}>{ev.id}</span><span className="job-updated-at"> · {formatDateTime(ev.createdAt)}</span></small></td>
                       <td><em className={`status-tag ${statusView.className}`}>{statusView.label}</em></td>
                       <td>{isCollectionLike
@@ -1075,7 +1171,7 @@ function SourcesPage({
               <div className="panel-heading">
                 <span className="role-icon">{displayedEvent.kind === "collection" ? "B" : displayedEvent.kind === "candidate" ? "C" : "M"}</span>
                 <div>
-                  <span className="status-pill"><i />{batchKindLabel(displayedEvent.kind)}</span>
+                  <span className="status-pill"><i />{batchKindLabel(displayedEvent.kind, displayedEvent)}</span>
                   <h2>{displayedEvent.shortId}</h2>
                   <p>{displayedEvent.kind === "collection" ? "筛选列表 → 批量详情复核" : displayedEvent.kind === "candidate" ? "人才池列表 → 候选人画像批量入库" : `${displayedEvent.syncType} · ${displayedEvent.sourceDisplayName}`}</p>
                 </div>
@@ -1112,6 +1208,9 @@ function SourcesPage({
                     <>
                       <div><span>同步类型</span><b>{displayedEvent.syncType}</b></div>
                       <div><span>错误码</span><b>{displayedEvent.errorCode ?? "—"}</b></div>
+                      {displayedEvent.syncType === "browser_job_jd_backfill" && (
+                        <div><span>回填结果</span><b>{backfillRunStatsLabel(displayedEvent.stats)}</b></div>
+                      )}
                     </>
                   )}
                   <div><span>创建时间</span><b>{formatDateTime(displayedEvent.createdAt)}</b></div>

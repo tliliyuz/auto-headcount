@@ -148,3 +148,45 @@ export function createBrowserJobJdBackfillRepository(sql, { encryption }) {
     },
   };
 }
+
+/** JD 回填台账分页读（只读，供管理端审计面板）：join jobs 取职位标题，可按 outcome 过滤。 */
+export async function listJobJdBackfills(
+  sql,
+  { outcome, page = 1, pageSize = 20 } = {},
+) {
+  const where = sql`
+    1 = 1
+    ${outcome ? sql` and b.outcome = ${outcome}` : sql``}
+  `;
+  const [{ total }] = await sql`
+    select count(*)::int as total
+    from job_jd_backfills b
+    where ${where}
+  `;
+  const list = await sql`
+    select
+      b.id,
+      b.job_id as "jobId",
+      b.source_connection_id as "sourceConnectionId",
+      b.external_id as "externalId",
+      j.title as "jobTitle",
+      b.contract_id as "contractId",
+      b.outcome,
+      b.jd_length as "jdLength",
+      b.content_hash as "contentHash",
+      b.error_code as "errorCode",
+      b.created_at as "createdAt"
+    from job_jd_backfills b
+    left join jobs j on j.id = b.job_id
+    where ${where}
+    order by b.created_at desc, b.id desc
+    limit ${pageSize} offset ${(page - 1) * pageSize}
+  `;
+  return {
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+    list,
+  };
+}

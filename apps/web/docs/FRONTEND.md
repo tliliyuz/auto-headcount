@@ -25,7 +25,7 @@
 | 触达活动 | `CampaignsPage` | `campaignRows` 数组 | 静态原型 |
 | 跟进任务 | `FollowupsPage` | `followupColumns` 数组 | 静态原型 |
 | 转化漏斗 | `FunnelPage` | 内联 `bars` / `stages` / 转化表 | 静态原型 |
-| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) + `POST /api/browser-collections` + `GET /api/browser-batches` | 已接真实数据（连接卡片 / 浏览器职位批量采集「采集当前筛选结果」+「回填缺失 JD」/ **统一批次列表**：采集批次与同步批次合并，类型 tabs + 搜索 + 分页 + 右侧详情面板 / 健康条；「立即同步」经 [`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 手动触发） |
+| 数据源 | `SourcesPage` | 真实 [`GET /api/sources`](../../../docs/09-api-contract.md) + [`GET /api/sync-runs`](../../../docs/09-api-contract.md) + [`GET /api/job-jd-backfills`](../../../docs/09-api-contract.md) + `POST /api/browser-collections` + `GET /api/browser-batches` | 已接真实数据（连接卡片 / 浏览器职位批量采集「采集当前筛选结果」+「回填缺失 JD」/ **JD 回填台账**：outcome 过滤 + 职位标题 + 错误码 + 时间，分页 / **统一批次列表**：采集批次与同步批次合并，类型 tabs + 搜索 + 分页 + 右侧详情面板 / 健康条；「立即同步」经 [`POST /api/sync/under-served`](../../../docs/09-api-contract.md) 手动触发） |
 | 审计日志 | `AuditPage` | 真实 [`GET /api/audit-logs`](../../../docs/09-api-contract.md)（会话 + RBAC `operations\|admin`） | 已接真实数据（结果 tabs 全部/成功/失败/已拒绝 + 事件类型/操作人筛选下拉 + 关键词搜索（`q`）+ 每页 10 条 page-jump 分页；写入已按动作白名单收敛，不含敏感正文） |
 | 候选人 | `CandidatesPage` | `candidateRows` 数组（假数据） | 静态原型（列表 + 状态筛选 + 关键词搜索 + 分页 + 详情面板；M2 候选人采集落库后接真实 `GET /api/candidates`，见 [候选人采集规范](../../../docs/10-candidate-collection.md)） |
 
@@ -52,7 +52,7 @@
 | 漏斗/转化数据（内联） | `FunnelPage` | `funnel_events` 聚合（M5） |
 | 审计记录（内联） | ~~`AuditPage`~~ | `audit_logs` 表（M1，已接真实数据） |
 
-> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则；当前 MCP 投影只返回 `operability_status='actionable'` 的可操作沉睡职位）。数据源页已接 `liebide-filtered-job-list-v2 → browser_job_collect × N` 批次触发：列表页要求“推荐 0 人、发布时间最近 30 天”，详情页再复核 7～30 天，0～6 天项只记跳过。设备路由由服务端 `BROWSER_RELAY_USER_ID/BROWSER_RELAY_DEVICE_ID` 固定配置，页面不读取 Secret、不要求运营重复填写，日常只选择批量并点击“采集当前筛选结果”。**JD 回填（2026-08-16）**：「回填缺失 JD」按 `POST /api/browser-collections {mode:'jd_backfill'}` 扫描可操作缺 JD 职位（`liebide-job-detail-v2` 详情回填，只补 `job_description`，`job_jd_backfills` 台账防重采），`limit` 上限可选（20/50/100，默认 50）；回填任务不显示在统一批次列表（非批次任务，进度看 `job_jd_backfills` 台账）。列表/详情 Provider Fixture 已实现，但尚未用真实筛选页做整批复验，因此页面不能宣称生产批量采集已验证。数据源页和审计日志页分别读取真实 `/api/sources` + `/api/sync-runs` 与 `/api/audit-logs`；原始载荷密文、简历正文、联系方式和浏览器 session 永不进入这些响应。
+> 已接真实数据：沉睡职位巡检页不再使用 Mock `jobs` 数组（已删除），数据来自 `/api/jobs/under-served`（规范化 `jobs` 表 + 真实沉睡规则；当前 MCP 投影只返回 `operability_status='actionable'` 的可操作沉睡职位）。数据源页已接 `liebide-filtered-job-list-v2 → browser_job_collect × N` 批次触发：列表页要求“推荐 0 人、发布时间最近 30 天”，详情页再复核 7～30 天，0～6 天项只记跳过。设备路由由服务端 `BROWSER_RELAY_USER_ID/BROWSER_RELAY_DEVICE_ID` 固定配置，页面不读取 Secret、不要求运营重复填写，日常只选择批量并点击“采集当前筛选结果”。**JD 回填（2026-08-16）**：「回填缺失 JD」按 `POST /api/browser-collections {mode:'jd_backfill'}` 扫描可操作缺 JD 职位（`liebide-job-detail-v2` 详情回填，只补 `job_description`，`job_jd_backfills` 台账防重采），`limit` 上限可选（20/50/100，默认 50）。**审计可见性**：① 触发经 `audit_logs`（`browser.collection.trigger` + scanned/enqueued/contractId）；② 每次运行出现在统一批次列表（`sync_type=browser_job_jd_backfill` 单列标注「JD 回填」，detail 面板显示回填统计 `filled/noProviderJd`）；③ 逐职位结论看「JD 回填台账」面板（`GET /api/job-jd-backfills`，outcome 过滤 + 职位标题 + 错误码 + 时间 + 分页）。列表/详情 Provider Fixture 已实现，但尚未用真实筛选页做整批复验，因此页面不能宣称生产批量采集已验证。数据源页和审计日志页分别读取真实 `/api/sources` + `/api/sync-runs` 与 `/api/audit-logs`；原始载荷密文、简历正文、联系方式和浏览器 session 永不进入这些响应。
 
 ### 智能匹配目标交互（M3）
 

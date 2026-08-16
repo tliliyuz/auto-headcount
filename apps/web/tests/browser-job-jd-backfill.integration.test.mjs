@@ -13,7 +13,10 @@ import {
   enqueueBrowserJobJdBackfillTasks,
   runBrowserJobJdBackfill,
 } from "../lib/jobs/browser-job-jd-backfill.mjs";
-import { createBrowserJobJdBackfillRepository } from "../lib/jobs/browser-job-jd-backfill-repository.mjs";
+import {
+  createBrowserJobJdBackfillRepository,
+  listJobJdBackfills,
+} from "../lib/jobs/browser-job-jd-backfill-repository.mjs";
 import {
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -212,6 +215,21 @@ test(
           and entity_type = 'job'
       `;
       assert.equal(raw[0].n, 2, "filled 与 no_provider_jd 各落一条回执快照（failed 无回执）");
+
+      // 台账读：分页返回 3 条（含职位标题），按 outcome 过滤。
+      const all = await listJobJdBackfills(sql, { pageSize: 50 });
+      assert.equal(all.total, 3);
+      assert.equal(all.list.length, 3);
+      const filledRows = all.list.filter((r) => r.outcome === "filled");
+      assert.equal(filledRows.length, 1);
+      assert.ok(filledRows[0].jobTitle === `Job ${ext("bf-j1")}`, "台账带职位标题");
+      assert.ok(filledRows[0].jdLength > 0, "filled 记录 JD 长度");
+      const failedRows = await listJobJdBackfills(sql, { outcome: "failed" });
+      assert.equal(failedRows.total, 1);
+      assert.equal(failedRows.list[0].errorCode, "BROWSER_COLLECTION_CONTRACT_INVALID");
+      const missingRows = await listJobJdBackfills(sql, { outcome: "no_provider_jd" });
+      assert.equal(missingRows.total, 1);
+      assert.equal(missingRows.list[0].jdLength, 0, "no_provider_jd 无 JD 长度");
 
       // 幂等：全部已尝试（台账）→ 二次入队扫描 0。
       const second = await enqueueBrowserJobJdBackfillTasks({

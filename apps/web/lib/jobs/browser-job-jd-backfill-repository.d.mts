@@ -41,3 +41,32 @@ export function createBrowserJobJdBackfillRepository(
   sql: postgres.Sql,
   options: { encryption: { key: string; keyVersion: string } },
 ): BrowserJobJdBackfillRepository;
+
+export interface JobJdBackfillRow {
+  id: string;
+  jobId: string;
+  sourceConnectionId: string;
+  externalId: string;
+  jobTitle: string | null;
+  contractId: string;
+  outcome: "filled" | "no_provider_jd" | "failed";
+  jdLength: number;
+  contentHash: string | null;
+  errorCode: string | null;
+  createdAt: Date;
+}
+
+export function listJobJdBackfills(
+  sql: postgres.Sql,
+  input?: {
+    outcome?: string;
+    page?: number;
+    pageSize?: number;
+  },
+): Promise<{
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  list: JobJdBackfillRow[];
+}>;

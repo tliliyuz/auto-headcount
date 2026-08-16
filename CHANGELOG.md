@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — JD 回填审计可见性：台账读 API + 数据源页台账面板 + 批次列表单列「JD 回填」
+
+> 状态：`verified`。单测 283/283、集成 61/61（回填集成补 `listJobJdBackfills` 断言：分页 3 条带职位标题、outcome 过滤、failed 带错误码、no_provider_jd jdLength=0）、tsc/lint/build 全绿。承接浏览器 JD 回填（8829f6f5）——把「回填只能查库」的缺口补上。
+
+- **台账读 API**：`listJobJdBackfills`（join jobs 取职位标题，outcome 过滤 + 分页）+ `GET /api/job-jd-backfills`（RBAC operations/admin，审计 `job-jd-backfills.list`，metadata 仅 page/pageSize/total，不落真实 JD 正文）。
+- **数据源页「JD 回填台账」面板**：outcome tabs（全部/已回填/供应方无数据/失败）+ 职位标题 + 结果标签（复用 status-tag 色阶）+ JD 长度/错误码 + 时间 + 分页 + 刷新按钮。
+- **批次列表单列**：`sync_type=browser_job_jd_backfill` 的运行在统一批次列表显示「JD 回填」（不再误标「周期同步」），detail 面板补回填统计（`N 填 · M 无数据 · K 记录`）。
+- 审计三层闭环：触发（audit_logs）→ 运行（sync_runs，批次列表可见）→ 逐职位结论（台账面板），均无需 SQL 直查。
+- 文档：FRONTEND.md 数据源页接线 + 审计可见性说明。
+
 ### 2026-08-16 — 匹配评分诊断落地：移除无数据源的 salary 维度（aggregation/v2）
 
 > 状态：`verified`。匹配测试 61/61、tsc/lint 全绿。诊断匹配审核工作台 33 条 match：均为 fake-detail-scoring 垂直切片验证数据（真实 LLM 合规门禁关闭）；27 条全 74 分 + 4 条 80（location=90 拉高）根因 = industry/seniority/salary 三维职位侧无参照（`job.category` 空 / 无职级要求 / 薪资两侧空）被重归一化剔除，分数只在 4 维上算且缺数据不扣分。
