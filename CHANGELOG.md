@@ -40,7 +40,7 @@
 - **管线 `automatic-match-pipeline.mjs`**：`resolveDetailScoringAdapter` 加 `llm-openai-compatible` 分支（配置不完整 → `LLM_ADAPTER_CONFIG_INVALID`，生产未知值 → `LLM_ADAPTER_NOT_CONFIGURED`，生产绝不回退 fake）；`classifyScoreError` 扩展 `.code` 优先 + `LLM_ERROR_CODE_WHITELIST`（导出）。
 - **调度 `sync-scheduler.mjs`**：`classifyTaskError` 识别 `LlmDetailScoringError.code`，`LLM_ADAPTER_CONFIG_INVALID` 落任务级机器码而非 `SYNC_INTERNAL_ERROR`。
 - 测试：`tests/llm-detail-scoring-adapter.test.mjs`（metadata/请求构造/mock 信封解析/HTTP 错误映射/语义校验/config 校验/密钥不泄漏）、`tests/matching/automatic-match-pipeline-error-mapping.test.mjs`（classifyScoreError + resolve 分支）、`tests/llm-detail-scoring-adapter.integration.test.mjs`（429 落码可重试、成功落 matches+七维+幂等、七维重复 SCHEMA_INVALID terminal）；注册进 `test:unit`/`test:integration`。
-- 文档/环境：`docs/10` §6 实现状态 + `LLM_AUTH_FAILED` + request_item_id 矛盾 TODO + SCHEMA_INVALID 修复性重试偏差注记；`docs/07` §2；`docs/02` §4；`.env.example`/`.env.production.example` 补 LLM 键。
+- 文档/环境：`docs/10` §6 实现状态 + `LLM_AUTH_FAILED` + request_item_id 矛盾 TODO + SCHEMA_INVALID 修复性重试偏差注记；`docs/05` M3 状态；`docs/07` §2；`docs/02` §4；`.env.example`/`.env.production.example` 补 LLM 键。
 
 ### 2026-08-16 — 候选人完整简历：合同富字段 + /candidates/[id] 页 + forceRefresh 重采
 

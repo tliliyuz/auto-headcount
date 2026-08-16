@@ -28,6 +28,8 @@
 
 输入来自规范化 `jobs` 字段、完整 JD 和字段级来源引用。生成器必须记录 `generator_type` 与 `generator_version`；若用 LLM 做特征提取，仍必须经过本 Schema 校验和人工可复核的来源片段检查。
 
+> **实现状态（2026-08-16）**：`job_requirements` 现由确定性规则填充（`lib/jobs/job-requirements-extract.mjs`，`generator_type=rules`、`generator_version=rules/v1`），同步 `job_requirements_extract`（fill-when-missing）。薪资只解析显式月薪（k/万），年薪/面议/超界一律留空 + warning（不转成年薪、不推断）；技能/证书只来自白名单词库（结构去标识化）。
+
 关键语义：
 
 - `display_summary`：不超过 150 字符的展示文本，不含公司名、客户联系人、内部编号和详细地址。

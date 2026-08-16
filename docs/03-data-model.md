@@ -211,7 +211,7 @@ erDiagram
 
 | 表 | 关键字段与约束 |
 |:---|:---|
-| `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入；两阶段流程降为迁移期查询快照 |
+| `job_requirements` | `job_id`(FK jobs RESTRICT, unique), `skills`(jsonb), `seniority`, `education`, `salary_min/max`, `constraints`(jsonb)。本地硬过滤/加权评分职位输入；两阶段流程降为迁移期查询快照。**生产写入方（2026-08-16）**：确定性 JD 结构化提取（`lib/jobs/job-requirements-extract.mjs`，generator `rules/v1`，同步 `job_requirements_extract`，fill-when-missing，无 LLM），`constraints` 按对象读写 |
 | `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
 | `candidates` | `source_connection_id`(FK source_connections RESTRICT) + `raw_record_id`(FK raw_records SET NULL) + `external_id`(unique `(source_connection_id, external_id)`，迁移 0010)，`display_name`(真实姓名，敏感业务 RBAC+加密+审计，不写日志/审计/任务载荷), `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
 | `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`(最高学历), `school`, `major`(迁移 0012，毕业院校/专业), `seniority`, `industry`, `current_title`, `current_company`(迁移 0010，近期工作；投影生成 `currentTitle ?? seniority` 回退), `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存。**生产写入方（2026-08-16）**：采集侧 `skills` = 简历正文启发式推断（详情页无技能标签，`inferSkillsFromResume` 词表匹配，技术债非权威），`industry` = 详情页头部职业标签 `p.company .title-text`（职业方向，**不含公司名**——公司名进 industry 会经匹配投影泄漏给 LLM，公司泛化由 redaction loader 负责）；两者消费方为匹配投影 `candidate_profiles.skills/industry` → 技能/行业维度 |
