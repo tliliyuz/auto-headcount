@@ -47,22 +47,34 @@ test("hardFilter：全部硬要求满足 → passed:true 且无原因码", () =>
   assert.match(result.combinedInputHash, /^[a-f0-9]{64}$/);
 });
 
-test("hardFilter：地点不匹配 → LOCATION_MISMATCH", () => {
+test("hardFilter：城市不再硬门槛——异地候选人通过，城市交阶段二评分维度", () => {
   const result = hardFilter({
     jobProjection: jobProj({ hard_requirements: { ...jobProj().hard_requirements, locations: ["北京"] } }),
-    candidateProjection: candProj(),
+    candidateProjection: candProj({ profile: { ...candProj().profile, city: "深圳" } }),
   });
-  assert.equal(result.passed, false);
-  assert.ok(result.reasonCodes.some((r) => r.code === "LOCATION_MISMATCH"));
+  assert.equal(result.passed, true, "城市不匹配不应触发硬过滤拒绝");
+  assert.ok(!result.reasonCodes.some((r) => r.code === "LOCATION_MISMATCH"), "LOCATION_MISMATCH 不再由硬过滤发出");
 });
 
-test("hardFilter：必备技能缺失 → REQUIRED_SKILL_MISSING", () => {
+test("hardFilter：必备技能缺失（零命中）→ REQUIRED_SKILL_MISSING", () => {
   const result = hardFilter({
     jobProjection: jobProj(),
     candidateProjection: candProj({ profile: { ...candProj().profile, skills: ["Java"] } }),
   });
   assert.equal(result.passed, false);
   assert.ok(result.reasonCodes.some((r) => r.code === "REQUIRED_SKILL_MISSING"));
+});
+
+test("hardFilter：命中部分必备技能（非全部）→ 技能门槛通过，部分匹配交阶段二评分", () => {
+  const result = hardFilter({
+    jobProjection: jobProj(),
+    candidateProjection: candProj({ profile: { ...candProj().profile, skills: ["Node.js"] } }),
+  });
+  assert.ok(
+    !result.reasonCodes.some((r) => r.code === "REQUIRED_SKILL_MISSING"),
+    "命中 ≥1 必备技能不应触发 REQUIRED_SKILL_MISSING",
+  );
+  assert.equal(result.passed, true, "其余硬要求满足时应通过");
 });
 
 test("hardFilter：年限不足 → EXPERIENCE_BELOW_MINIMUM", () => {
@@ -128,14 +140,14 @@ test("hardFilter：职位关键硬要求缺失 → REQUIRED_FIELD_MISSING（默�
   assert.equal(noSkills.passed, false);
   assert.ok(noSkills.reasonCodes.some((r) => r.code === "REQUIRED_FIELD_MISSING"));
 
+  // 工作地点不再硬过滤（城市交阶段二评分维度）：无 locations 不触发 REQUIRED_FIELD_MISSING
   const noLocations = hardFilter({
     jobProjection: jobProj({
       hard_requirements: { ...jobProj().hard_requirements, locations: [] },
     }),
     candidateProjection: candProj(),
   });
-  assert.equal(noLocations.passed, false);
-  assert.ok(noLocations.reasonCodes.some((r) => r.code === "REQUIRED_FIELD_MISSING"));
+  assert.equal(noLocations.passed, true, "无工作地点不应触发硬过滤拒绝");
 });
 
 test("hardFilter：combined_input_hash 确定性复算、内容变化则变化", () => {

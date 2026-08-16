@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 匹配垂直切片跑通：硬过滤规则 v3（技能 ≥1 命中 + 城市不硬门槛）+ 真实数据产出匹配池
+
+> 状态：`verified`。单测 265/265、集成（projection-filter + match-sync + llm-detail-scoring-adapter + candidate-redaction-loader + async-task-sync）31/31、build/tsc/lint 全绿。真实垂直切片（阶段一 + 阶段二 Fake）：5 个「知识图谱/Text2SQL」沉睡职位 × 207 候选人，v3 规则下 filterPassed **65**、阶段二 Top-K/全局预算内 scored **20**（deferred 45 留后续 tick）、真实 `matches` 跨城市产出（如深圳 8 条 score 74-80、上海 2 条）——匹配池从 0 收敛为真实 (job, candidate) 池。真实 LLM 评分仍受合规门禁关闭。
+
+- **硬过滤规则 v3（`filter.mjs` + `DEFAULT_FILTER_RULE_VERSION` v1→v3）**：① 必备技能 `REQUIRED_SKILL_MISSING` 语义从「缺少任一必备技能」收紧为「零命中必备技能」——命中 ≥1 项即通过技能门槛，部分匹配交由阶段二 LLM 评分维度评估（技能比较做大小写/空白归一化）；② **城市不再硬过滤**——全国招人/候选人可换城市，`LOCATION_MISMATCH` 不再由硬过滤发出，城市交阶段二 `location` 评分维度。`filter_rule_version` 参与过滤结果幂等键，v3 另起一行不覆盖旧版本。
+- **根因与现状（如实记录）**：放宽前 468/468 全拒——候选 skills 覆盖率低（且为系统简历推断、随爬取持续提升）、与职位必备技能词表交集小、城市硬门槛。v3 后命中率明显提升（filterPassed 65/207）；候选 skills/industry 是系统推断 + 爬取进行中，覆盖会继续增长。
+- 测试：`filter.test.mjs` 补「命中部分必备技能 → 技能门槛通过」与「城市不再硬门槛——异地候选人通过」（RED→GREEN）；更新「工作地点缺失」断言为不拒绝。
+- 文档：`docs/10` §5 规则 v3 + 垂直切片结果；`docs/07` §2 硬过滤验收行。
+
 ### 2026-08-16 — 候选人匹配输入：skills 简历正文推断 + industry 职业标签提取
 
 > 状态：`verified`。Provider 73/73、schema check 通过；Consumer 单测 264/264、集成 58/58、lint/tsc 0 错误、build 通过、跨仓契约对齐检查通过。真实 DOM 收敛（2026-08-16）：详情页无技能标签，skills 走简历正文启发式推断（标注技术债，同 category 标题推断兜底）；industry 取头部职业标签 `p.company .title-text`（职业方向，不含公司名——公司名进 industry 会经匹配投影泄漏给 LLM，公司泛化由 redaction loader 负责）。

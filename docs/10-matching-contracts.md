@@ -74,6 +74,8 @@
 
 > **实现状态**：`hardFilter`（`lib/matching/filter.mjs`）输出每条原因携带 `jobValue`/`candidateValue`/`explanation`（人类可读），`combined_input_hash` = 职位投影 hash + 候选人投影 hash + 规则版本组合 SHA-256；同输入同规则版本确定性复算（虚构 Fixture 已验证）。未通过硬过滤的组合不创建 LLM 运行。
 
+> **规则 v3（2026-08-16）**：① 必备技能 `REQUIRED_SKILL_MISSING` 语义从「缺少任一必备技能」收紧为「**零命中**必备技能」——命中 ≥1 项即通过技能门槛，部分匹配交由阶段二评分维度；② **城市不再硬过滤**（全国招人/候选人可换城市，`LOCATION_MISMATCH` 不再由硬过滤发出，城市交阶段二 `location` 评分维度）。`DEFAULT_FILTER_RULE_VERSION` 升至 `v3`（新结果按 `filter_rule_version` 另起一行，不覆盖旧版本）。真实垂直切片（阶段一 + 阶段二 Fake）：5 个「知识图谱/Text2SQL」沉睡职位 × 207 候选人，v3 下 filterPassed **65**、阶段二 Top-K/全局预算内 scored **20**（deferred 45 留后续 tick）、真实 `matches` 跨城市产出（如深圳 8 条 score 74-80、上海 2 条）——匹配池从 0 收敛为真实 (job, candidate) 池。真实 LLM 评分仍受合规门禁关闭；候选 skills 为系统简历推断、覆盖随爬取提升（见 [05-roadmap](05-roadmap.md) 候选人侧缺口）。
+
 ## 6. 第二阶段：LLM 详情维度评分
 
 ### 6.1 调用包络与版本

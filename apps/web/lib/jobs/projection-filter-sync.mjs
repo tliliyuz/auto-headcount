@@ -37,7 +37,7 @@ import {
 } from "../matching/candidate-projection.mjs";
 
 export const PROJECTION_FILTER_SYNC_TYPE = "match_projection_filter";
-export const DEFAULT_FILTER_RULE_VERSION = "v1";
+export const DEFAULT_FILTER_RULE_VERSION = "v3";
 export const DEFAULT_GENERATOR_VERSION = "rules/v1";
 export const DEFAULT_REDACTION_VERSION = "redact/v1";
 export const DEFAULT_STALE_SYNC_RUN_MS = 30 * 60 * 1000;

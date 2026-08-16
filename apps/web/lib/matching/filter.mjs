@@ -5,8 +5,8 @@
  * 输出通过/剔除原因。同投影哈希 + 同规则版本 → 同结果（确定性可复算）。
  *
  * 原因码（稳定机器码，docs/10 §5）：
- * - LOCATION_MISMATCH           地点不匹配（职位明确限定城市且候选人明确其他城市）
- * - REQUIRED_SKILL_MISSING      必备技能缺失
+ * - LOCATION_MISMATCH           城市不再硬过滤（全国招人/候选人可换城市，城市交阶段二评分维度）；机器码保留供契约/历史引用
+ * - REQUIRED_SKILL_MISSING      零命中必备技能（候选人不匹配任何必备技能；命中 ≥1 即通过技能门槛）
  * - EXPERIENCE_BELOW_MINIMUM    最低年限不足
  * - EDUCATION_BELOW_MINIMUM     学历层级不足
  * - CERTIFICATE_MISSING         必备证书缺失
@@ -59,35 +59,21 @@ export function hardFilter({
   if (!Array.isArray(hard.required_skills) || hard.required_skills.length === 0) {
     reasonCodes.push(reason("REQUIRED_FIELD_MISSING", "必备技能", "未指定/缺失", "职位未指定必备技能清单"));
   }
-  if (!Array.isArray(hard.locations) || hard.locations.length === 0) {
-    reasonCodes.push(reason("REQUIRED_FIELD_MISSING", "工作地点", "未指定", "职位未指定工作地点，无法按地点硬过滤"));
-  }
 
-  // 地点：职位明确限定城市且候选人明确其他城市 → 不过
-  const jobLocations = hard.locations ?? [];
-  const candCity = profile.city ?? null;
-  if (jobLocations.length > 0 && candCity && !jobLocations.includes(candCity)) {
-    reasonCodes.push(
-      reason(
-        "LOCATION_MISMATCH",
-        jobLocations.join("、"),
-        candCity,
-        `候选人城市 ${candCity} 不在职位限定的 ${jobLocations.join("、")} 内`,
-      ),
-    );
-  }
-
-  // 必备技能
+  // 必备技能：命中 ≥1 项必备技能即通过技能门槛（部分匹配交阶段二 LLM 评分维度评估，
+  // docs/10 §5 2026-08-16 规则 v3）；零命中 → REQUIRED_SKILL_MISSING。比较做大小写/空白归一化。
+  // 城市不再作为硬门槛：全国招人 + 候选人可换城市，城市匹配交由阶段二 `location` 评分维度
+  // 评估（LOCATION_MISMATCH 不再由硬过滤发出；LOCATION_MISMATCH 机器码保留供契约/历史引用）。
   const requiredSkills = hard.required_skills ?? [];
-  const candSkills = new Set(profile.skills ?? []);
-  const missingSkills = requiredSkills.filter((s) => !candSkills.has(s));
-  if (missingSkills.length > 0) {
+  const candSkills = new Set((profile.skills ?? []).map(normalizeSkill));
+  const matchedSkills = requiredSkills.filter((s) => candSkills.has(normalizeSkill(s)));
+  if (requiredSkills.length > 0 && matchedSkills.length === 0) {
     reasonCodes.push(
       reason(
         "REQUIRED_SKILL_MISSING",
         requiredSkills.join("、"),
-        [...candSkills].join("、") || "未指定",
-        `候选人缺少必备技能：${missingSkills.join("、")}`,
+        (profile.skills ?? []).join("、") || "未指定",
+        `候选人未命中任何必备技能：${requiredSkills.join("、")}`,
       ),
     );
   }
@@ -160,6 +146,10 @@ export function hardFilter({
 
 function reason(code, jobValue, candidateValue, explanation) {
   return { code, jobValue, candidateValue, explanation };
+}
+
+function normalizeSkill(value) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 /** 薪资硬约束且区间无交集 → 返回原因（否则 null）。 */
