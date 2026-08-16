@@ -9,6 +9,8 @@ import {
   LIEBIDE_CANDIDATE_DETAIL_CONTRACT_VERSION,
   LIEBIDE_JOB_DETAIL_CONTRACT_ID,
   LIEBIDE_JOB_DETAIL_CONTRACT_VERSION,
+  LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+  LIEBIDE_JOB_DETAIL_V2_CONTRACT_VERSION,
   LIEBIDE_PLATFORM_ORIGIN,
   LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID,
   LIEBIDE_TALENT_POOL_LIST_CONTRACT_VERSION,
@@ -23,6 +25,14 @@ const PROVIDER_REQUEST_RELATIVE =
   "plugins/csdn-browser-agent/contracts/liebide-job-detail.request.v1.schema.json";
 const PROVIDER_RECEIPT_RELATIVE =
   "plugins/csdn-browser-agent/contracts/liebide-job-detail.receipt.v1.schema.json";
+const REQUEST_V2_SCHEMA_RELATIVE =
+  "docs/contracts/liebide-job-detail.request.v2.schema.json";
+const RECEIPT_V2_SCHEMA_RELATIVE =
+  "docs/contracts/liebide-job-detail.receipt.v2.schema.json";
+const PROVIDER_REQUEST_V2_RELATIVE =
+  "plugins/csdn-browser-agent/contracts/liebide-job-detail.request.v2.schema.json";
+const PROVIDER_RECEIPT_V2_RELATIVE =
+  "plugins/csdn-browser-agent/contracts/liebide-job-detail.receipt.v2.schema.json";
 const LIST_REQUEST_SCHEMA_RELATIVE = "docs/contracts/liebide-filtered-job-list.request.v2.schema.json";
 const LIST_RECEIPT_SCHEMA_RELATIVE = "docs/contracts/liebide-filtered-job-list.receipt.v2.schema.json";
 const PROVIDER_LIST_REQUEST_RELATIVE = "plugins/csdn-browser-agent/contracts/liebide-filtered-job-list.request.v2.schema.json";
@@ -69,6 +79,8 @@ const RECORD_KEYS = [
   "publishedAt",
   "validRecommendationCount",
 ];
+/** v2 回执 record 额外声明 jobDescriptionMissing（页面加载成功但无 JD 的显式信号）。 */
+const RECORD_KEYS_V2 = [...RECORD_KEYS, "jobDescriptionMissing"];
 
 export function canonicalSchemaJson(value) {
   if (Array.isArray(value)) {
@@ -130,6 +142,57 @@ export function verifyContractSchemas({ requestSchema, receiptSchema }) {
   };
 }
 
+/** 验证 v2 详情契约：请求同参但 contractId=v2；回执 record 含 jobDescriptionMissing 且 jobDescription 可空。 */
+export function verifyContractV2Schemas({ requestSchema, receiptSchema }) {
+  verifyClosedObject(requestSchema, REQUEST_KEYS, "request", REQUEST_REQUIRED_KEYS);
+  assert.equal(
+    requestSchema.properties.contractId?.const,
+    LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+    "v2 request contractId must match Consumer implementation",
+  );
+
+  verifyClosedObject(receiptSchema, RECEIPT_KEYS, "receipt");
+  assert.equal(
+    receiptSchema.properties.contractId?.const,
+    LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+    "v2 receipt contractId must match Consumer implementation",
+  );
+  assert.equal(
+    receiptSchema.properties.contractVersion?.const,
+    LIEBIDE_JOB_DETAIL_V2_CONTRACT_VERSION,
+    "v2 receipt contractVersion must match Consumer implementation",
+  );
+  assert.equal(
+    receiptSchema.properties.source?.properties?.origin?.const,
+    LIEBIDE_PLATFORM_ORIGIN,
+    "v2 receipt origin must match Consumer implementation",
+  );
+  verifyClosedObject(receiptSchema.properties.source, ["origin", "capturedAt"], "source");
+  verifyClosedObject(receiptSchema.properties.record, RECORD_KEYS_V2, "record");
+  const record = receiptSchema.properties.record.properties;
+  assert.equal(
+    record.jobDescriptionMissing?.type,
+    "boolean",
+    "v2 record must declare jobDescriptionMissing boolean",
+  );
+  assert.ok(
+    Array.isArray(record.jobDescription?.type) && record.jobDescription.type.includes("null"),
+    "v2 record jobDescription must be nullable",
+  );
+  assert.equal(
+    receiptSchema.properties.contentHash?.pattern,
+    "^[a-f0-9]{64}$",
+    "v2 receipt contentHash must remain lowercase SHA-256",
+  );
+
+  return {
+    contractId: LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+    contractVersion: LIEBIDE_JOB_DETAIL_V2_CONTRACT_VERSION,
+    requestSchemaSha256: schemaSha256(requestSchema),
+    receiptSchemaSha256: schemaSha256(receiptSchema),
+  };
+}
+
 export function compareProviderSchemas(consumer, provider) {
   assert.equal(
     schemaSha256(provider.requestSchema),
@@ -160,6 +223,11 @@ async function main() {
     receiptSchema: await readSchema(ROOT, RECEIPT_SCHEMA_RELATIVE),
   };
   const manifest = verifyContractSchemas(consumer);
+  const v2Consumer = {
+    requestSchema: await readSchema(ROOT, REQUEST_V2_SCHEMA_RELATIVE),
+    receiptSchema: await readSchema(ROOT, RECEIPT_V2_SCHEMA_RELATIVE),
+  };
+  const v2Manifest = verifyContractV2Schemas(v2Consumer);
   const listConsumer = {
     requestSchema: await readSchema(ROOT, LIST_REQUEST_SCHEMA_RELATIVE),
     receiptSchema: await readSchema(ROOT, LIST_RECEIPT_SCHEMA_RELATIVE),
@@ -185,6 +253,10 @@ async function main() {
       receiptSchema: await readSchema(providerRoot, PROVIDER_RECEIPT_RELATIVE),
     };
     compareProviderSchemas(consumer, provider);
+    compareProviderSchemas(v2Consumer, {
+      requestSchema: await readSchema(providerRoot, PROVIDER_REQUEST_V2_RELATIVE),
+      receiptSchema: await readSchema(providerRoot, PROVIDER_RECEIPT_V2_RELATIVE),
+    });
     compareProviderSchemas(listConsumer, {
       requestSchema: await readSchema(providerRoot, PROVIDER_LIST_REQUEST_RELATIVE),
       receiptSchema: await readSchema(providerRoot, PROVIDER_LIST_RECEIPT_RELATIVE),
@@ -202,6 +274,7 @@ async function main() {
   console.log(
     JSON.stringify({
       ...manifest,
+      ...v2Manifest,
       listRequestSchemaSha256: schemaSha256(listConsumer.requestSchema),
       listReceiptSchemaSha256: schemaSha256(listConsumer.receiptSchema),
       talentPoolRequestSchemaSha256: schemaSha256(talentPoolConsumer.requestSchema),

@@ -46,14 +46,14 @@ export function createAsyncTaskRepository(sql) {
       return rows[0] ?? null;
     },
 
-    /** 同一浏览器职位目标去重；不同职位可排队，调度器仍按 kind 串行执行。 */
-    async enqueueBrowserJobTaskIfTargetIdle({ idempotencyKey, payload, scheduledAt }) {
+    /** 同一浏览器职位目标去重（按 kind 区分 browser_job_collect 与 browser_job_jd_backfill）；不同职位可排队，调度器仍按 kind 串行执行。 */
+    async enqueueBrowserJobTaskIfTargetIdle({ kind = "browser_job_collect", idempotencyKey, payload, scheduledAt }) {
       const rows = await sql`
         insert into async_tasks (kind, idempotency_key, payload, scheduled_at)
-        select 'browser_job_collect', ${idempotencyKey}, ${sql.json(payload)}, ${scheduledAt}
+        select ${kind}, ${idempotencyKey}, ${sql.json(payload)}, ${scheduledAt}
         where not exists (
           select 1 from async_tasks
-          where kind = 'browser_job_collect'
+          where kind = ${kind}
             and status in ('pending', 'running')
             and payload->>'sourceConnectionId' = ${payload.sourceConnectionId}
             and payload->>'userId' = ${payload.userId}

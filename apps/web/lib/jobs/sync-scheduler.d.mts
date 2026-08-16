@@ -45,6 +45,10 @@ export declare function decideTaskOutcome(input: {
   maxAttempts: number;
 }): TaskDecision;
 
+export declare function resolveSyncSource(
+  env: Record<string, string | undefined>,
+): SyncSourceConfig;
+
 export declare function enqueueDueSyncTasks(
   sql: postgres.Sql,
   input: {

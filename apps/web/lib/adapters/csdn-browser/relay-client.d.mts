@@ -20,6 +20,7 @@ export function createCsdnBrowserRelayClient(options: {
   ): Promise<Record<string, unknown>>;
   extractJobDetail(
     input: JobDetailExtractionRoute,
+    options?: { contractId?: string },
   ): Promise<ParsedJobDetailExtraction>;
   discoverFilteredJobs(input: FilteredJobListRoute): Promise<Record<string, unknown>>;
 };

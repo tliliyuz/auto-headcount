@@ -5,6 +5,8 @@ import { createAuthRepository } from "../identity/auth-repository.mjs";
 import { createAsyncTaskRepository } from "./async-task-repository.mjs";
 import { runBrowserJobBatchDiscovery, runBrowserJobCollection } from "./browser-job-collection.mjs";
 import { createBrowserJobCollectionRepository } from "./browser-job-collection-repository.mjs";
+import { runBrowserJobJdBackfill } from "./browser-job-jd-backfill.mjs";
+import { createBrowserJobJdBackfillRepository } from "./browser-job-jd-backfill-repository.mjs";
 import { createBrowserJobBatchRepository, updateBrowserCollectionBatchDiscoveryOutcome, updateBrowserCollectionItemOutcome } from "./browser-job-batch-repository.mjs";
 import { runBrowserCandidateBatchDiscovery, runBrowserCandidateCollection } from "./browser-candidate-collection.mjs";
 import { createBrowserCandidateBatchRepository, createBrowserCandidateCollectionRepository, updateBrowserCandidateBatchDiscoveryOutcome, updateBrowserCandidateItemOutcome } from "./browser-candidate-repository.mjs";
@@ -47,6 +49,7 @@ const TASK_KIND_JOB_DETAILS = "job_details_sync";
 const TASK_KIND_JOB_REQUIREMENTS = "job_requirements_extract";
 const TASK_KIND_MATCH = "match_candidates_sync";
 export const TASK_KIND_BROWSER_JOB_COLLECT = "browser_job_collect";
+export const TASK_KIND_BROWSER_JOB_JD_BACKFILL = "browser_job_jd_backfill";
 export const TASK_KIND_BROWSER_JOB_BATCH_DISCOVER = "browser_job_batch_discover";
 export const TASK_KIND_BROWSER_CANDIDATE_COLLECT = "browser_candidate_collect";
 export const TASK_KIND_BROWSER_CANDIDATE_DISCOVERY = "browser_candidate_discovery";
@@ -54,6 +57,7 @@ export const TASK_KIND_BROWSER_CANDIDATE_DISCOVERY = "browser_candidate_discover
 /** 浏览器采集/发现任务集合：认领调度用更高重试上限（见 BROWSER_MAX_ATTEMPTS）。 */
 const BROWSER_TASK_KINDS = new Set([
   TASK_KIND_BROWSER_JOB_COLLECT,
+  TASK_KIND_BROWSER_JOB_JD_BACKFILL,
   TASK_KIND_BROWSER_JOB_BATCH_DISCOVER,
   TASK_KIND_BROWSER_CANDIDATE_COLLECT,
   TASK_KIND_BROWSER_CANDIDATE_DISCOVERY,
@@ -101,7 +105,7 @@ export function decideTaskOutcome({ status, retryable, attempts, maxAttempts }) 
   return "dead";
 }
 
-function resolveSyncSource(env) {
+export function resolveSyncSource(env) {
   return {
     provider: env.SYNC_SOURCE_PROVIDER ?? "csdn-mcp",
     environment:
@@ -257,6 +261,25 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
         now,
         relayClient,
         repository: createBrowserJobCollectionRepository(sql, { encryption }),
+      });
+    }
+    if (task.kind === TASK_KIND_BROWSER_JOB_JD_BACKFILL) {
+      const encryption = {
+        key: env.APP_ENCRYPTION_KEY,
+        keyVersion: env.APP_ENCRYPTION_KEY_VERSION,
+      };
+      if (!encryption.key || !encryption.keyVersion) {
+        return { status: "failed", errorCode: "ENCRYPTION_CONFIG_REQUIRED", retryable: false, stats: null };
+      }
+      const relayClient = browserRelay ?? createCsdnBrowserRelayClient({
+        requestUrl: env.BROWSER_RELAY_URL,
+        token: env.BROWSER_RELAY_TOKEN,
+      });
+      return runBrowserJobJdBackfill({
+        task: task.payload,
+        now,
+        relayClient,
+        repository: createBrowserJobJdBackfillRepository(sql, { encryption }),
       });
     }
     if (task.kind === TASK_KIND_BROWSER_JOB_BATCH_DISCOVER) {

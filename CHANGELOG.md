@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 浏览器 JD 回填：DB 驱动补可操作职位的空 JD（liebide-job-detail-v2 + job_jd_backfills 台账）
+
+> 状态：Consumer 侧 `verified`——单测 283/283（含新增 browser-job-jd-backfill 8 项、契约 v2 解析）、集成 61/61（含新增 browser-job-jd-backfill 集成：入队→filled/no_provider_jd/failed→台账防重采）、build/tsc/lint 0 错误、`check:browser-contract` 与 `check-md-links` 通过、迁移 0015 已应用 dev DB。**跨仓库 Provider（CSDN-Agent）实现 `liebide-job-detail-v2` 后**，`make check-browser-contract-cross-repo` 方能通过（当前为已知依赖，见 runbook §8）。
+
+- **根因**：`wb.jobs.under_served` 契约不含 `job_description`、`wb.jobs.list` 的 JD 被同步路径丢弃、`wb.jobs.get` 补全只覆盖可操作∩沉睡窄集（约 6 个）→ 大量可操作职位 `job_description` 为空，职位去重无法按 JD 分组、`job_requirements` 无法提取技能/薪资。
+- **契约 v2（`liebide-job-detail-v2`）**：`record` 新增必填布尔 `jobDescriptionMissing`，不变式 `true ⟺ jobDescription 为 null/空`——显式区分「页面加载成功但供应方无 JD」与契约漂移；v1 语义不变（`browser_job_collect` 继续用 v1）。请求/回执 v2 Schema 入库 `docs/contracts/`，`check-browser-contracts.mjs` 增加 v2 校验。
+- **新任务 `browser_job_jd_backfill`（JD-only）**：预检 → 详情提取(v2) → externalId 校验 → 按 `jobDescriptionMissing` 分叉 `filled`/`no_provider_jd`。只补 `job_description`（null-safe、不 bump updated_at、不碰其他列），**不经沉睡资格门禁、不创建职位行、不覆盖 MCP 字段、不改变 eligibility**（沉睡与零推荐仍由 MCP 证明）。错误映射：relay 瞬时故障可重试不写台账；预检未就绪（`BROWSER_*`）不写台账（不是供应方无数据）；提取阶段契约/实体失败写台账 `failed`。
+- **台账 `job_jd_backfills`（迁移 0015，追加写）**：outcome `filled/no_provider_jd/failed`（CHECK）+ `jd_length/content_hash/error_code/raw_record_id`；入队器 `not exists` 排除已尝试职位防无限重爬（`filled` 后 job_description 非空自然排除），删除台账行可强制重试。
+- **入队 + 手动触发**：`enqueueBrowserJobJdBackfillTasks` 扫「可操作 + active + 缺 JD + 台账未尝试」职位（沉睡优先，limit 50），经 target-idle 守卫入队；`POST /api/browser-collections` `mode=jd_backfill`（roles operations/admin，审计 metadata 仅 scanned/enqueued/contractId，不落真实 JD 正文）。
+- 测试：unit（载荷白名单/runner 各分支含无资格门禁证明/错误映射）+ 集成（真实 DB + 假 relayClient：3 职位 filled/no_provider_jd/failed → job_description 正确、raw_records 快照 2 条、台账 3 行、二次入队 scanned=0）。RED 证据：新增模块测试在实现前 `MODULE_NOT_FOUND`/断言失败。
+- 文档：`docs/04` §5.2（JD 回填路径 + v2 语义）、`docs/03` §7.6（台账表）+ §7.1/§7.2 更新 + 迁移 0015、runbook §1.1（回填流程 + v2 生命周期）。Fixture 沿用现有内联约定（无独立 fixture 目录）。
+
 ### 2026-08-16 — 职位去重：同 JD 多城市合并为代表——LLM 调用从每变体收敛为每组一次
 
 > 状态：`verified`。单测 270/270、集成 59/59（含 projection-filter 新增去重断言）、build/tsc/lint/schemas 全绿。真实复验：「知识图谱/Text2SQL」17 城同 JD 组 374 个过滤通过 → 去重后 22 pending → Top-K(10) 内 scored 10、matches 全落代表职位；对比去重前 17 变体各自 Top-K 上限 170 次 LLM 调用。同 JD 多城市职位（猎必得批量挂岗）不再每个城市变体各调一次评分。

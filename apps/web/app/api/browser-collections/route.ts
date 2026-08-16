@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { jsonResponse } from "../../../lib/identity/auth-http";
 import { requireSameOrigin } from "../../../lib/identity/csrf.mjs";
 import { createAsyncTaskRepository } from "../../../lib/jobs/async-task-repository.mjs";
-import { LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID } from "../../../lib/adapters/csdn-browser/browser-collection-contract.mjs";
+import { LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID } from "../../../lib/adapters/csdn-browser/browser-collection-contract.mjs";
 import { createBrowserJobBatchRepository } from "../../../lib/jobs/browser-job-batch-repository.mjs";
+import { DEFAULT_BACKFILL_LIMIT, enqueueBrowserJobJdBackfillTasks } from "../../../lib/jobs/browser-job-jd-backfill.mjs";
+import { resolveSyncSource } from "../../../lib/jobs/sync-scheduler.mjs";
 import { BrowserJobCollectionError, parseBrowserJobBatchDiscoverTaskPayload, parseBrowserJobCollectTaskPayload } from "../../../lib/jobs/browser-job-collection.mjs";
 import type { BrowserJobBatchDiscoverTaskPayload, BrowserJobCollectTaskPayload } from "../../../lib/jobs/browser-job-collection.mjs";
 import { bindBrowserRoute, BrowserRouteConfigError } from "../../../lib/server/browser-route-config.mjs";
@@ -16,7 +18,7 @@ const handler = withAudit(
     action: "browser.collection.trigger",
     resourceType: "browser_collection",
     allowedRoles: ["operations", "admin"],
-    auditMetadataKeys: ["taskId", "deduplicated", "contractId"],
+    auditMetadataKeys: ["taskId", "deduplicated", "contractId", "scanned", "enqueued"],
   },
   async (ctx) => {
     let body: unknown;
@@ -26,6 +28,39 @@ const handler = withAudit(
       return { response: jsonResponse({ code: "invalid_request", message: "请求体必须是 JSON" }, 400) };
     }
     const isBatch = typeof body === "object" && body !== null && (body as { contractId?: unknown }).contractId === LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID;
+    const isBackfill =
+      typeof body === "object" && body !== null && (body as { mode?: unknown }).mode === "jd_backfill";
+    if (isBackfill) {
+      // 管理端手动触发 JD 回填：扫描可操作缺 JD 职位 → 按 external_id 入队浏览器详情回填任务。
+      const rawLimit = (body as { limit?: unknown }).limit;
+      const requested = typeof rawLimit === "number" && Number.isInteger(rawLimit) ? rawLimit : DEFAULT_BACKFILL_LIMIT;
+      const limit = Math.min(Math.max(requested, 1), 200);
+      let route: { userId: string; deviceId: string };
+      try {
+        route = bindBrowserRoute({});
+      } catch (error) {
+        if (error instanceof BrowserRouteConfigError) {
+          return { response: jsonResponse({ code: "browser_route_config_required", message: "浏览器采集路由尚未完成服务端配置" }, 503) };
+        }
+        throw error;
+      }
+      const { client } = getDb();
+      const source = resolveSyncSource(process.env);
+      const result = await enqueueBrowserJobJdBackfillTasks({
+        sql: client,
+        source,
+        userId: route.userId,
+        deviceId: route.deviceId,
+        limit,
+      });
+      return {
+        response: jsonResponse({ accepted: result.enqueued > 0, ...result }, 202),
+        audit: {
+          resourceId: result.sourceId,
+          metadata: { scanned: result.scanned, enqueued: result.enqueued, contractId: LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID },
+        },
+      };
+    }
     let payload;
     try {
       payload = isBatch

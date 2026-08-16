@@ -92,6 +92,7 @@ MCP 返回值不能直接进入页面或业务表，必须经过：
 - 完整简历与联系方式不得经 Agent 对话或通用 MCP 工具结果中转；应使用短期单次 ingestion ticket 从浏览器直传 auto-headcount 采集入口。
 - MCP 和 Web 对同一实体的字段不得无条件互相覆盖；规范化层保存字段来源、契约/映射版本、采集时间和内容哈希，并按已确认优先级生成业务投影。
 - `days_without_rec` 等沉睡证据继续优先使用明确提供该语义的来源；仅在 Web 页面字段口径完成验证后，Web 记录才能独立证明 7～30 天、有效和零推荐。
+- **JD 回填路径（2026-08-16，`browser_job_jd_backfill`）**：对已入库 `operability_status='actionable'` 且缺 JD 的职位，按 external_id 用 `liebide-job-detail-v2` 契约抓详情，**只回填 `job_description`**——不经沉睡资格门禁、不创建职位行、不覆盖 MCP 其他字段、不改变 `eligibility_evidence`（沉睡与零推荐仍由 MCP 证明）。v2 以 `jobDescriptionMissing` 显式区分「页面加载成功但供应方无 JD」（台账 `no_provider_jd`）与契约漂移（`failed`）；`job_jd_backfills` 台账记录每次结论并防无限重爬（入队器 `not exists` 排除已尝试职位）。管理端手动触发（`/api/browser-collections` `mode=jd_backfill`），不自动驱动运营浏览器；审计 metadata 只含 `scanned/enqueued/contractId`，不落真实 JD 正文。
 
 ## 6. 待向对方确认（2026-08-12 更新）
 

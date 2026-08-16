@@ -4,6 +4,8 @@ import {
   CSDN_EXTRACTION_TOOL,
   LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID,
   LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
+  LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+  LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
   LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID,
   buildBrowserConnectionStatusArguments,
   buildCandidateDetailConnectionStatusArguments,
@@ -75,15 +77,20 @@ export function createCsdnBrowserRelayClient({
           localToolEndpoint,
         );
       }
+      const effectiveContractId =
+        input.contractId === LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID
+          ? LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID
+          : LIEBIDE_JOB_DETAIL_CONTRACT_ID;
       return callRelayTool(
         CSDN_CONNECTION_STATUS_TOOL,
-        buildBrowserConnectionStatusArguments(stripContractId(input)),
+        buildBrowserConnectionStatusArguments(stripContractId(input), effectiveContractId),
         parseBrowserConnectionStatusResult,
         localToolEndpoint,
       );
     },
-    async extractJobDetail(input) {
-      return callRelayTool(CSDN_EXTRACTION_TOOL, buildJobDetailExtractionArguments(input), parseJobDetailExtractionResult);
+    async extractJobDetail(input, options = {}) {
+      const contractId = options.contractId ?? LIEBIDE_JOB_DETAIL_CONTRACT_ID;
+      return callRelayTool(CSDN_EXTRACTION_TOOL, buildJobDetailExtractionArguments(input, contractId), parseJobDetailExtractionResult);
     },
     async discoverFilteredJobs(input) {
       const args = buildFilteredJobListExtractionArguments(stripContractId(input));

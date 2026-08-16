@@ -6,6 +6,7 @@ import {
   CSDN_CONNECTION_STATUS_TOOL,
   CSDN_EXTRACTION_TOOL,
   LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+  LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
   LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID,
   buildFilteredJobListExtractionArguments,
   buildBrowserConnectionStatusArguments,
@@ -246,6 +247,148 @@ test("Relay 客户端调用只读连接预检且不要求持久化 browserSessio
   assert.equal(calls[0].tool, CSDN_CONNECTION_STATUS_TOOL);
   assert.equal(calls[0].arguments.contractId, LIEBIDE_JOB_DETAIL_CONTRACT_ID);
   assert.equal("browserSessionId" in calls[0].arguments, false);
+});
+
+/** v2 详情回执（jobDescriptionMissing=false 时 JD 必填非空）。 */
+function validV2ExtractionResult(overrides = {}) {
+  return {
+    contractId: LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+    contractVersion: 2,
+    status: "extracted",
+    source: {
+      origin: "https://portal.liebide.com",
+      capturedAt: "2026-08-16T09:00:00.000Z",
+    },
+    record: {
+      externalId: "fixture-job-001",
+      title: "示例数据工程师",
+      status: "active",
+      city: "北京",
+      salaryMin: 20000,
+      salaryMax: 35000,
+      jobDescription: "负责虚构数据平台建设与数据管道治理。",
+      jobDescriptionMissing: false,
+      publishedAt: null,
+      validRecommendationCount: null,
+    },
+    contentHash: "b".repeat(64),
+    ...overrides,
+  };
+}
+
+test("v2 详情提取参数沿用固定契约（contractId=liebide-job-detail-v2）", () => {
+  assert.deepEqual(
+    buildJobDetailExtractionArguments(
+      { ...route, expectedExternalId: "fixture-job-001" },
+      LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+    ),
+    {
+      ...route,
+      contractId: LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
+      expectedExternalId: "fixture-job-001",
+    },
+  );
+  // 默认仍为 v1（browser_job_collect 行为不变）
+  assert.equal(
+    buildJobDetailExtractionArguments({ ...route, expectedExternalId: "fixture-job-001" }).contractId,
+    LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+  );
+});
+
+test("v2 回执：jobDescriptionMissing=false 正常返回 JD；=true 返回 jobDescription=null", () => {
+  const filled = parseJobDetailExtractionResult(validV2ExtractionResult());
+  assert.equal(filled.contractVersion, 2);
+  assert.equal(filled.jobDescription, "负责虚构数据平台建设与数据管道治理。");
+  assert.equal(filled.jobDescriptionMissing, false);
+
+  const missing = parseJobDetailExtractionResult(
+    validV2ExtractionResult({
+      record: {
+        externalId: "fixture-job-001",
+        title: "示例数据工程师",
+        status: "active",
+        city: "北京",
+        salaryMin: 20000,
+        salaryMax: 35000,
+        jobDescription: null,
+        jobDescriptionMissing: true,
+        publishedAt: null,
+        validRecommendationCount: null,
+      },
+    }),
+  );
+  assert.equal(missing.jobDescription, null);
+  assert.equal(missing.jobDescriptionMissing, true);
+});
+
+test("v2 不变式违反与 v1 语义隔离均失败关闭", () => {
+  const cases = [
+    // jobDescriptionMissing=true 但 JD 非空
+    validV2ExtractionResult({
+      record: {
+        ...validV2ExtractionResult().record,
+        jobDescription: "仍有 JD",
+        jobDescriptionMissing: true,
+      },
+    }),
+    // jobDescriptionMissing=false 但 JD 为 null
+    validV2ExtractionResult({
+      record: {
+        ...validV2ExtractionResult().record,
+        jobDescription: null,
+        jobDescriptionMissing: false,
+      },
+    }),
+    // jobDescriptionMissing 缺失
+    validV2ExtractionResult({
+      record: {
+        ...validV2ExtractionResult().record,
+        jobDescriptionMissing: undefined,
+      },
+    }),
+    // jobDescriptionMissing 非布尔
+    validV2ExtractionResult({
+      record: {
+        ...validV2ExtractionResult().record,
+        jobDescriptionMissing: "yes",
+      },
+    }),
+    // v1 回执 record 带 jobDescriptionMissing（未知键，v1 语义不变）
+    validExtractionResult({
+      record: { ...validExtractionResult().record, jobDescriptionMissing: false },
+    }),
+  ];
+
+  for (const input of cases) {
+    assert.throws(
+      () => parseJobDetailExtractionResult(input),
+      (error) =>
+        error instanceof BrowserCollectionContractError &&
+        error.code === "BROWSER_COLLECTION_CONTRACT_INVALID",
+    );
+  }
+});
+
+test("Relay 客户端按 contractId 参数化调用 v2 详情提取", async () => {
+  const calls = [];
+  const client = createCsdnBrowserRelayClient({
+    requestUrl: "http://127.0.0.1:48887/mcp/request",
+    token: "fixture-relay-token",
+    fetchImpl: async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return new Response(
+        JSON.stringify({ ok: true, result: validV2ExtractionResult() }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+
+  const result = await client.extractJobDetail(
+    { ...route, expectedExternalId: "fixture-job-001" },
+    { contractId: LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID },
+  );
+  assert.equal(result.jobDescriptionMissing, false);
+  assert.equal(calls[0].arguments.contractId, LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID);
 });
 
 test("Relay 转发详情提取时保留期望标题", async () => {

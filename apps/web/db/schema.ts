@@ -411,6 +411,29 @@ export const browserCollectionItems = pgTable(
   ],
 );
 
+/** JD 回填台账（docs/03 §7.1 扩展）：浏览器详情回填可操作职位 job_description 的逐次结论（追加写）。
+ * outcome ∈ filled | no_provider_jd | failed；入队器以 `not exists(本表 job_id)` 排除已尝试职位，防无限重爬。 */
+export const jobJdBackfills = pgTable(
+  "job_jd_backfills",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+    sourceConnectionId: uuid("source_connection_id").notNull().references(() => sourceConnections.id, { onDelete: "restrict" }),
+    externalId: text("external_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    outcome: text("outcome").notNull(),
+    jdLength: integer("jd_length").default(0).notNull(),
+    contentHash: text("content_hash"),
+    errorCode: text("error_code"),
+    rawRecordId: uuid("raw_record_id").references(() => rawRecords.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("job_jd_backfills_job_created_idx").on(table.jobId, table.createdAt),
+    index("job_jd_backfills_source_created_idx").on(table.sourceConnectionId, table.createdAt),
+  ],
+);
+
 /** 候选人采集批次（docs/10 §5）：人才池发现批次，contract_id 固定为人才池列表合同。 */
 export const browserCandidateBatches = pgTable(
   "browser_candidate_batches",

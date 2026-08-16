@@ -2,6 +2,9 @@ export const CSDN_EXTRACTION_TOOL = "csdn_run_extraction_contract";
 export const CSDN_CONNECTION_STATUS_TOOL = "csdn_get_browser_connection_status";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_ID = "liebide-job-detail-v1";
 export const LIEBIDE_JOB_DETAIL_CONTRACT_VERSION = 1;
+/** v2：jobDescription 可空 + 显式 jobDescriptionMissing 信号（JD 回填区分「供应方无数据」与契约漂移）。 */
+export const LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID = "liebide-job-detail-v2";
+export const LIEBIDE_JOB_DETAIL_V2_CONTRACT_VERSION = 2;
 export const LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID = "liebide-filtered-job-list-v2";
 export const LIEBIDE_FILTERED_JOB_LIST_CONTRACT_VERSION = 2;
 export const LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID = "liebide-talent-pool-list-v1";
@@ -54,6 +57,8 @@ const RECORD_KEYS = new Set([
   "publishedAt",
   "validRecommendationCount",
 ]);
+/** v2 回执 record 额外声明 jobDescriptionMissing（页面加载成功但无 JD 的显式信号）。 */
+const RECORD_KEYS_V2 = new Set([...RECORD_KEYS, "jobDescriptionMissing"]);
 const LIST_RESULT_KEYS = new Set([
   "contractId", "contractVersion", "status", "source", "filterEvidence", "items", "page", "contentHash",
 ]);
@@ -73,7 +78,7 @@ export class BrowserCollectionContractError extends Error {
 }
 
 /** 构造固定职位详情提取参数；拒绝任意脚本、选择器、URL 或未声明字段。 */
-export function buildJobDetailExtractionArguments(input) {
+export function buildJobDetailExtractionArguments(input, contractId = LIEBIDE_JOB_DETAIL_CONTRACT_ID) {
   requirePlainObject(input, "input", "BROWSER_COLLECTION_ARGUMENTS_INVALID");
   requireOnlyKeys(input, ROUTED_ARGUMENT_KEYS, "input", "BROWSER_COLLECTION_ARGUMENTS_INVALID");
   const output = {
@@ -83,7 +88,7 @@ export function buildJobDetailExtractionArguments(input) {
       "deviceId",
       "BROWSER_COLLECTION_ARGUMENTS_INVALID",
     ),
-    contractId: LIEBIDE_JOB_DETAIL_CONTRACT_ID,
+    contractId,
     expectedExternalId: requireIdentifier(
       input.expectedExternalId,
       "expectedExternalId",
@@ -103,8 +108,8 @@ export function buildJobDetailExtractionArguments(input) {
   return output;
 }
 
-export function buildBrowserConnectionStatusArguments(input) {
-  return buildJobDetailExtractionArguments(input);
+export function buildBrowserConnectionStatusArguments(input, contractId = LIEBIDE_JOB_DETAIL_CONTRACT_ID) {
+  return buildJobDetailExtractionArguments(input, contractId);
 }
 
 /** 构造筛选列表固定合同参数；页码是唯一允许持久化的浏览器断点。 */
@@ -181,7 +186,7 @@ export function parseBrowserConnectionStatusResult(input) {
   if (!CONNECTION_STATUSES.has(input.status)) throw invalid("connection status is unsupported");
   if (typeof input.ready !== "boolean") throw invalid("connection ready must be boolean");
   if ((input.status === "READY") !== input.ready) throw invalid("connection ready conflicts with status");
-  if (![LIEBIDE_JOB_DETAIL_CONTRACT_ID, LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID, LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID].includes(input.contractId)) throw invalid("connection contract is unsupported");
+  if (![LIEBIDE_JOB_DETAIL_CONTRACT_ID, LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID, LIEBIDE_FILTERED_JOB_LIST_CONTRACT_ID, LIEBIDE_TALENT_POOL_LIST_CONTRACT_ID, LIEBIDE_CANDIDATE_DETAIL_CONTRACT_ID].includes(input.contractId)) throw invalid("connection contract is unsupported");
   if (!Number.isInteger(input.registeredPageCount) || input.registeredPageCount < 0) throw invalid("connection page count is invalid");
   for (const key of ["sessionMatched", "entityMatched"]) {
     if (typeof input[key] !== "boolean") throw invalid(`connection ${key} must be boolean`);
@@ -196,10 +201,14 @@ export function parseJobDetailExtractionResult(input) {
   requirePlainObject(input, "result");
   rejectSensitiveKeys(input, "result");
   requireOnlyKeys(input, RESULT_KEYS, "result");
-  if (input.contractId !== LIEBIDE_JOB_DETAIL_CONTRACT_ID) {
+  const isV2 = input.contractId === LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID;
+  if (input.contractId !== LIEBIDE_JOB_DETAIL_CONTRACT_ID && !isV2) {
     throw invalid("result.contractId is not supported");
   }
-  if (input.contractVersion !== LIEBIDE_JOB_DETAIL_CONTRACT_VERSION) {
+  const expectedContractVersion = isV2
+    ? LIEBIDE_JOB_DETAIL_V2_CONTRACT_VERSION
+    : LIEBIDE_JOB_DETAIL_CONTRACT_VERSION;
+  if (input.contractVersion !== expectedContractVersion) {
     throw invalid("result.contractVersion is not supported");
   }
   if (input.status !== "extracted") {
@@ -214,7 +223,7 @@ export function parseJobDetailExtractionResult(input) {
   const capturedAt = requireIsoDate(input.source.capturedAt, "result.source.capturedAt");
 
   requirePlainObject(input.record, "result.record");
-  requireOnlyKeys(input.record, RECORD_KEYS, "result.record");
+  requireOnlyKeys(input.record, isV2 ? RECORD_KEYS_V2 : RECORD_KEYS, "result.record");
   const record = input.record;
   const salaryMin = requireNullableNonNegativeInteger(
     record.salaryMin,
@@ -233,6 +242,24 @@ export function parseJobDetailExtractionResult(input) {
     throw invalid("result.contentHash must be lowercase sha256 hex");
   }
 
+  // jobDescription：v1 必填非空；v2 由 jobDescriptionMissing 显式声明缺失（页面加载成功但无 JD）。
+  let jobDescription;
+  if (isV2) {
+    if (typeof record.jobDescriptionMissing !== "boolean") {
+      throw invalid("result.record.jobDescriptionMissing must be a boolean");
+    }
+    if (record.jobDescriptionMissing) {
+      if (record.jobDescription !== null && !(typeof record.jobDescription === "string" && record.jobDescription.trim() === "")) {
+        throw invalid("result.record.jobDescription must be null or empty when jobDescriptionMissing is true");
+      }
+      jobDescription = null;
+    } else {
+      jobDescription = requireString(record.jobDescription, "result.record.jobDescription");
+    }
+  } else {
+    jobDescription = requireString(record.jobDescription, "result.record.jobDescription");
+  }
+
   return {
     contractId: input.contractId,
     contractVersion: input.contractVersion,
@@ -245,10 +272,8 @@ export function parseJobDetailExtractionResult(input) {
     city: requireString(record.city, "result.record.city", true),
     salaryMin,
     salaryMax,
-    jobDescription: requireString(
-      record.jobDescription,
-      "result.record.jobDescription",
-    ),
+    jobDescription,
+    ...(isV2 ? { jobDescriptionMissing: record.jobDescriptionMissing } : {}),
     publishedAt:
       record.publishedAt === null
         ? null

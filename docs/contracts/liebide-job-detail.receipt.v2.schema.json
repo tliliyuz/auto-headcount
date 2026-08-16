@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-headcount.local/contracts/liebide-job-detail.receipt.v2.schema.json",
+  "title": "Liebide Job Detail Extraction Receipt v2",
+  "description": "CSDN-Agent 返回给 auto-headcount 的职位详情白名单回执（v2）。与 v1 相比：record 新增必填布尔 jobDescriptionMissing，显式区分「页面加载成功但供应方无 JD」与「契约漂移」；jobDescription 在 jobDescriptionMissing=true 时必须是 null 或空串。未知字段和敏感键由 Consumer 失败关闭；jobDescriptionMissing=false 时 jobDescription 必须非空。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractId", "contractVersion", "status", "source", "record", "contentHash"],
+  "properties": {
+    "contractId": {
+      "const": "liebide-job-detail-v2"
+    },
+    "contractVersion": {
+      "const": 2
+    },
+    "status": {
+      "const": "extracted"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "capturedAt"],
+      "properties": {
+        "origin": {
+          "const": "https://portal.liebide.com"
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "externalId",
+        "title",
+        "status",
+        "city",
+        "salaryMin",
+        "salaryMax",
+        "jobDescription",
+        "jobDescriptionMissing",
+        "publishedAt",
+        "validRecommendationCount"
+      ],
+      "properties": {
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9._:@/-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000
+        },
+        "city": {
+          "type": "string",
+          "maxLength": 200000
+        },
+        "salaryMin": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "salaryMax": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "jobDescription": {
+          "description": "jobDescriptionMissing=false 时必填非空字符串；true 时必须为 null 或空串（跨字段不变式由 Consumer 执行）。",
+          "type": ["string", "null"],
+          "maxLength": 200000
+        },
+        "jobDescriptionMissing": {
+          "description": "true 表示页面加载成功但供应方职位详情无 JD 文本；false 表示正常提取到 JD。",
+          "type": "boolean"
+        },
+        "publishedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "validRecommendationCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

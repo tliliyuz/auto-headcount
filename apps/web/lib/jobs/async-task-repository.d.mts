@@ -54,8 +54,9 @@ export interface AsyncTaskRepository {
     nextAttemptAt: Date;
     errorCode?: string | null;
   }): Promise<void>;
-  /** 浏览器职位目标去重：同目标（source/user/device/contract/externalId）无活跃任务时原子入队；被拦截返回 null。 */
+  /** 浏览器职位目标去重（kind 区分 browser_job_collect / browser_job_jd_backfill）：同目标无活跃任务时原子入队；被拦截返回 null。 */
   enqueueBrowserJobTaskIfTargetIdle(input: {
+    kind?: string;
     idempotencyKey: string;
     payload: BrowserJobCollectTaskPayload;
     scheduledAt: Date;

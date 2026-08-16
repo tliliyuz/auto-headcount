@@ -177,7 +177,7 @@ erDiagram
 |:---|:---|:---|
 | 归属与追溯 | `id`, `source_connection_id`, `raw_record_id`, `external_id`, `mapping_version` | `source_connection_id` FK `RESTRICT`；`raw_record_id` FK `SET NULL`（可追溯到原始快照）；`(source_connection_id, external_id)` 唯一 → 幂等 upsert |
 | 职位信息 | `title`, `company_name`, `category`, `city`, `detailed_location` | 公司名/详细地址**不进公开视图**；落地页只投影城市 |
-| 职位详情 | `job_description` | 完整 JD，可空；`wb.jobs.get` 补全（2026-08-13 决策，见 `04-mcp-integration`）；仅内部运营详情视图，落地页白名单禁止输出 |
+| 职位详情 | `job_description` | 完整 JD，可空；`wb.jobs.get` 补全（2026-08-13 决策）与浏览器详情回填（2026-08-16，`browser_job_jd_backfill`，`liebide-job-detail-v2`，只补 JD 不覆盖其他字段）；仅内部运营详情视图，落地页白名单禁止输出 |
 | 可操作状态 | `operability_status` | 迁移 0006；`actionable`（账号自身作用域 `wb.jobs.list`，可建匹配任务）/ `not_in_access_scope`（上游仍沉睡但不可操作，**非 closed**）/ `match_unavailable`（作用域内但 match_candidates 权限边界，未来写入）/ `source_incomplete`（数据源不完整，未来写入）。沉睡巡检视图只展示 `actionable` |
 | 薪资 | `salary_min`, `salary_max` | 整数；落地页只展示范围，异常/缺失时不推断精确薪资 |
 | 沉睡判定 | `status`, `published_at`, `days_without_recommendation`, `valid_recommendation_count` | `days_without_recommendation` 非空；`jobs_under_served_idx(status, days_without_recommendation)` 支撑沉睡查询 |
@@ -190,7 +190,7 @@ erDiagram
 |:---|:---|:---|
 | 身份 | `id`, `kind`, `idempotency_key` | `idempotency_key` 唯一（`async_tasks_idempotency_key_unique`）；同业务操作幂等，重复入队 `ON CONFLICT DO NOTHING` |
 | 状态 | `status` | `async_task_status`：`pending/running/succeeded/failed/dead` |
-| 调度 | `payload`, `scheduled_at`, `started_at`, `finished_at` | `payload` 白名单 `jsonb`；`browser_job_collect` 仅含 source UUID、用户/设备、固定契约和外部职位 ID，明确不含 browser session、页面正文或凭证；`scheduled_at` 计划时间，认领后 `started_at` |
+| 调度 | `payload`, `scheduled_at`, `started_at`, `finished_at` | `payload` 白名单 `jsonb`；`browser_job_collect`/`browser_job_jd_backfill` 仅含 source UUID、用户/设备、固定契约、外部职位 ID（回填另含 `job_id` 与可选 `expected_title`），明确不含 browser session、页面正文或凭证；`scheduled_at` 计划时间，认领后 `started_at` |
 | 重试 | `attempts`, `last_error_code`, `next_attempt_at` | 认领时 `attempts+1`；网络错误指数退避由 `next_attempt_at` 门控；超阈值进 `dead`（后续转人工队列） |
 | 时间 | `created_at`, `updated_at` | 服务端写入 |
 
@@ -198,12 +198,28 @@ erDiagram
 
 `browser_job_collect` 只有在回执重新满足 `active + 发布满 7 天且不超过 30 天 + 有效推荐数 0` 时才写 `raw_records/jobs`。`published_at` 缺失、状态失效、推荐数未知/非零或超出天数均作为成功跳过，只在任务/运行统计中记录机器原因，不创建职位。Web 回执没有公司和类目时本地保存空字符串并在 `eligibility_evidence` 标记 `source_missing`；`portal_url` 由固定允许 origin 和已校验 external ID 确定性生成，不接受调用方 URL。
 
+`browser_job_jd_backfill` 是**只补 JD** 的独立任务：对已入库可操作缺 JD 职位（`operability_status='actionable'` 且 `job_description` 空），按 external_id 用 `liebide-job-detail-v2` 契约抓详情，只更新 `job_description`（null-safe、不 bump `updated_at`、不碰其他列），**不创建职位行、不经沉睡资格门禁、不改变 `eligibility_evidence`**（沉睡与零推荐仍由 MCP 证明）。每次详情回执加密写入 `raw_records`（追加写，`schema_version=liebide-job-detail-v2`）作为追溯证据。
+
 ### 7.5 浏览器采集批次与条目
 
 - `browser_collection_batches` 绑定 `source_connection_id + user_id + device_id + contract_id`，保存 `batch_size/max_pages` 上限、`start_page/start_offset` 输入断点、`next_page/next_offset` 输出断点、停止原因、批次状态和发现/成功/跳过/失败计数。活跃状态为 `pending|discovering|collecting`；终态为 `succeeded|completed_with_errors|failed`。
 - `browser_collection_items` 以 `(batch_id, external_id)` 唯一，保存列表合同返回的标题、页码、页内序号、详情采集状态和机器错误码。批次删除时条目级联删除；来源连接仍 `RESTRICT`。
 - 发现回执与条目/详情任务在同一事务中写入。详情任务只保存批次/条目 UUID、来源/设备路由、固定合同和 external ID；不保存 browser session、URL、选择器、页面正文或凭证。
 - 候选人采集（迁移 0010）：`browser_candidate_batches`/`browser_candidate_items` 与职位版同构，`contract_id` 固定为人才池列表/候选人详情合同；`browser_candidate_items` 以 `(batch_id, external_id)` 唯一保存发现的候选人与详情采集终态。
+
+### 7.6 `job_jd_backfills`（JD 回填台账，迁移 0015）
+
+| 字段 | 语义 |
+|:---|:---|
+| `job_id` FK jobs RESTRICT、`source_connection_id` FK source_connections RESTRICT、`external_id` | 目标职位与归属 |
+| `contract_id` | 详情契约（`liebide-job-detail-v2`） |
+| `outcome` | `filled`（回填 JD）/ `no_provider_jd`（页面加载成功但供应方无 JD）/ `failed`（提取阶段契约/实体失败）；CHECK 约束 |
+| `jd_length`、`content_hash` | 回填 JD 的长度与内容哈希；`no_provider_jd` 时 `jd_length=0` |
+| `error_code` | `failed` 的机器错误码 |
+| `raw_record_id` FK raw_records SET NULL | 本次浏览器回执加密快照（filled/no_provider_jd 有，failed 无） |
+| `created_at` | 追加写；每次尝试一行 |
+
+**追加写 + 防重采**：`browser_job_jd_backfill` 入队器以 `not exists(本表 job_id)` 排除已尝试职位——`filled` 后 `job_description` 非空自然排除，`no_provider_jd`/`failed` 由台账排除，不无限重爬。`no_provider_jd`/`failed` 供运营查看「供应方无数据」结论；删除台账行可强制重试。
 
 ## 7.3 匹配域表（M3 数据集成与匹配）
 
@@ -371,6 +387,7 @@ notify_pending → notify_succeeded | notify_failed
 9. **`0008_furry_princess_powerful`**：建两阶段匹配投影、硬过滤和 LLM 运行表，并扩展匹配追溯列。
 10. **`0009_browser_collection_batches`**：建 `browser_collection_batches`/`browser_collection_items`，保存有界发现批次、page/offset 断点、唯一条目与详情终态计数。
 11. **`0010_bitter_odin`**：`candidates` 补 `source_connection_id`/`raw_record_id` 并把幂等唯一约束改为 `(source_connection_id, external_id)`（来源追溯，对齐 jobs）；`candidate_profiles` 补近期工作 `current_title`/`current_company`；建 `browser_candidate_batches`/`browser_candidate_items` 人才池候选人采集批次表。
+12. **`0015_peaceful_cardiac`**：建 `job_jd_backfills` JD 回填台账（outcome CHECK `filled/no_provider_jd/failed`，`raw_record_id` SET NULL 追溯回执快照，追加写防无限重爬）。
 
 迁移由 Drizzle journal（`__drizzle_migrations`）保证幂等，重复执行安全跳过。新增表必须在迁移前回写本文件 §2/§8。
 

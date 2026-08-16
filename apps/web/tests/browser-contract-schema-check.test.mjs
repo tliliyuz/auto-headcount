@@ -7,6 +7,7 @@ import {
   compareProviderSchemas,
   schemaSha256,
   verifyContractSchemas,
+  verifyContractV2Schemas,
 } from "../../../scripts/check-browser-contracts.mjs";
 
 const requestSchema = JSON.parse(
@@ -21,12 +22,40 @@ const receiptSchema = JSON.parse(
     "utf8",
   ),
 );
+const requestV2Schema = JSON.parse(
+  await readFile(
+    new URL("../../../docs/contracts/liebide-job-detail.request.v2.schema.json", import.meta.url),
+    "utf8",
+  ),
+);
+const receiptV2Schema = JSON.parse(
+  await readFile(
+    new URL("../../../docs/contracts/liebide-job-detail.receipt.v2.schema.json", import.meta.url),
+    "utf8",
+  ),
+);
 
 test("浏览器契约 Schema 与 Consumer 常量和字段白名单一致", () => {
   const manifest = verifyContractSchemas({ requestSchema, receiptSchema });
 
   assert.equal(manifest.contractId, "liebide-job-detail-v1");
   assert.equal(manifest.contractVersion, 1);
+  assert.match(manifest.requestSchemaSha256, /^[a-f0-9]{64}$/);
+  assert.match(manifest.receiptSchemaSha256, /^[a-f0-9]{64}$/);
+});
+
+test("v2 详情契约 Schema 声明 jobDescriptionMissing 且 jobDescription 可空", () => {
+  const manifest = verifyContractV2Schemas({
+    requestSchema: requestV2Schema,
+    receiptSchema: receiptV2Schema,
+  });
+
+  assert.equal(manifest.contractId, "liebide-job-detail-v2");
+  assert.equal(manifest.contractVersion, 2);
+  const record = receiptV2Schema.properties.record.properties;
+  assert.equal(record.jobDescriptionMissing.type, "boolean");
+  assert.ok(record.jobDescription.type.includes("null"));
+  assert.ok(receiptV2Schema.properties.record.required.includes("jobDescriptionMissing"));
   assert.match(manifest.requestSchemaSha256, /^[a-f0-9]{64}$/);
   assert.match(manifest.receiptSchemaSha256, /^[a-f0-9]{64}$/);
 });

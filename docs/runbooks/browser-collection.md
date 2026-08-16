@@ -20,6 +20,15 @@
 
 候选人或完整简历采集必须先完成 ingestion ticket、独立加密分层、保留/删除和日志门禁，不得复用职位回执通道传输。
 
+### 1.1 JD 回填（浏览器详情补空缺 JD，2026-08-16）
+
+`browser_job_jd_backfill` 是 DB 驱动的 JD-only 回填任务：管理端手动触发（`POST /api/browser-collections`，`mode=jd_backfill`），扫描本地 `operability_status='actionable'` 且 `job_description` 为空、台账未尝试的职位，逐个按 external_id 入队详情回填任务。任务经 `liebide-job-detail-v2` 契约抓详情：
+
+- 只回填 `job_description`（null-safe、不 bump `updated_at`、不碰其他列、不创建职位行）；**不经沉睡资格门禁、不用浏览器字段证明沉睡**——沉睡与零推荐仍由 MCP 证明，浏览器 status/rec 字段只作回执快照追溯。
+- v2 的 `jobDescriptionMissing` 是「页面加载成功但供应方无 JD」的显式信号 → 台账 `no_provider_jd`；契约/实体失败 → 台账 `failed`；预检未就绪（`BROWSER_*`）不写台账（浏览器未就绪不是供应方无数据，下次手动触发再试）；relay 瞬时故障 `BROWSER_RELAY_UNAVAILABLE` 可重试。
+- 每次详情回执加密写入 `raw_records`（`schema_version=liebide-job-detail-v2`）作追溯；`job_jd_backfills` 台账记录 `filled/no_provider_jd/failed`，入队器 `not exists` 排除已尝试职位防无限重爬；删除台账行可强制重试。
+- 变更必须升级契约版本（本 v2 已按 §3 完成），Provider（CSDN-Agent）需实现 v2：空 `.job-description-show` 返回 `jobDescriptionMissing:true`；跨仓库一致性见 §8。
+
 ## 2. 开始前门禁
 
 每次受控真实联调开始前确认并记录：
