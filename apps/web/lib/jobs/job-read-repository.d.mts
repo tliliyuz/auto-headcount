@@ -31,6 +31,8 @@ export type UnderServedJobRow = {
   createdAt: Date;
   updatedAt: Date;
   hasDescription: boolean;
+  /** 同 JD 模板城市并集（去重后代表职位）；空 JD 单条职位为空数组（前端回退 city）。 */
+  cities: string[];
 };
 
 export function listUnderServedJobs(

@@ -61,6 +61,14 @@ function formatDateTime(value: string | null | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
 }
 
+/** 城市并集展示：≤3 个平铺，>3 个只留前 3 代表 + 「等 N 城」；空数组回退单行 city。详情页用完整 cities。 */
+function formatCityList(cities: string[] | undefined, city: string | null | undefined): string {
+  const list = cities && cities.length > 0 ? cities : city ? [city] : [];
+  if (list.length === 0) return "—";
+  if (list.length <= 3) return list.join(" · ");
+  return `${list.slice(0, 3).join(" · ")} 等 ${list.length} 城`;
+}
+
 function formatDuration(startedAt: string | null, finishedAt: string | null): string {
   if (!startedAt || !finishedAt) return "—";
   const start = new Date(startedAt).getTime();
@@ -1547,7 +1555,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
       activeCategory === "全部" || bucket === activeCategory;
     const queryMatches =
       query.trim() === "" ||
-      `${job.title}${job.city}${job.category}${bucket}`
+      `${job.title}${job.city}${job.cities?.join("") ?? ""}${job.category}${bucket}`
         .toLowerCase()
         .includes(query.trim().toLowerCase());
     return categoryMatches && queryMatches;
@@ -1751,7 +1759,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                       <tr key={job.id} className={selectedId === job.id ? "selected" : ""} onClick={() => setSelectedId(job.id)}>
                         <td><span className={`job-run-state ${job.hasDescription ? "queued" : "blocked"}`}><i />{job.hasDescription ? "自动排队" : "待补详情"}</span></td>
                         <td><button className="job-detail-link" onClick={(event) => { event.stopPropagation(); router.push(`/jobs/${job.id}`); }}>{job.title}</button><small className="job-updated"><span className="job-external-id" title={job.externalId}>{job.externalId}</span><span className="job-updated-at"> · 更新于 {formatDateTime(job.updatedAt)}</span></small></td>
-                        <td><span>{jobCoarseBucket(job.category, job.title)}</span><small>{job.city}</small></td>
+                        <td><span>{jobCoarseBucket(job.category, job.title)}</span><small>{formatCityList(job.cities, job.city)}</small></td>
                         <td><span className={`days ${job.ageDays >= 27 ? "urgent" : ""}`}>{job.ageDays} 天</span></td>
                         <td><strong>{job.hasDescription ? "等待评分" : "尚未生成"}</strong><small>{job.hasDescription ? "输入变化后自动运行" : "补全 JD 后自动继续"}</small></td>
                         <td><span>{job.hasDescription ? "排队中" : "—"}</span><small>{job.hasDescription ? "无需人工触发" : "等待数据"}</small></td>
@@ -1803,7 +1811,7 @@ export function OperationsDashboard({ initialView = "login" }: { initialView?: "
                 <>
                   <div className="panel-heading">
                     <span className="role-icon">{selectedJob.title.slice(0, 1)}</span>
-                    <div><span className="status-pill"><i />待激活</span><h2>{selectedJob.title}</h2><p>{jobCoarseBucket(selectedJob.category, selectedJob.title)} · {selectedJob.city}</p></div>
+                    <div><span className="status-pill"><i />待激活</span><h2>{selectedJob.title}</h2><p>{jobCoarseBucket(selectedJob.category, selectedJob.title)} · {selectedJob.cities?.length ? selectedJob.cities.join(" · ") : selectedJob.city}</p></div>
                   </div>
 
                   <div className="sleeping-alert"><span>!</span><div><strong>已沉睡 {selectedJob.ageDays} 天</strong><p>距 30 天观察上限还有 {30 - selectedJob.ageDays} 天</p></div></div>

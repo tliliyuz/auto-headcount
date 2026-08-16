@@ -92,13 +92,13 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
               <span className="status-pill"><i />待激活</span>
               <h1 className="jd-title">{detail.title}</h1>
               <p className="jd-company">{detail.companyName}</p>
-              <p className="jd-meta">{jobCoarseBucket(detail.category, detail.title)} · {detail.city}</p>
+              <p className="jd-meta">{jobCoarseBucket(detail.category, detail.title)} · {detail.cities?.length ? detail.cities.join(" · ") : detail.city}</p>
             </div>
           </header>
 
           <div className="jd-tags">
             <span className="jd-tag">⌁ {jobCoarseBucket(detail.category, detail.title)}</span>
-            <span className="jd-tag">⌖ {detail.city}</span>
+            <span className="jd-tag">⌖ {detail.cities?.length ? detail.cities.join(" · ") : detail.city}</span>
             <span className="jd-tag">{formatSalary(detail.salaryMin, detail.salaryMax)}</span>
             <span className={`jd-tag ${detail.ageDays >= 27 ? "urgent" : ""}`}>沉睡 {detail.ageDays} 天</span>
           </div>

@@ -357,6 +357,79 @@ test(
 );
 
 test(
+  "同 JD 多城市批量挂岗去重：列表返回代表 + 城市并集，空 JD 职位不合并",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    let sourceId;
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, {
+        provider: `fixture-${marker}-dedup`,
+        environment: "test",
+        displayName: "Fixture Dedup Source",
+      });
+      const runId = await startSyncRun(sql, sourceId, "under_served_jobs");
+      const variants = [
+        fixtureJob("dd-1", { title: "Same JD Engineer", category: "Engineering", city: "Beijing", ageDays: 12 }),
+        fixtureJob("dd-2", { title: "Same JD Engineer", category: "Engineering", city: "Guangzhou", ageDays: 12 }),
+        fixtureJob("dd-3", { title: "Same JD Engineer", category: "Engineering", city: "Shanghai", ageDays: 12 }),
+      ];
+      for (const job of variants) {
+        await persistUnderServedJob(sql, { sourceId, syncRunId: runId, rawPayload: { job_id: job.externalId }, job, encryption });
+      }
+      // 同一 JD 文本 → 同一 jdHash → 三城合并为一组
+      await sql`
+        update jobs set job_description = '同 JD 模板完整描述：负责数据平台建设'
+        where source_connection_id = ${sourceId} and external_id in ('dd-1', 'dd-2', 'dd-3')
+      `;
+      // 空 JD 职位（jdHash null，不入组）
+      await persistUnderServedJob(sql, {
+        sourceId,
+        syncRunId: runId,
+        rawPayload: { job_id: "dd-0" },
+        job: fixtureJob("dd-0", { title: "Lone Job", category: "Engineering", city: "Shenzhen", ageDays: 20 }),
+        encryption,
+      });
+      await finishSyncRun(sql, runId, { processed: 4, persisted: 4 });
+
+      const list = await listUnderServedJobs(sql, { q: "Same JD Engineer", pageSize: 100 });
+      assert.equal(list.list.length, 1, "同 JD 三城应合并为一个代表");
+      assert.equal(list.list[0].title, "Same JD Engineer");
+      assert.deepEqual(list.list[0].cities, ["Beijing", "Guangzhou", "Shanghai"], "代表 cities 为城市并集（字母序）");
+
+      // 城市检索命中组内任意城市 → 代表返回
+      const byVariantCity = await listUnderServedJobs(sql, { q: "guangzhou", pageSize: 100 });
+      assert.equal(
+        byVariantCity.list.some((j) => j.title === "Same JD Engineer"),
+        true,
+        "检索组内城市应命中代表职位",
+      );
+
+      // 空 JD 职位不合并、单独出现，cities 空数组（前端回退 city）
+      const lone = await listUnderServedJobs(sql, { q: "Lone Job", pageSize: 100 });
+      assert.equal(lone.list.length, 1);
+      assert.deepEqual(lone.list[0].cities, []);
+
+      // 详情：任一城市变体的 id 都返回组内城市并集
+      const [variantRow] = await sql`
+        select id from jobs where source_connection_id = ${sourceId} and external_id = 'dd-3'
+      `;
+      const detail = await getJobById(sql, variantRow.id);
+      assert.deepEqual(detail.cities, ["Beijing", "Guangzhou", "Shanghai"], "详情返回城市并集");
+    } finally {
+      if (sourceId) {
+        await sql`delete from jobs where source_connection_id = ${sourceId}`;
+        await sql`delete from raw_records where source_connection_id = ${sourceId}`;
+        await sql`delete from sync_runs where source_connection_id = ${sourceId}`;
+        await sql`delete from source_connections where id = ${sourceId}`;
+      }
+      await sql.end();
+    }
+  },
+);
+
+test(
   "listSyncRuns 默认排除详情采集 sync_run（browser_*_collect），周期同步不受影响",
   { skip: !connectionString },
   async () => {

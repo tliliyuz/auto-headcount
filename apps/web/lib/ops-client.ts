@@ -34,6 +34,8 @@ export type DormantJob = {
   sourceUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 同 JD 模板城市并集（去重后代表职位）；空 JD 单条职位为空数组（前端回退 city）。 */
+  cities: string[];
   /** 是否有完整 JD（`jobs.job_description` 非空）；用于列表「只看有详情」筛选与行内标记。 */
   hasDescription: boolean;
 };
