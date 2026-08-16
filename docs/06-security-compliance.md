@@ -96,6 +96,18 @@
 - LLM 适配器能读取联系方式保险箱、未脱敏原始简历、供应商候选人 ID 或可使用页面令牌。
 - 超时、限流、Schema 无效或安全拒绝会伪造分数、静默切换未审批模型或使候选人自动进入触达池。
 
+> **境内 LLM 接入审批记录（2026-08-16，项目负责人确认）**：真实 LLM 详情评分经 **境内网关** 启用——
+> - 供应商/模型：opencode.ai（**境内托管网关**）→ `deepseek-v4-flash`；`LLM_PROVIDER=deepseek`、`LLM_BASE_URL=https://opencode.ai/zen/go`、`LLM_MODEL=deepseek-v4-flash`。
+> - 处理区域：**境内**（opencode.ai 境内网关，无数据出境，不触发 ADR-003 跨境评估；境外网关使用仍受 §ADR-003 默认禁止约束）。
+> - 数据不用于训练 / 保留/删除：以 opencode.ai 境内网关条款为准；出网数据仅为 `residual_pii_scan=passed` 的脱敏候选人投影（无姓名/联系方式/本地或供应商 ID/原始 URL），最小化出网。
+> - 成本预算：每职位 Top-K=10、单轮全局预算=20（现有成本闸）；月度预算待网关账单口径确定。
+> - 超时上限：`LLM_TIMEOUT_MS=60000`（默认）。
+>
+> **启用条件（审批记录后仍须执行，未完成前真实 LLM 调用保持关闭）**：
+> 1. `.env.production` 配 `MATCH_SCORING_ADAPTER=llm-openai-compatible` + 上方 `LLM_*` 键（`LLM_API_KEY` 走部署 Secret Manager，不入库/日志/任务载荷/审计）；
+> 2. `MATCH_AUTOMATION_ENABLED=true`；
+> 3. **受控真实调用验证**：确认 `https://opencode.ai/zen/go/chat/completions` 端点路径有效（适配器在 base URL 后拼 `/chat/completions`）；首次调用核对 `llm_score_runs` 落 succeeded、matches 分数非 fake、`LLM_*` 失败码可追溯。
+
 ## 6. 外部规则参考
 
 - 《中华人民共和国个人信息保护法》第十九条要求个人信息保存期限原则上为实现处理目的所必要的最短时间：<https://www.samr.gov.cn/wljys/gzzd/art/2023/art_3ef1e889c1e644d4b65b5f5c7f432386.html>

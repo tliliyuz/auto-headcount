@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 境内 LLM 接入审批记录：opencode.ai 境内网关 + deepseek-v4-flash
+
+> 状态：`specified`（审批记录已入库，真实调用仍未启用）。项目负责人确认境内网关启用真实 LLM 详情评分，6 项门禁（供应商/模型、处理区域境内、数据不用于训练/保留删除随网关条款、Top-K/预算成本闸、超时 60000）已记录到 [docs/06](docs/06-security-compliance.md) §LLM 门禁。**真实 LLM 调用仍保持关闭**，启用需完成「启用条件」：配 `MATCH_SCORING_ADAPTER=llm-openai-compatible` + `LLM_*` 键 + `MATCH_AUTOMATION_ENABLED=true` + 受控真实调用验证 `https://opencode.ai/zen/go/chat/completions` 端点路径。
+
+- 文档：`docs/06` §LLM 门禁补审批记录（境内网关、无数据出境、不触发 ADR-003 跨境评估）；`docs/01` §3 待确认项标记已确认（境内 opencode.ai + deepseek-v4-flash）。
+
 ### 2026-08-16 — 匹配垂直切片跑通：硬过滤规则 v3（技能 ≥1 命中 + 城市不硬门槛）+ 真实数据产出匹配池
 
 > 状态：`verified`。单测 265/265、集成（projection-filter + match-sync + llm-detail-scoring-adapter + candidate-redaction-loader + async-task-sync）31/31、build/tsc/lint 全绿。真实垂直切片（阶段一 + 阶段二 Fake）：5 个「知识图谱/Text2SQL」沉睡职位 × 207 候选人，v3 规则下 filterPassed **65**、阶段二 Top-K/全局预算内 scored **20**（deferred 45 留后续 tick）、真实 `matches` 跨城市产出（如深圳 8 条 score 74-80、上海 2 条）——匹配池从 0 收敛为真实 (job, candidate) 池。真实 LLM 评分仍受合规门禁关闭。
