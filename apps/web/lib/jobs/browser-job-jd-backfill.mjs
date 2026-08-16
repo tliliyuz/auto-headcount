@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   BrowserCollectionContractError,
   LIEBIDE_JOB_DETAIL_V2_CONTRACT_ID,
@@ -179,6 +181,10 @@ export async function enqueueBrowserJobJdBackfillTasks({
     limit ${limit}
   `;
   const taskRepo = createAsyncTaskRepository(sql);
+  // 幂等键带每次触发的随机后缀：跨触发重复点击不撞 async_tasks_idempotency_key_unique
+  // （dedup 交给 enqueueBrowserJobTaskIfTargetIdle 的 pending/running 守卫），
+  // 避免「上次任务已 succeeded/失败但未落台账」时二次入队报 23505。
+  const triggerId = randomUUID();
   let enqueued = 0;
   const skipped = [];
   for (const row of rows) {
@@ -193,7 +199,7 @@ export async function enqueueBrowserJobJdBackfillTasks({
     };
     const taskId = await taskRepo.enqueueBrowserJobTaskIfTargetIdle({
       kind: BROWSER_JOB_JD_BACKFILL_TASK_KIND,
-      idempotencyKey: `browser-job-jd-backfill:${sourceId}:${row.externalId}`,
+      idempotencyKey: `browser-job-jd-backfill:${sourceId}:${triggerId}:${row.externalId}`,
       payload,
       scheduledAt: new Date(),
     });

@@ -255,6 +255,52 @@ test(
 );
 
 test(
+  "JD 回填入队：活跃任务守卫去重 + succeeded 无台账任务不阻塞二次触发（防 23505）",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = {
+      provider: `fixture-backfill-redo-${marker}`,
+      environment: "test",
+      displayName: "Fixture JD Backfill Redo",
+    };
+    let sourceId;
+    const jobIds = [];
+    const ext = (suffix) => `${suffix}-${marker}`;
+
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      jobIds.push(await seedActionableJob(sql, sourceId, ext("redo-j1")));
+
+      const first = await enqueueBrowserJobJdBackfillTasks({
+        sql, source, userId: "ops_fixture", deviceId: "device-fixture-001",
+      });
+      assert.equal(first.enqueued, 1);
+
+      // 活跃（pending）任务守卫：同目标再入队被拦截（skipped）
+      const whilePending = await enqueueBrowserJobJdBackfillTasks({
+        sql, source, userId: "ops_fixture", deviceId: "device-fixture-001",
+      });
+      assert.equal(whilePending.enqueued, 0);
+      assert.deepEqual(whilePending.skipped, [ext("redo-j1")]);
+
+      // 模拟旧调度器 no-op：任务 succeeded 但无台账 → 二次触发必须能新建任务（幂等键随机后缀，不再 23505）
+      await sql`
+        update async_tasks set status = 'succeeded', finished_at = now()
+        where payload->>'sourceConnectionId' = ${sourceId}
+      `;
+      const redo = await enqueueBrowserJobJdBackfillTasks({
+        sql, source, userId: "ops_fixture", deviceId: "device-fixture-001",
+      });
+      assert.equal(redo.enqueued, 1, "succeeded 无台账任务不阻塞二次触发（修复 23505）");
+    } finally {
+      await cleanup(sql, { sourceId, jobIds });
+    }
+  },
+);
+
+test(
   "JD 回填经调度器 processDueTasks 完整分发：认领→分发→回填→sync_run/台账落库",
   { skip: !connectionString },
   async () => {
