@@ -231,7 +231,7 @@ erDiagram
 | `match_rules` | `version`(unique), `weights`(jsonb 7 维), `thresholds`(jsonb {high:85,medium:75}), `active_at`。版本化规则，可复算 |
 | `candidates` | `source_connection_id`(FK source_connections RESTRICT) + `raw_record_id`(FK raw_records SET NULL) + `external_id`(unique `(source_connection_id, external_id)`，迁移 0010)，`display_name`(真实姓名，敏感业务 RBAC+加密+审计，不写日志/审计/任务载荷), `summary`, `consent_status`(unknown→permitted→opted_out)。`summary` 降为迁移期展示缓存，新流程不作为匹配真源 |
 | `candidate_profiles` | `candidate_id`(FK candidates RESTRICT, unique), `skills`(jsonb), `experience_years`, `location`, `education`(最高学历), `school`, `major`(迁移 0012，毕业院校/专业), `seniority`, `industry`, `current_title`, `current_company`(迁移 0010，近期工作；投影生成 `currentTitle ?? seniority` 回退), `expected_salary_min/max`, `activity_updated_at`。迁移后作当前快照/查询缓存。**生产写入方（2026-08-16）**：采集侧 `skills` = 简历正文启发式推断（详情页无技能标签，`inferSkillsFromResume` 词表匹配，技术债非权威），`industry` = 详情页头部职业标签 `p.company .title-text`（职业方向，**不含公司名**——公司名进 industry 会经匹配投影泄漏给 LLM，公司泛化由 redaction loader 负责）；两者消费方为匹配投影 `candidate_profiles.skills/industry` → 技能/行业维度；匹配评分把 industry 语义定为**职能方向**（ADR-007：职业标签提取职能方向，未命中回落原文） |
-| `matches` | `job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk` + 迁移 0008：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`(FK SET NULL), `aggregation_rule_version`。新权威分只能由已验证 LLM 结果经本地汇总产生 |
+| `matches` | `job_id`, `candidate_id`, `score`, `band`, `status`, `rule_version`, `input_hash`, `external_*`, `evidence/missing/risk` + 迁移 0008：`job_projection_id`, `candidate_projection_id`, `filter_result_id`, `llm_score_run_id`(FK SET NULL), `aggregation_rule_version` + 迁移 0016：`is_superseded`(布尔，同对只留最新 active，旧行保审核态)。新权威分只能由已验证 LLM 结果经本地汇总产生 |
 | `match_dimensions` | `match_id`, `dimension`, `score`, `evidence`, `risk` + 迁移 0008：`assessable`, `confidence`, `llm_score_run_id`(FK SET NULL), `output_hash`，用于追溯已接受的 LLM 结构化输出 |
 
 ### 7.4 两阶段匹配表（迁移 0008 已落库）
@@ -275,6 +275,8 @@ approved → queued_for_campaign → contacted → responded
 ```
 
 `filter_rejected` 不创建 LLM 运行；`scoring_failed` 不伪造分数且不能进入触达。现有 `generated` 状态在两阶段迁移期继续可读，新流程不再写入该含糊状态。
+
+**superseded 标记（迁移 0016）**：每 `(job_id, candidate_id)` 只保留最新一条 active 匹配，旧的标 `is_superseded=true`（保留原审核态 `status`，工作台/落地页默认过滤，库里保留可审计）。自动匹配管线写入新 match 时对同对旧行自动 supersede（输入变化 → 新投影/过滤结果 → 新 `rule_version` → 新行，旧行不再重复展示）；已审核（`approved`/`rejected`）的旧行被 supersede 后仍保留审核态，运营需在最新 active 匹配上重新审核。`superseded` 匹配不可再人工审核（路由 409）。`matches` 新增 `is_superseded` 布尔列（默认 false）+ `matches_candidate_idx` 索引。
 
 ### Web 采集任务状态
 
@@ -330,7 +332,7 @@ notify_pending → notify_succeeded | notify_failed
 - 同一数据源优先使用稳定 `external_id`（职位已实现：`(source_connection_id, external_id)` 唯一）。
 - 外部 ID 缺失时，可使用标准化手机号/邮箱的不可逆哈希辅助识别（规划）。
 - 跨来源合并不得仅凭姓名；必须有人工确认或足够强的联合证据。
-- 现有职位匹配记录使用 `(job_id, candidate_id, rule_version)` 唯一约束；两阶段迁移后应以投影对、汇总规则版本和组合输入哈希区分新运行，不覆盖历史匹配。
+- 现有职位匹配记录使用 `(job_id, candidate_id, rule_version)` 唯一约束；两阶段迁移后以投影对、汇总规则版本和组合输入哈希区分新运行，不覆盖历史匹配，**新行写入时对同对旧行标 superseded（迁移 0016，保留审核态、不堆重复）**。
 - 推荐记录应对外部系统要求构建幂等键，避免重复提交。
 
 ## 12. 数据保留

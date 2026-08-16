@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 匹配 supersede：同 (job,candidate) 只留最新 active，历史清理（迁移 0016）
+
+> 状态：`verified`。lint 干净、单测 284/284、集成 65/65（含 supersede 验收 / 候选人状态推导 / 管线重跑 supersede / 清理脚本）、build 通过、markdown 链接 35 文件通过、迁移 0016 已应用。dev 库清理已执行：33 条 → 删 2 fixture → 31 保留，active 16（每候选人恰 1 条）、superseded 15（含 2 条非代表变体上的 approved，运营在代表匹配上重新审核）。解决两处已知遗留（诊断记录于 salary 修复条目）：历史重复 matches（职位去重上线晚于这批 match 生成）与管线重跑不清旧 match（输入变化 → 新 filter_result/rule_version → 同对产生第二条 match，旧的原地不动）。
+
+- **superseded 语义（`matches.is_superseded` 布尔列，迁移 0016）**：每 `(job_id, candidate_id)` 只保留最新一条 active，旧的标 superseded（保留原审核态 `status`，库里可审计、不硬删）。`matches_candidate_idx` 支撑候选人状态推导。
+- **写入路径**：`upsertMatch` 新增 `supersedePrior` 选项（仅自动匹配管线开启），写入后对同对其它非 superseded 旧行标 superseded；已审核（approved/rejected）旧行被取代后仍保留审核态，运营需在最新 active 上重新审核。遗留 `match-sync`（rule_version 恒 1，幂等冲突天然不堆重复）保持关闭。
+- **读取过滤**：`listMatches` 默认排除 superseded（`include_superseded=true` 可查审计）；`status=xxx` 过滤同样不返回 superseded 行；落地页 `findApprovedMatchForJobCandidate` 排除 superseded 的 approved（不展示过期 AI 评价）；`updateMatchStatus` 对 superseded 匹配返回 409；候选人状态推导（已审核/已匹配/待匹配）与 matchCount 只统计 active。
+- **历史清理脚本**（`scripts/cleanup-superseded-matches.mjs`，一次性）：删 2 条预览 fixture 匹配（预览候选人/林小满，假数据）；每 (JD组, 候选人) 保留组内最小 job_id（代表）一条 active，其余 superseded；无 JD 职位各自成组不误伤；幂等可重跑。
+- **API**：`GET /api/matches` 新增 `include_superseded=1`；匹配投影新增 `isSuperseded`。
+- 测试：match-read 新增 supersede 验收（写入/读取/审核态保留/幂等/隔离）+ 候选人状态推导；projection-filter 新增输入变化→重跑→旧 match superseded 管线断言；新增清理脚本集成测试（RED：脚本缺失 MODULE_NOT_FOUND → GREEN）。
+- 文档：docs/03 §9 匹配状态 + §7.3 matches 表 + §11 去重（superseded 语义）；docs/09 API（include_superseded + isSuperseded + 内部状态模型）。
+- **已审核匹配被 supersede 的行为变更**：被新 match 取代的 approved/rejected 匹配不再出现在工作台默认列表与落地页门禁；审计保留原审核态与分数/证据。运营需在最新 active 匹配上重新审核。
+
 ### 2026-08-16 — JD 回填审计并入批次列表 + 调度分发验证（修「任务秒标 succeeded 无落库」）
 
 > 状态：`verified`。单测 283/283、集成 62/62（新增 processDueTasks 完整调度分发测试）、tsc/lint/build 全绿。定位并验证用户环境「点回填后任务秒标 succeeded 却无 sync_run/台账/审计」的根因：**正在运行的 `sync:tick` 调度器进程为旧代码**（启动早于 `browser_job_jd_backfill` 分发分支加入），把回填任务认领成 no-op succeeded；**当前代码分发正确**（集成测试经 `processDueTasks` 实证：认领→分发→回填→sync_run/台账落库），重启调度器进程即恢复。

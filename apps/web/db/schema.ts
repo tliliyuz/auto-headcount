@@ -618,6 +618,11 @@ export const matches = pgTable(
     band: text("band"),
     /** 审核状态：generated → approved/rejected（docs/03 §9）。 */
     status: text("status").notNull().default("generated"),
+    /**
+     * superseded 标记（迁移 0016）：同 (job_id, candidate_id) 只保留最新一条 active，
+     * 旧的标 superseded（保留原审核态，工作台/落地页默认不显示，库里可审计）。
+     */
+    isSuperseded: boolean("is_superseded").notNull().default(false),
     ruleVersion: integer("rule_version").notNull(),
     /** 规范化输入哈希（同规则版本同输入可复算，docs/01 §1.3）。 */
     inputHash: text("input_hash"),
@@ -665,6 +670,7 @@ export const matches = pgTable(
       table.ruleVersion,
     ),
     index("matches_job_idx").on(table.jobId),
+    index("matches_candidate_idx").on(table.candidateId),
     index("matches_status_idx").on(table.status),
   ],
 );

@@ -31,6 +31,8 @@ export function upsertMatch(
     filterResultId?: string | null;
     llmScoreRunId?: string | null;
     aggregationRuleVersion?: string | null;
+    /** 迁移 0016：写入后同 (job,candidate) 其它非 superseded 旧行标 superseded（只留最新 active）。 */
+    supersedePrior?: boolean;
   },
 ): Promise<{ id: string; status: string }>;
 

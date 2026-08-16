@@ -31,6 +31,8 @@ const handler = withAudit(
       jobId: url.searchParams.get("job_id") ?? undefined,
       band: url.searchParams.get("band") ?? undefined,
       status: url.searchParams.get("status") ?? undefined,
+      // 迁移 0016：默认只展示 active；include_superseded=1 可查 superseded 旧行（审计）。
+      includeSuperseded: url.searchParams.get("include_superseded") === "1",
       page: parsed.page,
       pageSize: parsed.pageSize,
     });

@@ -103,6 +103,8 @@ export async function runAutomaticMatchPipeline({
         filterResultId: item.filterResultId,
         llmScoreRunId: runId,
         aggregationRuleVersion: AGGREGATION_RULE_VERSION,
+        // 同 (job,candidate) 只留最新 active：输入变化 → 新 rule_version → 旧行标 superseded（保审计）
+        supersedePrior: true,
       });
       await replaceMatchDimensions(sql, {
         matchId: match.id,

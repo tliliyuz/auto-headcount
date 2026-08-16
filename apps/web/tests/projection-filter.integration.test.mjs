@@ -303,6 +303,61 @@ test(
         select count(*)::int as n from match_filter_results where job_projection_id = ${jp.id}
       `;
       assert.equal(frCount[0].n, 1, "同投影对重跑不新增过滤结果");
+
+      // 迁移 0016：候选输入变化 → 新候选人投影 + 新过滤结果 + 新 rule_version →
+      // 管线重跑产生第二条 match，旧 match 标 superseded，每 (job,candidate) 只留 1 条 active。
+      const changedDetails = new Map([
+        [
+          goodId,
+          {
+            career_history: [
+              "某互联网公司后端开发（公司名已泛化）",
+              "某金融科技公司架构（新增一段经历）",
+            ],
+            project_highlights: ["参与某高并发项目（项目名已泛化）"],
+          },
+        ],
+      ]);
+      const changed = await runProjectionFilterSync({
+        sql,
+        source,
+        jobIds: [jobId],
+        candidateRedactedDetails: changedDetails,
+        encryption,
+      });
+      assert.equal(changed.status, "succeeded");
+      const [newCp] = await sql`
+        select id from candidate_match_projections
+        where candidate_id = ${goodId} and id <> ${cp.id}
+        order by created_at desc limit 1
+      `;
+      assert.ok(newCp, "候选输入变化 → 新候选人投影");
+      const [newFr] = await sql`
+        select id, combined_input_hash from match_filter_results
+        where candidate_projection_id = ${newCp.id}
+        order by created_at desc limit 1
+      `;
+      assert.ok(newFr, "新候选人投影 → 新过滤结果");
+      assert.notEqual(newFr.combined_input_hash, fr.combined_input_hash, "组合输入哈希变化");
+
+      const rescored = await runAutomaticMatchPipeline({ sql, env: pipelineEnv });
+      assert.equal(rescored.status, "succeeded");
+      assert.equal(rescored.stats.scored, 1, "新输入组合重新评分");
+      const pairRows = await sql`
+        select m.rule_version as "ruleVersion", m.is_superseded as "isSuperseded", m.status
+        from matches m
+        where m.job_id = ${jobId} and m.candidate_id = ${goodId}
+        order by m.created_at, m.id
+      `;
+      assert.equal(pairRows.length, 2, "输入变化 → 同 (job,candidate) 两条 match");
+      assert.equal(pairRows[0].isSuperseded, true, "旧 match superseded");
+      assert.equal(pairRows[0].status, "pending_review", "旧行审核态保留");
+      assert.equal(pairRows[1].isSuperseded, false, "新 match active");
+      const [activeN] = await sql`
+        select count(*)::int as n from matches
+        where job_id = ${jobId} and candidate_id = ${goodId} and not is_superseded
+      `;
+      assert.equal(activeN.n, 1, "每 (job,candidate) 只留 1 条 active");
     } finally {
       await cleanup(sql, { sourceId, candidateIds, jobIds });
     }

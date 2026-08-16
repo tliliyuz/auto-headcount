@@ -13,6 +13,8 @@ export type MatchView = {
   score: number | null;
   band: string | null;
   status: string;
+  /** 迁移 0016：superseded 标记（旧版被新 match 取代，工作台默认不显示，可审计）。 */
+  isSuperseded: boolean;
   ruleVersion: number;
   scoreStatus: string;
   evidence: string[];
@@ -40,6 +42,8 @@ export function listMatches(
     jobId?: string;
     band?: string;
     status?: string;
+    /** 迁移 0016：true 返回 superseded 旧行（审计），默认 false 只展示 active。 */
+    includeSuperseded?: boolean;
     page?: number;
     pageSize?: number;
   },

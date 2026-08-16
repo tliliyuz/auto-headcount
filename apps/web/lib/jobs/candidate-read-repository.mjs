@@ -34,8 +34,8 @@ export async function listCandidates(
       statusFilter
         ? sql`
             and case
-              when exists (select 1 from matches ma where ma.candidate_id = c.id and ma.status in ('approved','rejected')) then '已审核'
-              when exists (select 1 from matches ma where ma.candidate_id = c.id) then '已匹配'
+              when exists (select 1 from matches ma where ma.candidate_id = c.id and not ma.is_superseded and ma.status in ('approved','rejected')) then '已审核'
+              when exists (select 1 from matches ma where ma.candidate_id = c.id and not ma.is_superseded) then '已匹配'
               else '待匹配'
             end = ${statusFilter}`
         : sql``
@@ -69,10 +69,10 @@ export async function listCandidates(
       p.skills,
       p.activity_updated_at as "activityUpdatedAt",
       c.created_at as "createdAt",
-      (select count(*)::int from matches m where m.candidate_id = c.id) as "matchCount",
+      (select count(*)::int from matches m where m.candidate_id = c.id and not m.is_superseded) as "matchCount",
       case
-        when exists (select 1 from matches m where m.candidate_id = c.id and m.status in ('approved','rejected')) then '已审核'
-        when exists (select 1 from matches m where m.candidate_id = c.id) then '已匹配'
+        when exists (select 1 from matches m where m.candidate_id = c.id and not m.is_superseded and m.status in ('approved','rejected')) then '已审核'
+        when exists (select 1 from matches m where m.candidate_id = c.id and not m.is_superseded) then '已匹配'
         else '待匹配'
       end as status
     from candidates c
@@ -119,10 +119,10 @@ export async function getCandidateById(sql, id, { encryption }) {
       r.payload_ciphertext as "payloadCiphertext",
       r.payload_nonce as "payloadNonce",
       r.key_version as "keyVersion",
-      (select count(*)::int from matches m where m.candidate_id = c.id) as "matchCount",
+      (select count(*)::int from matches m where m.candidate_id = c.id and not m.is_superseded) as "matchCount",
       case
-        when exists (select 1 from matches m where m.candidate_id = c.id and m.status in ('approved','rejected')) then '已审核'
-        when exists (select 1 from matches m where m.candidate_id = c.id) then '已匹配'
+        when exists (select 1 from matches m where m.candidate_id = c.id and not m.is_superseded and m.status in ('approved','rejected')) then '已审核'
+        when exists (select 1 from matches m where m.candidate_id = c.id and not m.is_superseded) then '已匹配'
         else '待匹配'
       end as status
     from candidates c

@@ -87,16 +87,16 @@
 
 | 接口 | 方法 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|
-| `/api/matches` | GET | 会话 + `operations\|admin` | `job_id?`/`band?`/`status?`/`page`/`page_size` | `200` 分页包络，`list[]` 匹配投影 |
+| `/api/matches` | GET | 会话 + `operations\|admin` | `job_id?`/`band?`/`status?`/`include_superseded?`(`1`=返回 superseded 旧行，默认只展示 active)/`page`/`page_size` | `200` 分页包络，`list[]` 匹配投影 |
 | `/api/matches/:id` | GET | 会话 + `operations\|admin` | 路径 `id`（UUID） | `200` 匹配详情（含维度分）；非 UUID `400`；查无 `404` |
 | `/api/matches/:id/review` | POST | 会话 + `operations\|admin` | `{ decision: "approve"\|"reject" }` | `200 { id, status }`；已审核 `409` |
 | `/api/match-exceptions` | GET | 会话 + `operations\|admin` | `type?`（`all`/`filter`/`scoring`）、`page`/`page_size` | `200` 分页包络；只返回白名单 `errorCode`、状态和 `retryable`，不返回供应商错误正文 |
 
-**当前匹配投影（`list[]`/详情）**：`id`、`jobId`、`jobTitle`、`jobExternalId`、`candidateId`、`candidateName`（打码）、`candidateSummary`、`score`、`band`、`status`、`ruleVersion`、`inputHash`、`scoreStatus`、`externalScore`/`externalTier`/`externalScoreStatus`（外部对照，可空）、`evidence`/`missing`/`risk`、`createdAt`/`updatedAt`；详情含 `dimensions[]`。
+**当前匹配投影（`list[]`/详情）**：`id`、`jobId`、`jobTitle`、`jobExternalId`、`candidateId`、`candidateName`（打码）、`candidateSummary`、`score`、`band`、`status`、`isSuperseded`（迁移 0016，旧版被新 match 取代）、`ruleVersion`、`inputHash`、`scoreStatus`、`externalScore`/`externalTier`/`externalScoreStatus`（外部对照，可空）、`evidence`/`missing`/`risk`、`createdAt`/`updatedAt`；详情含 `dimensions[]`。
 
 **两阶段响应扩展**：列表/详情增加 `jobProjectionId`、`candidateProjectionId`、`filterResult`（`passed/reasonCodes`）、`llmScoreRunId`、`aggregationRuleVersion`、`modelId`、`modelRevision`、`promptVersion`、`schemaVersion`、`outputHash`；`dimensions[]` 增加 `assessable` 和 `confidence`。失败运行只返回白名单 `errorCode`，不返回供应商错误正文。**永不返回** `portal_url`、联系方式、未脱敏简历、LLM 原始请求/响应或 `raw_records.payload_*`。内部结构化契约见 [匹配契约](10-matching-contracts.md)。
 
-**自动编排内部状态模型**：`filter_rejected` 为硬过滤终态且不调用 LLM；通过后依次为 `scoring_pending → scoring_running → pending_review`，评分失败转 `scoring_failed`，人工审核后转 `approved` 或 `rejected`。相同版本组合由请求哈希和运行版本幂等；周期任务只消费缺少成功运行的组合。该状态模型是 API 投影，不要求所有状态写入同一数据库列。
+**自动编排内部状态模型**：`filter_rejected` 为硬过滤终态且不调用 LLM；通过后依次为 `scoring_pending → scoring_running → pending_review`，评分失败转 `scoring_failed`，人工审核后转 `approved` 或 `rejected`。相同版本组合由请求哈希和运行版本幂等；周期任务只消费缺少成功运行的组合。**输入变化（新投影/过滤结果 → 新 `rule_version`）产生的第二条 match 会 supersede 同 `(job_id, candidate_id)` 旧行（`is_superseded=true`，保留原审核态）**，列表默认只返回 active，`include_superseded=1` 可查历史（审计）。该状态模型是 API 投影，不要求所有状态写入同一数据库列。
 
 ## 3. 规划端点（随里程碑补充）
 

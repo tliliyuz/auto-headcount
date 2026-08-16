@@ -22,7 +22,13 @@ export async function upsertCandidate(sql, { sourceConnectionId, externalId, dis
   return rows[0].id;
 }
 
-/** 匹配结果幂等 upsert（本地评分权威分）；已审核（approved/rejected）状态不被重跑覆盖。 */
+/**
+ * 匹配结果幂等 upsert（本地评分权威分）；已审核（approved/rejected）状态不被重跑覆盖。
+ * `supersedePrior`（迁移 0016）：同 (job_id, candidate_id) 只保留最新一条 active，
+ * 写入后把该对其它非 superseded 旧行标 superseded（保留原审核态，工作台/落地页默认
+ * 过滤，库里可审计）。只由自动匹配管线开启；遗留 match-sync（rule_version 恒 1，
+ * 幂等冲突天然不堆重复）保持关闭。
+ */
 export async function upsertMatch(
   sql,
   {
@@ -42,6 +48,7 @@ export async function upsertMatch(
     filterResultId = null,
     llmScoreRunId = null,
     aggregationRuleVersion = null,
+    supersedePrior = false,
   },
 ) {
   const rows = await sql`
@@ -79,6 +86,15 @@ export async function upsertMatch(
       updated_at = now()
     returning id, status
   `;
+  if (supersedePrior) {
+    await sql`
+      update matches
+      set is_superseded = true, updated_at = now()
+      where job_id = ${jobId} and candidate_id = ${candidateId}
+        and id <> ${rows[0].id}
+        and not is_superseded
+    `;
+  }
   return rows[0];
 }
 
@@ -144,6 +160,7 @@ export async function findApprovedMatchForJobCandidate(sql, { jobId, candidateId
     where m.job_id = ${jobId}
       and m.candidate_id = ${candidateId}
       and m.status = 'approved'
+      and not m.is_superseded
     group by m.id
     order by m.updated_at desc
     limit 1
@@ -153,13 +170,14 @@ export async function findApprovedMatchForJobCandidate(sql, { jobId, candidateId
 
 /**
  * 审核状态流转（docs/03 §9）：仅从 `generated`/`pending_review` 可流转到 `approved`/`rejected`。
- * 已审核的匹配返回 null（路由 409）；只有 approved 的匹配可进入触达（M3 门禁）。
+ * 已审核或已 superseded 的匹配返回 null（路由 409）；只有 approved 的匹配可进入触达（M3 门禁）。
  */
 export async function updateMatchStatus(sql, { id, status }) {
   const rows = await sql`
     update matches
     set status = ${status}, updated_at = now()
     where id = ${id} and status in ('generated', 'pending_review')
+      and not is_superseded
     returning id
   `;
   return rows[0]?.id ?? null;

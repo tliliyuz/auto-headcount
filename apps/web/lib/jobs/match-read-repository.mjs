@@ -5,16 +5,20 @@
  * 评分来自供应方（docs/04 §6），本地只分带/审计投影/记录版本。
  */
 
-/** 匹配列表（分页包络），可按 jobId/band/status 过滤。 */
+/**
+ * 匹配列表（分页包络），可按 jobId/band/status 过滤。
+ * 默认排除 superseded（工作台只展示 active）；`includeSuperseded=true` 可查询全部（审计）。
+ */
 export async function listMatches(
   sql,
-  { jobId, band, status, page = 1, pageSize = 20 } = {},
+  { jobId, band, status, includeSuperseded = false, page = 1, pageSize = 20 } = {},
 ) {
   const where = sql`
     1 = 1
     ${jobId ? sql` and m.job_id = ${jobId}` : sql``}
     ${band ? sql` and m.band = ${band}` : sql``}
     ${status ? sql` and m.status = ${status}` : sql``}
+    ${includeSuperseded ? sql`` : sql` and not m.is_superseded`}
   `;
 
   const [{ total }] = await sql`
@@ -35,6 +39,7 @@ export async function listMatches(
       m.score,
       m.band,
       m.status,
+      m.is_superseded as "isSuperseded",
       m.rule_version as "ruleVersion",
       m.input_hash as "inputHash",
       m.score_status as "scoreStatus",
@@ -87,6 +92,7 @@ export async function getMatchById(sql, id) {
       m.score,
       m.band,
       m.status,
+      m.is_superseded as "isSuperseded",
       m.rule_version as "ruleVersion",
       m.input_hash as "inputHash",
       m.score_status as "scoreStatus",
