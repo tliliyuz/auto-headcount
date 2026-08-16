@@ -63,6 +63,21 @@ test("职责摘要为白名单生成：原始 JD 内嵌品牌名绝不进入 DTO
   assert.ok(!JSON.stringify(view).includes("【岗位背景】"), "不含原始 JD 文本");
 });
 
+test("岗位大类 tag：类别取运营粗桶——空 category 标题推断、权威 category 映射优先、未映射细类回退推断而非输出源原始值", () => {
+  const base = { title: "知识图谱/Text2SQL数据智能工程师", category: "", city: "深圳市", jobDescription: null };
+  assert.equal(toMaskedJobView({ ...base }).category, "数据智能", "空 category → 标题推断粗桶");
+  assert.equal(
+    toMaskedJobView({ ...base, category: "深度学习" }).category,
+    "数据智能",
+    "权威细分类 → 映射粗桶",
+  );
+  assert.equal(
+    toMaskedJobView({ ...base, category: "某自定义细类" }).category,
+    "数据智能",
+    "未映射细类 → 回退标题推断，不输出源原始值",
+  );
+});
+
 test("AI 匹配评价投影：白名单维度标签 + 数字分，剔除 evidence/非白名单维度，按规范序排列", () => {
   const evaluation = toAiEvaluation({
     score: 86,

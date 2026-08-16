@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 落地页岗位大类 tag 修复：类别取运营粗桶（空 category 标题推断）
+
+> 状态：`verified`。unit 266/266、integration 58/58、lint/tsc 0 错误、build 通过；真实数据链接（real-kg-chenyi）三 tag 齐全「数据智能 / ⌖ 杭州市 / 招聘中」。
+
+- 根因：落地页 `toMaskedJobView` 直接投影源 `job.category`（MCP 源实测空串）→ 真实职位 P1 岗位大类 tag 缺失，只剩城市/招聘中。
+- 修复：类别改取 `jobCoarseBucket(category, title)`（`lib/job-category.mjs`，5 类白名单粗桶）——源 category 非空且可映射时权威优先，为空/未映射时按标题推断，绝不输出源原始值；粗桶为固定白名单，比源 category 原始值更符合结构性去标识化。
+- 测试：landing-mask 补粗桶断言（空 category → 标题推断、权威映射优先、未映射回退推断）。
+- 文档：docs/03 §10、07 §3（类别=运营粗桶）。
+
 ### 2026-08-16 — 境内 LLM 接入审批记录：opencode.ai 境内网关 + deepseek-v4-flash
 
 > 状态：`specified`（审批记录已入库，真实调用仍未启用）。项目负责人确认境内网关启用真实 LLM 详情评分，6 项门禁（供应商/模型、处理区域境内、数据不用于训练/保留删除随网关条款、Top-K/预算成本闸、超时 60000）已记录到 [docs/06](docs/06-security-compliance.md) §LLM 门禁。**真实 LLM 调用仍保持关闭**，启用需完成「启用条件」：配 `MATCH_SCORING_ADAPTER=llm-openai-compatible` + `LLM_*` 键 + `MATCH_AUTOMATION_ENABLED=true` + 受控真实调用验证 `https://opencode.ai/zen/go/chat/completions` 端点路径。

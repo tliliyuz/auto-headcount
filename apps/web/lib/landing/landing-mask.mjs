@@ -1,3 +1,4 @@
+import { jobCoarseBucket } from "../job-category.mjs";
 import { inferJobSummary } from "./landing-summary.mjs";
 
 /** 月薪范围 → k 展示（源 salary_min/max 为月薪元，用户口径 2026-08-15）。脏值（>100 万/月）与异常边界降级为「薪资面议」，不推断（docs/07 §3）。 */
@@ -17,7 +18,7 @@ export function formatMonthlySalaryK(salaryMin, salaryMax) {
 
 /**
  * 落地页脱敏白名单 DTO（docs/03 §10、docs/07 §3 切片）：
- * 只含职位标题/类别/城市/月薪范围(k)/去标识化职责摘要，**永不**包含公司名称/简称、内部职位编号、
+ * 只含职位标题/类别（运营粗桶，5 类白名单）/城市/月薪范围(k)/去标识化职责摘要，**永不**包含公司名称/简称、内部职位编号、
  * 客户联系人、招聘负责人、详细地址或原始 JD。职责摘要由模板 + 白名单词库自动生成
  * （结构性去标识化，见 landing-summary.mjs）。年包/薪资结构（14薪+期权+绩效）MCP 无此字段，
  * 属未来浏览器采集数据缺口（见 docs/03 §10 注记）。
@@ -73,7 +74,9 @@ export function toAiEvaluation(match) {
 export function toMaskedJobView(job) {
   return {
     title: job.title,
-    category: job.category,
+    // 岗位大类 tag 取运营粗桶（5 类白名单，docs/03 §10）：源 category 非空且可映射时权威优先，
+    // 为空/未映射时按标题推断（job-category.mjs 的 jobCoarseBucket）；绝不输出源 category 原始值。
+    category: jobCoarseBucket(job.category, job.title),
     city: job.city,
     salaryRange: formatMonthlySalaryK(job.salaryMin, job.salaryMax),
     summary: inferJobSummary({
