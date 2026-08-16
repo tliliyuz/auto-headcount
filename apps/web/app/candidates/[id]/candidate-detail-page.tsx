@@ -85,11 +85,21 @@ export function CandidateDetailPage({ candidateId }: { candidateId: string }) {
           </header>
 
           <div className="jd-tags">
+            {detail.industry && <span className="jd-tag">◇ {detail.industry}</span>}
             <span className="jd-tag">⌖ {detail.city ?? "城市未知"}</span>
             <span className="jd-tag">⌁ {detail.experienceYears != null ? `${detail.experienceYears} 年` : "经验未知"}</span>
             <span className="jd-tag">♢ {detail.education ?? "学历未知"}</span>
             {(detail.school || detail.major) && <span className="jd-tag">◉ {[detail.school, detail.major].filter(Boolean).join(" · ")}</span>}
           </div>
+
+          {detail.skills.length > 0 && (
+            <section className="jd-section">
+              <div className="section-title"><h3>技能标签</h3><span className="internal-label">简历推断</span></div>
+              <div className="skill-tags">
+                {detail.skills.map((skill) => <span key={skill} className="skill-tag">{skill}</span>)}
+              </div>
+            </section>
+          )}
 
           <section className="jd-section">
             <div className="section-title"><h3>工作经历</h3><span className="internal-label">完整简历</span></div>

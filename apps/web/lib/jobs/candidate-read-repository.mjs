@@ -66,6 +66,7 @@ export async function listCandidates(
       p.major,
       p.seniority,
       p.industry,
+      p.skills,
       p.activity_updated_at as "activityUpdatedAt",
       c.created_at as "createdAt",
       (select count(*)::int from matches m where m.candidate_id = c.id) as "matchCount",

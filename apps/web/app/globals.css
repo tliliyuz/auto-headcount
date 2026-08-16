@@ -365,6 +365,11 @@ button { color: inherit; }
 .jd-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
 .jd-tag { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 12px; color: #536178; background: #f1f4f7; font-size: 11px; }
 .jd-tag.urgent { color: #b87518; background: #fff4df; }
+.skill-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.skill-tag { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 12px; color: #3f5a9c; background: #edf2fb; font-size: 11px; line-height: 1.4; }
+.industry-cell { display: inline-block; color: #536178; font-size: 11px; font-weight: 600; }
+.mini-skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mini-skill { display: inline-block; padding: 2px 6px; border-radius: 8px; color: #4f67a0; background: #eef2fb; font-size: 8px; line-height: 1.4; white-space: nowrap; }
 .jd-section { margin-top: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 4px 18px rgb(25 38 67 / 3%); }
 .jd-main { margin: 0; padding: 18px; border: 1px solid #e5eaf1; border-radius: 9px; background: #fbfcff; color: #3a4556; font-size: 13px; line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
 .jd-note { margin: 32px 0; color: #8a97a9; font-size: 13px; line-height: 1.7; }

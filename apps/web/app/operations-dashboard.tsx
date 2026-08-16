@@ -591,7 +591,7 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>候选人</th><th>当前职位</th><th>公司 / 城市</th><th>经验</th><th>学历 / 职级</th><th>状态</th><th /></tr></thead>
+            <thead><tr><th>候选人</th><th>当前职位</th><th>公司 / 城市</th><th>经验</th><th>学历 / 职级</th><th>行业 / 技能</th><th>状态</th><th /></tr></thead>
             <tbody>
               {pageCandidates.map((c) => (
                 <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => setSelectedId(c.id)}>
@@ -600,6 +600,12 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
                   <td><strong>{c.company ?? "—"}</strong><small>{c.city ?? "—"}</small></td>
                   <td><span>{c.experienceYears != null ? `${c.experienceYears} 年` : "—"}</span></td>
                   <td><span>{c.education ?? "—"}{c.seniority ? ` · ${c.seniority}` : ""}</span></td>
+                  <td>
+                    {c.industry && <span className="industry-cell">{c.industry}</span>}
+                    {c.skills?.length > 0 && (
+                      <div className="mini-skills">{c.skills.slice(0, 3).map((skill) => <span key={skill} className="mini-skill">{skill}</span>)}</div>
+                    )}
+                  </td>
                   <td><span className={`status-tag status-${c.status}`}>{c.status}</span></td>
                   <td><button aria-label={`查看 ${c.name}`} onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>›</button></td>
                 </tr>
