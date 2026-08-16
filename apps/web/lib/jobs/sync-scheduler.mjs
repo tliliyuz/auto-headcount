@@ -26,6 +26,7 @@ import {
 import {
   createDefaultCallTool,
   runUnderServedSync,
+  UNDER_SERVED_ALLOWED_TOOLS,
 } from "./under-served-sync.mjs";
 
 /** 默认同步周期：每 6 小时一个幂等槽位。 */
@@ -332,7 +333,9 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
         stats: null,
       };
     }
-    const callTool = mcp?.callTool ?? createDefaultCallTool({ env });
+    const callTool =
+      mcp?.callTool ??
+      createDefaultCallTool({ env, allowedTools: UNDER_SERVED_ALLOWED_TOOLS });
     return await runUnderServedSync({ sql, encryption, source, mcp: { callTool } });
   } catch (error) {
     // 配置解析（MCP 凭证缺失等）等在 runUnderServedSync 抛出前的错误：机器可读，不泄露原始错误。

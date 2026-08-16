@@ -22,6 +22,8 @@ import {
 
 const UNDER_SERVED_TOOL = "wb.jobs.under_served";
 const JOBS_LIST_TOOL = "wb.jobs.list";
+/** under_served 同步需要的工具白名单（under_served 拉取 + list 拉账号可操作集）。 */
+export const UNDER_SERVED_ALLOWED_TOOLS = [UNDER_SERVED_TOOL, JOBS_LIST_TOOL];
 /** page_size 提到上限 200（docs/validation/2026-08-11：under_served 最大 200），2796/200 ≈ 14 页，
  *  较 20×100=100 页减 7 倍；且拉全不再触发 maxPagesReached，closeStale 得以执行（fix4）。 */
 const DEFAULT_PAGE_SIZE = 200;
@@ -57,7 +59,7 @@ export async function runUnderServedSync({
 }) {
   const callTool =
     mcp?.callTool ??
-    createDefaultCallTool({ allowedTools: [UNDER_SERVED_TOOL, JOBS_LIST_TOOL] });
+    createDefaultCallTool({ allowedTools: UNDER_SERVED_ALLOWED_TOOLS });
   const sourceId = await getOrCreateSourceConnection(sql, source);
   // 看门狗：回收崩溃残留的 running 同步运行（超时标 RUN_STALE_TIMEOUT），
   // 避免进程中断后 sync_run 永久卡 running。
