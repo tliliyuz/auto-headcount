@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — M3 职位侧数据缺口：确定性 JD 结构化提取写入 job_requirements
+
+> 状态：`verified`。lint/tsc 0 错误；unit 262/262（含提取器 12 + 调度幂等键）；integration 58/58（含 job-requirements-sync 2 + async-task-sync 更新为 3 任务）；真实 dev 库 `sync:job-requirements` 首次 42/42 写入、再跑 jobsQueried=0 幂等——27 个职位提取出技能（不再 `REQUIRED_FIELD_MISSING` 全拒），6 个学历、5 个年限、0 薪资（真实 JD 多为年薪/面议，按「不推断」留空，消费端本就优先 `jobs.salary`）。候选人侧 skills/industry 为下一步缺口。
+
+- **确定性 JD 结构化提取**（`lib/jobs/job-requirements-extract.mjs`，generator `rules/v1`）：从 `job_description` 白名单提取 skills/学历/职级/年限/薪资/证书/优先技能；薪资只解析显式月薪（k/万），年薪/面议/超界留空 + warning（不转成年薪、不推断）；技能/证书只来自白名单词库（结构去标识化，公司/产品专名无法进入输出）。
+- **新同步任务 `job_requirements_extract`**（`lib/jobs/job-requirements-sync.mjs` + `job-requirements-repository.mjs`）：fill-when-missing（`job_description is not null` 且无 requirements 行），空 JD 也落全空行避免每周期重扫；`job_id` unique + `on conflict (job_id) do update` 幂等；调度器 6h 周期入队（同 job_details，不受 MATCH_AUTOMATION_ENABLED 门禁）；CLI `npm run sync:job-requirements`。
+- 消费端形状对齐：`constraints` 按对象写（`min_experience_years`/`required_certificates`/`preferred_skills`/`business_context`/`salary_hard_constraint`）；`projection-filter-sync.loadJob`/`match-sync.loadJobRequirements` 直接读取。
+- 测试：提取器单测 12（确定性/学历硬门槛/年限/薪资不推断/结构去标识化）；集成 2（有 JD 落库 + 空 JD 全空 + 无 JD 跳过；幂等两次 `jobsQueried=0`）。
+- 文档：03-data-model §7.3、05-roadmap M3 状态、10-matching-contracts §3.1 同步；候选人侧 `candidate_profiles.skills/industry` 全空记为下一步缺口（本任务范围外）。
+
 ### 2026-08-16 — 生产 LLM 详情评分适配器契约（供应商无关 + 配置驱动 + mock HTTP，真实调用 fail-closed）
 
 > 状态：`implemented`。单测 249/249、集成 56/56、build/tsc/lint/check:matching-schemas 全绿。适配器契约、管线错误码与 mock-HTTP 全链路已通过测试；**真实供应商接线未验证**（供应商/模型、处理区域、数据不用于训练、预算、超时上限未审批前保持关闭，见 docs/01 §3、docs/06 §敏感业务、ADR-005），不声明生产可用。合规门禁未过前 `MATCH_SCORING_ADAPTER=llm-openai-compatible` 配了也不应开启 `MATCH_AUTOMATION_ENABLED`。

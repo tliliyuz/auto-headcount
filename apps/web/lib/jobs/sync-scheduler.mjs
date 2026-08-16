@@ -12,6 +12,7 @@ import {
   JOBS_GET_TOOL,
   runJobDetailsSync,
 } from "./job-details-sync.mjs";
+import { runJobRequirementsSync } from "./job-requirements-sync.mjs";
 import { runMatchSync } from "./match-sync.mjs";
 import {
   MATCH_PIPELINE_TASK_KIND,
@@ -43,6 +44,7 @@ const RETRY_MAX_MS = 60 * 60 * 1000;
 const DEFAULT_STALE_TASK_MS = 30 * 60 * 1000;
 const TASK_KIND_SYNC = "under_served_sync";
 const TASK_KIND_JOB_DETAILS = "job_details_sync";
+const TASK_KIND_JOB_REQUIREMENTS = "job_requirements_extract";
 const TASK_KIND_MATCH = "match_candidates_sync";
 export const TASK_KIND_BROWSER_JOB_COLLECT = "browser_job_collect";
 export const TASK_KIND_BROWSER_JOB_BATCH_DISCOVER = "browser_job_batch_discover";
@@ -161,6 +163,39 @@ export async function enqueueJobDetailSyncTasks(
   };
 }
 
+/** `job_requirements_extract` 幂等键：按来源 + 6h 周期槽（与 job_details 同模式）。 */
+export function buildJobRequirementsIdempotencyKey(provider, periodKey) {
+  return `job-requirements-extract:${provider}:${periodKey}`;
+}
+
+/**
+ * 周期性入队 JD 结构化提取任务（纯本地计算，无 MCP；不设 MATCH_AUTOMATION_ENABLED 门禁，
+ * 同 job_details 属数据准备）。
+ */
+export async function enqueueJobRequirementsExtractTasks(
+  sql,
+  { source, now, intervalMs = DEFAULT_INTERVAL_MS },
+) {
+  const taskRepo = createAsyncTaskRepository(sql);
+  const periodKey = syncPeriodKey(now, intervalMs);
+  const idempotencyKey = buildJobRequirementsIdempotencyKey(source.provider, periodKey);
+  const taskId = await taskRepo.enqueueTask({
+    kind: TASK_KIND_JOB_REQUIREMENTS,
+    idempotencyKey,
+    payload: { source },
+    scheduledAt: now,
+  });
+  if (taskId) return { requirementsEnqueued: true, taskId, idempotencyKey };
+  const existing = await sql`
+    select id from async_tasks where idempotency_key = ${idempotencyKey}
+  `;
+  return {
+    requirementsEnqueued: false,
+    taskId: existing[0]?.id ?? null,
+    idempotencyKey,
+  };
+}
+
 export async function enqueueAutomaticMatchTasks(
   sql,
   { now, intervalMs = DEFAULT_INTERVAL_MS },
@@ -270,6 +305,10 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
       const callTool =
         mcp?.callTool ?? createDefaultCallTool({ env, allowedTools: [JOBS_GET_TOOL] });
       return await runJobDetailsSync({ sql, source, mcp: { callTool } });
+    }
+    // JD 结构化提取：纯本地计算，填充 job_requirements（M3 职位侧数据缺口）。
+    if (task.kind === TASK_KIND_JOB_REQUIREMENTS) {
+      return await runJobRequirementsSync({ sql, source });
     }
     // 旧匹配任务仅保留对历史队列的兼容消费；公开手动创建端点已关闭，不再产生新任务。
     // 外部 match_candidates 结果仍只写 external_* 对照，不作为权威分。
@@ -385,6 +424,9 @@ async function writeSyncAudit(repo, { outcome, decision, requestId }) {
       "queried",
       "detailsMatched",
       "detailsMissing",
+      "written",
+      "warnings",
+      "generatorVersion",
       "jobsQueried",
       "jobsProjected",
       "candidatesQueried",
@@ -536,6 +578,11 @@ export async function runScheduledTick({
     now,
     intervalMs,
   });
+  const enqueuedRequirements = await enqueueJobRequirementsExtractTasks(sql, {
+    source,
+    now,
+    intervalMs,
+  });
   const enqueuedMatches = env.MATCH_AUTOMATION_ENABLED === "false"
     ? { enqueuedMatches: false, taskId: null, idempotencyKey: null }
     : await enqueueAutomaticMatchTasks(sql, { now, intervalMs });
@@ -558,6 +605,9 @@ export async function runScheduledTick({
     detailsEnqueued: enqueuedDetails.enqueuedDetails,
     detailsTaskId: enqueuedDetails.taskId,
     detailsIdempotencyKey: enqueuedDetails.idempotencyKey,
+    requirementsEnqueued: enqueuedRequirements.requirementsEnqueued,
+    requirementsTaskId: enqueuedRequirements.taskId,
+    requirementsIdempotencyKey: enqueuedRequirements.idempotencyKey,
     matchesEnqueued: enqueuedMatches.enqueuedMatches,
     matchesTaskId: enqueuedMatches.taskId,
     matchesIdempotencyKey: enqueuedMatches.idempotencyKey,

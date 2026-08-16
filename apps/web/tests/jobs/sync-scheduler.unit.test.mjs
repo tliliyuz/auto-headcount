@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildJobRequirementsIdempotencyKey,
   buildMatchPipelineIdempotencyKey,
   buildProjectionFilterIdempotencyKey,
   buildSyncIdempotencyKey,
@@ -19,6 +20,13 @@ test("syncPeriodKey：同周期同键、跨周期不同键", () => {
   assert.equal(
     syncPeriodKey(new Date(SIX_HOURS_MS * 2 + 5), SIX_HOURS_MS),
     2,
+  );
+});
+
+test("buildJobRequirementsIdempotencyKey：provider + periodKey 拼接", () => {
+  assert.equal(
+    buildJobRequirementsIdempotencyKey("csdn-mcp", 12345),
+    "job-requirements-extract:csdn-mcp:12345",
   );
 });
 

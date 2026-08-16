@@ -259,10 +259,12 @@ test(
         intervalMs: SIX_HOURS_MS,
         mcp: { callTool },
       });
-      taskIds.push(result.taskId, result.detailsTaskId);
+      taskIds.push(result.taskId, result.detailsTaskId, result.requirementsTaskId);
       assert.equal(result.enqueued, true);
       assert.equal(result.detailsEnqueued, true);
-      assert.equal(result.succeeded, 2);
+      assert.equal(result.requirementsEnqueued, true);
+      // under_served + job_details + job_requirements_extract 三个任务均成功
+      assert.equal(result.succeeded, 3);
       assert.equal(result.retried, 0);
       assert.equal(result.failed, 0);
       assert.equal(result.dead, 0);
