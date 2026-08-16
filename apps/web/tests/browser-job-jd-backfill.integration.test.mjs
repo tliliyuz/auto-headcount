@@ -17,6 +17,7 @@ import {
   createBrowserJobJdBackfillRepository,
   listJobJdBackfills,
 } from "../lib/jobs/browser-job-jd-backfill-repository.mjs";
+import { processDueTasks } from "../lib/jobs/sync-scheduler.mjs";
 import {
   finishSyncRun,
   getOrCreateSourceConnection,
@@ -68,7 +69,7 @@ async function seedActionableJob(sql, sourceId, externalId) {
   return jobId;
 }
 
-function createFakeRelay({ missingJdFor = [], throwFor = [] }) {
+function createFakeRelay({ missingJdFor = [], throwFor = [] } = {}) {
   const missing = new Set(missingJdFor);
   const throwing = new Set(throwFor);
   return {
@@ -247,6 +248,69 @@ test(
         where id = ${jobIds[0]} and job_description is not null
       `;
       assert.equal(j1Again[0].n, 1);
+    } finally {
+      await cleanup(sql, { sourceId, jobIds });
+    }
+  },
+);
+
+test(
+  "JD 回填经调度器 processDueTasks 完整分发：认领→分发→回填→sync_run/台账落库",
+  { skip: !connectionString },
+  async () => {
+    const sql = postgres(connectionString, { max: 1 });
+    const marker = randomUUID();
+    const source = {
+      provider: `fixture-backfill-dispatch-${marker}`,
+      environment: "test",
+      displayName: "Fixture JD Backfill Dispatch",
+    };
+    let sourceId;
+    const jobIds = [];
+    const ext = (suffix) => `${suffix}-${marker}`;
+
+    try {
+      sourceId = await getOrCreateSourceConnection(sql, source);
+      jobIds.push(await seedActionableJob(sql, sourceId, ext("bfd-j1")));
+
+      const enqueued = await enqueueBrowserJobJdBackfillTasks({
+        sql,
+        source,
+        userId: "ops_fixture",
+        deviceId: "device-fixture-001",
+      });
+      assert.equal(enqueued.enqueued, 1);
+
+      // 经调度器认领 → 分发到 runBrowserJobJdBackfill（browserRelay 注入假 relay）。
+      const summary = await processDueTasks(sql, {
+        env: {
+          APP_ENCRYPTION_KEY: encryption.key,
+          APP_ENCRYPTION_KEY_VERSION: encryption.keyVersion,
+        },
+        now: new Date(Date.now() + 5000),
+        browserRelay: createFakeRelay(),
+      });
+      assert.ok(summary.succeeded >= 1, "回填任务经调度器分发应成功");
+
+      const [task] = await sql`
+        select status, last_error_code from async_tasks
+        where payload->>'sourceConnectionId' = ${sourceId}
+      `;
+      assert.equal(task.status, "succeeded", "回填任务终态 succeeded");
+      assert.equal(task.last_error_code, null);
+
+      const j1 = await sql`select job_description from jobs where id = ${jobIds[0]}`;
+      assert.ok(j1[0].job_description.includes(ext("bfd-j1")), "调度分发后 JD 回填");
+      const [run] = await sql`
+        select count(*)::int as n from sync_runs
+        where source_connection_id = ${sourceId} and sync_type = 'browser_job_jd_backfill'
+      `;
+      assert.equal(run.n, 1, "调度分发落一条 sync_run");
+      const [ledger] = await sql`
+        select count(*)::int as n, max(outcome) as outcome from job_jd_backfills where job_id = ${jobIds[0]}
+      `;
+      assert.equal(ledger.n, 1);
+      assert.equal(ledger.outcome, "filled");
     } finally {
       await cleanup(sql, { sourceId, jobIds });
     }
