@@ -34,6 +34,7 @@ import {
   fetchCandidates,
   triggerSync,
   triggerBrowserCollection,
+  triggerJdBackfill,
   triggerCandidateCollection,
   reviewMatch,
   type AuditLogView,
@@ -699,6 +700,9 @@ function SourcesPage({
   const [browserBatchSize, setBrowserBatchSize] = useState(20);
   const [browserCollectState, setBrowserCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
   const [browserCollectMessage, setBrowserCollectMessage] = useState<string | null>(null);
+  const [backfillState, setBackfillState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
+  const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
+  const [backfillLimit, setBackfillLimit] = useState(50);
   const [candidateBatches, setCandidateBatches] = useState<CandidateBatchView[]>([]);
   const [candidateBatchSize, setCandidateBatchSize] = useState(20);
   const [candidateForceRefresh, setCandidateForceRefresh] = useState(false);
@@ -816,6 +820,35 @@ function SourcesPage({
     } else {
       setBrowserCollectState("failed");
       setBrowserCollectMessage("采集触发失败，请检查浏览器连接与设备路由");
+    }
+  };
+
+  /** JD 回填：扫描可操作缺 JD 职位 → 按 external_id 入队浏览器详情回填（防重采台账）。 */
+  const collectJdBackfill = async () => {
+    if (!primarySource) {
+      setBackfillMessage("请先启用职位数据源");
+      return;
+    }
+    setBackfillState("triggering");
+    setBackfillMessage(null);
+    const result = await triggerJdBackfill({ limit: backfillLimit });
+    if (result.ok) {
+      setBackfillState("queued");
+      setBackfillMessage(
+        result.data.enqueued > 0
+          ? `已入队回填 ${result.data.enqueued} 个职位（本次扫描 ${result.data.scanned} 个缺 JD 可操作职位）`
+          : `扫描 ${result.data.scanned} 个缺 JD 可操作职位，均已完成或已尝试，无需回填`,
+      );
+      // 入队提示 6 秒后复位，允许连续触发。
+      window.setTimeout(() => {
+        setBackfillState((current) => (current === "queued" ? "idle" : current));
+      }, 6000);
+    } else if (result.status === 401 || result.code === "password_change_required") {
+      setBackfillState("idle");
+      onAuthExpired();
+    } else {
+      setBackfillState("failed");
+      setBackfillMessage(result.message || "回填触发失败，请检查浏览器连接与设备路由");
     }
   };
 
@@ -941,6 +974,11 @@ function SourcesPage({
           </div>
           <button className="secondary-button" disabled={browserCollectState === "triggering" || browserCollectState === "queued"} onClick={() => void collectFilteredJobs()}>{browserCollectState === "triggering" ? "正在入队…" : browserCollectState === "queued" ? "批次已入队" : "采集当前筛选结果"}</button>
           {browserCollectMessage && <p className={browserCollectState === "failed" ? "source-message error" : "source-message"}>{browserCollectMessage}</p>}
+          <div className="browser-route-fields">
+            <label>回填上限<select value={backfillLimit} onChange={(event) => setBackfillLimit(Number(event.target.value))}><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
+          </div>
+          <button className="secondary-button" disabled={backfillState === "triggering" || backfillState === "queued"} onClick={() => void collectJdBackfill()}>{backfillState === "triggering" ? "正在回填…" : backfillState === "queued" ? "回填已入队" : "回填缺失 JD"}</button>
+          {backfillMessage && <p className={backfillState === "failed" ? "source-message error" : "source-message"}>{backfillMessage}</p>}
         </article>
         <article className="source-card browser-source">
           <header><span className="source-logo browser">C</span><div><h2>人才池候选人采集</h2><p>人才池列表 → 候选人画像批量入库</p></div><em><i />固定合同</em></header>

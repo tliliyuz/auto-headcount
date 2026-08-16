@@ -384,6 +384,16 @@ export function triggerBrowserCollection(input: {
   });
 }
 
+/** 手动触发 JD 回填：扫描可操作缺 JD 职位并入队浏览器详情回填任务（mode=jd_backfill）。 */
+export function triggerJdBackfill(input: {
+  limit: number;
+}): Promise<AuthResult<{ accepted: boolean; scanned: number; enqueued: number; skipped: string[]; sourceId: string }>> {
+  return request("/api/browser-collections", {
+    method: "POST",
+    body: JSON.stringify({ mode: "jd_backfill", limit: input.limit }),
+  });
+}
+
 export function triggerCandidateCollection(input: {
   sourceConnectionId: string;
   batchSize: number;
