@@ -149,7 +149,7 @@ export type MatchFilterResultView = {
 };
 
 export type MatchView = {
-  id: string; jobId: string; jobTitle: string; jobExternalId: string;
+  id: string; jobId: string; jobTitle: string; jobExternalId: string; jobAgeDays: number;
   candidateId: string; candidateName: string; candidateSummary: string | null;
   score: number | null; band: string | null; status: string; scoreStatus: string;
   ruleVersion: number | null; inputHash: string | null;
@@ -300,6 +300,9 @@ export type JobJdBackfillView = {
   outcome: "filled" | "no_provider_jd" | "failed";
   jdLength: number;
   contentHash: string | null;
+  /** 台账行无运行起止时间；声明可选以与批次/同步事件共用展示字段。 */
+  startedAt?: string | null;
+  finishedAt?: string | null;
   errorCode: string | null;
   createdAt: string;
 };
