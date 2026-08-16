@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 匹配评分诊断落地：移除无数据源的 salary 维度（aggregation/v2）
+
+> 状态：`verified`。匹配测试 61/61、tsc/lint 全绿。诊断匹配审核工作台 33 条 match：均为 fake-detail-scoring 垂直切片验证数据（真实 LLM 合规门禁关闭）；27 条全 74 分 + 4 条 80（location=90 拉高）根因 = industry/seniority/salary 三维职位侧无参照（`job.category` 空 / 无职级要求 / 薪资两侧空）被重归一化剔除，分数只在 4 维上算且缺数据不扣分。
+
+- **移除 salary 维度权重**（`aggregate-detail-score.mjs`）：`DETAIL_SCORE_WEIGHTS` 去掉 `salary:0.1`，`AGGREGATION_RULE_VERSION` 升 `aggregation/v2`。候选期望/当前薪资与职位薪资均无数据源（详情页无字段、简历不展示、JD 年薪/面议留空），该维度恒不可评估；保留权重只会制造假精确与分数虚高。LLM prompt 仍列 salary（恒 assessable:false），聚合权重 0 直接忽略。薪资数据源到位前不再评分。
+- **诊断记录**（不属本轮改动）：薪资维度无 prompt 语义标准（`MATCH_DETAIL_PROMPT_V1` 只列维度名）；industry 被 category 数据缺口阻塞（候选有行业值但职位侧 category 空）；历史重复 matches（去重提交晚于这批 match 生成）+ 管线重跑不清旧 match；预览 fixture 混入工作台。
+- 测试：聚合测试补 salary 权重 0 剔除断言（87→89）。
+- 文档/变更：CHANGELOG、memory（salary-dimension-no-source）。
+
 ### 2026-08-16 — 浏览器 JD 回填：DB 驱动补可操作职位的空 JD（liebide-job-detail-v2 + job_jd_backfills 台账）
 
 > 状态：Consumer 侧 `verified`——单测 283/283（含新增 browser-job-jd-backfill 8 项、契约 v2 解析）、集成 61/61（含新增 browser-job-jd-backfill 集成：入队→filled/no_provider_jd/failed→台账防重采）、build/tsc/lint 0 错误、`check:browser-contract` 与 `check-md-links` 通过、迁移 0015 已应用 dev DB。**跨仓库 Provider（CSDN-Agent）实现 `liebide-job-detail-v2` 后**，`make check-browser-contract-cross-repo` 方能通过（当前为已知依赖，见 runbook §8）。

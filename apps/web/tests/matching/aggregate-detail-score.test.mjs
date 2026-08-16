@@ -18,11 +18,13 @@ const dimensions = [
   evidence: score === null ? [] : [{ candidate_fact: "候选事实", job_requirement: "岗位要求", assessment: "可复核判断" }],
 }));
 
-test("本地汇总：忽略不可评估维度后重归一权重，结果可复算", async () => {
+test("本地汇总：忽略不可评估维度与 salary（权重 0）后重归一权重，结果可复算", async () => {
   const score = { dimensions, missing_items: ["活跃度缺失"], risks: [], overall_confidence: 0.7 };
   const first = await aggregateDetailScore(score);
   assert.deepEqual(first, await aggregateDetailScore(score));
-  assert.equal(first.score, 87);
+  // salary 70 因权重 0 被剔除（v2 移除薪资维度）；activity 不可评估剔除。
+  // 重归一：skills/industry/seniority/experience/location → (90×.25+80×.1+80×.15+90×.2+100×.15)/.85 ≈ 88.8 → 89
+  assert.equal(first.score, 89);
   assert.equal(first.band, "high");
   assert.equal(first.aggregationRuleVersion, AGGREGATION_RULE_VERSION);
   assert.deepEqual(first.missing, ["活跃度缺失"]);
