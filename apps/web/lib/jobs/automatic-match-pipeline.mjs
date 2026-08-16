@@ -7,15 +7,31 @@ import {
 } from "../matching/aggregate-detail-score.mjs";
 import { createFakeDetailScoringAdapter } from "../matching/fake-detail-scoring-adapter.mjs";
 import { validateLlmDetailScore } from "../matching/projection-schemas.mjs";
+import { createLlmDetailScoringAdapter } from "../adapters/llm-detail-scoring-adapter.mjs";
 import { replaceMatchDimensions, upsertMatch } from "./match-repository.mjs";
 
 export const MATCH_PIPELINE_TASK_KIND = "match_pipeline_v2";
+
+/** 管线可识别的 LLM 失败机器码（docs/10 §6.3 + LLM_AUTH_FAILED）。白名单外一律 LLM_INTERNAL_ERROR。 */
+export const LLM_ERROR_CODE_WHITELIST = Object.freeze([
+  "LLM_TIMEOUT",
+  "LLM_RATE_LIMITED",
+  "LLM_UNAVAILABLE",
+  "LLM_INPUT_TOO_LARGE",
+  "LLM_SAFETY_REFUSAL",
+  "LLM_AUTH_FAILED",
+  "LLM_OUTPUT_SCHEMA_INVALID",
+  "NO_ASSESSABLE_DIMENSIONS",
+]);
 
 export function resolveDetailScoringAdapter(env, injectedAdapter) {
   if (injectedAdapter) return injectedAdapter;
   const configured = env.MATCH_SCORING_ADAPTER;
   const nonProduction = env.APP_ENV !== "production";
   if (configured === "fake" || (!configured && nonProduction)) return createFakeDetailScoringAdapter();
+  // 生产形状适配器：供应商无关、配置驱动（env）。配置不完整 → resolve 即抛
+  // LLM_ADAPTER_CONFIG_INVALID（fail-closed）。未知值/生产未配 → null（LLM_ADAPTER_NOT_CONFIGURED）。
+  if (configured === "llm-openai-compatible") return createLlmDetailScoringAdapter(env);
   return null;
 }
 
@@ -208,8 +224,13 @@ async function finishScoreRun(sql, id, encrypted, finishedAt) {
 async function failScoreRun(sql, id, errorCode, finishedAt) {
   await sql`update llm_score_runs set status = 'failed', error_code = ${errorCode}, finished_at = ${finishedAt} where id = ${id}`;
 }
-function classifyScoreError(error) {
-  const code = error instanceof Error ? error.message : "";
-  return ["LLM_OUTPUT_SCHEMA_INVALID", "NO_ASSESSABLE_DIMENSIONS"].includes(code) ? code : "LLM_INTERNAL_ERROR";
+export function classifyScoreError(error) {
+  const code =
+    error && typeof error === "object" && typeof error.code === "string"
+      ? error.code
+      : error instanceof Error
+        ? error.message
+        : "";
+  return LLM_ERROR_CODE_WHITELIST.includes(code) ? code : "LLM_INTERNAL_ERROR";
 }
 function failure(errorCode, retryable) { return { status: "failed", errorCode, retryable, stats: null }; }

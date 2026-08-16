@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 生产 LLM 详情评分适配器契约（供应商无关 + 配置驱动 + mock HTTP，真实调用 fail-closed）
+
+> 状态：`implemented`。单测 249/249、集成 56/56、build/tsc/lint/check:matching-schemas 全绿。适配器契约、管线错误码与 mock-HTTP 全链路已通过测试；**真实供应商接线未验证**（供应商/模型、处理区域、数据不用于训练、预算、超时上限未审批前保持关闭，见 docs/01 §3、docs/06 §敏感业务、ADR-005），不声明生产可用。合规门禁未过前 `MATCH_SCORING_ADAPTER=llm-openai-compatible` 配了也不应开启 `MATCH_AUTOMATION_ENABLED`。
+
+- **新 `lib/adapters/llm-detail-scoring-adapter.mjs` + `.d.mts`**（实现 `DetailScoringPort`，`adapterId="llm-openai-compatible"`）：供应商无关、配置驱动（`LLM_BASE_URL/LLM_MODEL/LLM_API_KEY` 必填 + 可选超时/温度/输出上限），v1 默认 OpenAI-compatible `chat/completions`；只透传已 `residual_pii_scan=passed` 的脱敏投影（不增补姓名/ID/URL/令牌），Prompt `match-detail-prompt/v1` 规范性行为（缺失不当负面、不可评估 `score:null`、不输出总分/分档）；`AbortController` 超时 + `LlmDetailScoringError`（message=机器码，`LLM_TIMEOUT/RATE_LIMITED/UNAVAILABLE/INPUT_TOO_LARGE/SAFETY_REFUSAL/AUTH_FAILED/OUTPUT_SCHEMA_INVALID`）；`assertLlmDetailScoreSemantics` 七维各恰一次兜底（`validateLlmDetailScore` 只做 Schema，无 uniqueItems）。`fetchImpl` 注入供 mock HTTP 测试。
+- **管线 `automatic-match-pipeline.mjs`**：`resolveDetailScoringAdapter` 加 `llm-openai-compatible` 分支（配置不完整 → `LLM_ADAPTER_CONFIG_INVALID`，生产未知值 → `LLM_ADAPTER_NOT_CONFIGURED`，生产绝不回退 fake）；`classifyScoreError` 扩展 `.code` 优先 + `LLM_ERROR_CODE_WHITELIST`（导出）。
+- **调度 `sync-scheduler.mjs`**：`classifyTaskError` 识别 `LlmDetailScoringError.code`，`LLM_ADAPTER_CONFIG_INVALID` 落任务级机器码而非 `SYNC_INTERNAL_ERROR`。
+- 测试：`tests/llm-detail-scoring-adapter.test.mjs`（metadata/请求构造/mock 信封解析/HTTP 错误映射/语义校验/config 校验/密钥不泄漏）、`tests/matching/automatic-match-pipeline-error-mapping.test.mjs`（classifyScoreError + resolve 分支）、`tests/llm-detail-scoring-adapter.integration.test.mjs`（429 落码可重试、成功落 matches+七维+幂等、七维重复 SCHEMA_INVALID terminal）；注册进 `test:unit`/`test:integration`。
+- 文档/环境：`docs/10` §6 实现状态 + `LLM_AUTH_FAILED` + request_item_id 矛盾 TODO + SCHEMA_INVALID 修复性重试偏差注记；`docs/07` §2；`docs/02` §4；`.env.example`/`.env.production.example` 补 LLM 键。
+
 ### 2026-08-16 — 候选人完整简历：合同富字段 + /candidates/[id] 页 + forceRefresh 重采
 
 > 状态：`verified`。Provider 94/94；Consumer 单测 229/229、集成 53/53、lint/tsc 0 错误、build 通过（`/candidates/:id` 进 bundle）。真实重采验证：fc62dad0 批次发现 100 / 入库 96 / 失败 4，池子 158 人，简历字段（华为/阿里/蚂蚁/字节等）落库。

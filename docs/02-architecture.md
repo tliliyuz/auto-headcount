@@ -69,6 +69,8 @@ interface DetailScoringPort {
 
 `RedactedDetailScoreRequest` 只由 [匹配契约](10-matching-contracts.md) 中的职位要求投影和候选人脱敏投影生成。适配器负责模型/Prompt/Schema 版本、超时、限流、有限重试、结构化输出校验和机器错误分类；业务模块负责硬过滤、固定权重汇总和人工审核。
 
+> **实现（2026-08-16）**：生产形状适配器 `apps/web/lib/adapters/llm-detail-scoring-adapter.mjs`（`adapterId = "llm-openai-compatible"`）实现 `DetailScoringPort`，供应商无关、配置驱动（env：`LLM_BASE_URL/LLM_MODEL/LLM_API_KEY/LLM_TIMEOUT_MS/LLM_TEMPERATURE/LLM_MAX_OUTPUT_TOKENS`），v1 默认 OpenAI-compatible `chat/completions`；确定性 Fake 留在 `lib/matching/fake-detail-scoring-adapter.mjs` 作开发/CI 测试替身。真实供应商接线受 [docs/06](06-security-compliance.md) 门禁阻塞，保持 fail-closed（生产未配置/配置不完整 → 不调用）。
+
 ### 4.1 CSDN-Agent 浏览器采集边界（职位批量发现与单实体闭环已实现）
 
 ```text

@@ -91,6 +91,8 @@ LLM 适配器的持久化调用包络至少包含：
 
 发送给模型的 `request_item_id` 是单次调用随机关联值，不得由职位 ID、候选人 ID 或其哈希派生。
 
+> **实现状态（2026-08-16）**：`match-detail-prompt/v1` 已随生产适配器实现（`lib/adapters/llm-detail-scoring-adapter.mjs` 的 `MATCH_DETAIL_PROMPT_V1` 常量）。**待办矛盾**：当前管线 `automatic-match-pipeline.mjs` 传 `item_${combinedInputHash 前 24 位}`（派生值），与本节「随机关联、不可派生」不符；本步保持管线现值、适配器回显归一化，随机化留待后续切分或 ADR。
+
 `match-detail-prompt/v1` 的规范性行为是：只根据给定的脱敏投影评估；不推断姓名、性别、年龄、民族、婚育、健康等属性；不把缺失信息当作负面事实；对不可评估维度返回 `score:null`；不输出总分、分档、是否录用/触达或其他自动决策；只输出 `llm-detail-score/v1` JSON。Prompt 模板任何文字或排序变更都必须升级 `prompt_version`。
 
 ### 6.2 输出约束
@@ -106,10 +108,13 @@ LLM 适配器的持久化调用包络至少包含：
 |:---|:---|:---|
 | 超时 | `LLM_TIMEOUT` | 指数退避有限重试；超阈值进人工队列 |
 | 429/供应商临时不可用 | `LLM_RATE_LIMITED` / `LLM_UNAVAILABLE` | 有限重试，不换用未审批模型 |
+| 认证失败（401/403） | `LLM_AUTH_FAILED` | terminal，进人工/运维排查，不重试 |
 | JSON/Schema 无效 | `LLM_OUTPUT_SCHEMA_INVALID` | 仅允许同模型/同 Prompt 一次修复性重试；仍失败则关闭 |
 | 输入超限 | `LLM_INPUT_TOO_LARGE` | 不静默截断；返回上游重做版本化压缩投影 |
 | 脱敏/残留 PII 扫描失败 | `MATCH_PROJECTION_PII_DETECTED` | 不调用 LLM，进脱敏异常队列 |
 | 内容安全策略拒绝 | `LLM_SAFETY_REFUSAL` | 不伪造分数，进人工队列 |
+
+> **实现状态（2026-08-16）**：真实适配器经 `classifyScoreError`（`error.code` 优先 + 白名单）把 `LLM_TIMEOUT/RATE_LIMITED/UNAVAILABLE/INPUT_TOO_LARGE/SAFETY_REFUSAL/AUTH_FAILED/OUTPUT_SCHEMA_INVALID` 落 `llm_score_runs.error_code`。**terminal 分类**：SQL 的 retryable 白名单（`LLM_TIMEOUT/RATE_LIMITED/UNAVAILABLE/INTERNAL_ERROR`）之外的码天然 terminal——`LLM_AUTH_FAILED/INPUT_TOO_LARGE/SAFETY_REFUSAL/SCHEMA_INVALID` 均不重试。注：`LLM_OUTPUT_SCHEMA_INVALID` 文档语义「一次修复性重试」当前未实现（代码按 terminal），为已知偏差。
 
 失败时 `matches.score`/`band` 不写入新权威值，不回退为供应商分数，不自动触达。旧的已审核匹配不被新失败运行覆盖。
 

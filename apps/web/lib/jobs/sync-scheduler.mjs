@@ -1,4 +1,5 @@
 import { McpDiscoveryError } from "../adapters/mcp-discovery.mjs";
+import { LlmDetailScoringError } from "../adapters/llm-detail-scoring-adapter.mjs";
 import { BrowserRelayError, createCsdnBrowserRelayClient } from "../adapters/csdn-browser/relay-client.mjs";
 import { createAuthRepository } from "../identity/auth-repository.mjs";
 import { createAsyncTaskRepository } from "./async-task-repository.mjs";
@@ -351,6 +352,13 @@ async function runSyncForTask(sql, { env, task, mcp, browserRelay, scoringAdapte
 function classifyTaskError(error) {
   if (
     error instanceof McpDiscoveryError &&
+    typeof error.code === "string" &&
+    error.code
+  ) {
+    return error.code;
+  }
+  if (
+    error instanceof LlmDetailScoringError &&
     typeof error.code === "string" &&
     error.code
   ) {

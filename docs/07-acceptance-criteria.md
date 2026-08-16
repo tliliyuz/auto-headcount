@@ -27,6 +27,7 @@
 - 城市名（含「市」后缀）与常见职位名（「市场经理」「区域经理」等）不触发 `detailed_address`；职业经历含真实街道/楼栋级地址（关键字后跟数字/字母，如「解放路5号」）时，候选投影被拒绝（fail-closed），不调用 LLM。
 - LLM 输出通过 `llm-detail-score/v1` Schema，七个维度都显式标记可评估性；证据不足的维度为 `score:null`，不猜测分数。
 - 每次 LLM 运行保存适配器/模型标识及可得的修订、Prompt/Schema 版本、请求/输出哈希、结构化输出、时间和机器错误码；模型或 Prompt 变更不覆盖旧运行。
+- 真实 LLM 适配器契约（`llm-detail-scoring-adapter`）经 mock HTTP 验证：OpenAI-compatible 请求只含脱敏投影、`score:null` 缺失兜底、七维各恰一次语义校验、`LLM_RATE_LIMITED/LLM_TIMEOUT/LLM_UNAVAILABLE/LLM_AUTH_FAILED/LLM_INPUT_TOO_LARGE/LLM_SAFETY_REFUSAL/LLM_OUTPUT_SCHEMA_INVALID` 机器码落 `llm_score_runs.error_code` 且可重试性符合 §6.3；真实供应商接线受合规门禁阻塞，未验证、不声明生产可用。
 - 对同一份已保存 LLM 结构化输出和同一汇总规则，重算得到相同维度分、总分和分档；不要求重新调用 LLM 逐分一致。供应方分数变化不改变本地汇总结果。
 - LLM 超时/限流只有限重试；Schema 无效、PII 扫描失败、输入超限和安全拒绝失败关闭。失败时不伪造分数、不回退供应商分数且不自动触达。
 - 新增或变更后的可消费投影会由系统自动进入匹配编排；运营端和公开管理 API 均不能通过勾选职位创建正常匹配任务。
