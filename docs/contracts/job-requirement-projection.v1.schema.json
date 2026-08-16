@@ -61,7 +61,7 @@
       "properties": {
         "responsibilities": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
         "preferred_skills": { "type": "array", "uniqueItems": true, "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
-        "industry": { "type": ["string", "null"], "maxLength": 100 },
+        "industry": { "type": ["string", "null"], "maxLength": 100, "description": "职能方向（ADR-007）：职位标题+JD 提取的职能方向，取代源 category（生产恒空）" },
         "seniority": { "type": ["string", "null"], "maxLength": 100 },
         "business_context": { "type": ["string", "null"], "maxLength": 4000 }
       }

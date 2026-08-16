@@ -27,7 +27,7 @@ export function formatMonthlySalaryK(salaryMin, salaryMax) {
 /** AI 匹配评价白名单维度标签（docs/03 §8、docs/07 §3 P5）：只展示标签与数字分，evidence/风险/事实原文绝不进入 DTO。 */
 export const MATCH_DIMENSION_LABELS = Object.freeze({
   skills: "技能匹配",
-  industry: "行业背景",
+  industry: "职能方向",
   seniority: "职级经验",
   experience: "经验年限",
   location: "城市匹配",

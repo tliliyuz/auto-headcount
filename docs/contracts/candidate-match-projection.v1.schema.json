@@ -41,7 +41,7 @@
         "education": { "type": ["string", "null"], "enum": [null, "none", "high_school", "associate", "bachelor", "master", "doctorate"] },
         "certificates": { "type": "array", "uniqueItems": true, "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 150 } },
         "seniority": { "type": ["string", "null"], "maxLength": 100 },
-        "industry": { "type": ["string", "null"], "maxLength": 100 },
+        "industry": { "type": ["string", "null"], "maxLength": 100, "description": "职能方向（ADR-007）：职业标签 title-text 提取的职能方向，未命中回落原始标签" },
         "expected_salary": {
           "type": "object",
           "additionalProperties": false,

@@ -59,3 +59,4 @@ ADR-001-简短中文标题.md
 - [ADR-004：自有账号口令登录](ADR-004-self-managed-login.md)（accepted）
 - [ADR-005：授权网页采集与本地可复算匹配](ADR-005-authorized-web-collection-and-local-matching.md)（accepted）
 - [ADR-006：落地页意向反馈实时通知（飞书）](ADR-006-landing-intent-notifier.md)（proposed）
+- [ADR-007：匹配评分 industry 维度重定义为「职能方向匹配」](ADR-007-matching-industry-to-functional-track.md)（accepted）

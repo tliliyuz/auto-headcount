@@ -46,7 +46,7 @@ test("resolveDetailScoringAdapter：test 无配置 / fake → fake 适配器", (
 test("resolveDetailScoringAdapter：llm-openai-compatible + 合法 env → 真实适配器", () => {
   const adapter = resolveDetailScoringAdapter(llmEnv(), undefined);
   assert.equal(adapter.metadata.adapterId, "llm-openai-compatible");
-  assert.equal(adapter.metadata.promptVersion, "match-detail-prompt/v1");
+  assert.equal(adapter.metadata.promptVersion, "match-detail-prompt/v2");
 });
 
 test("resolveDetailScoringAdapter：llm-openai-compatible + 非法 env → LLM_ADAPTER_CONFIG_INVALID", () => {

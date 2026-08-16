@@ -1203,7 +1203,7 @@ test(
       assert.equal(projections.length, 2, "两个职位都应有投影");
       for (const p of projections) {
         assert.equal(p.status, "consumable");
-        assert.equal(p.generator_version, "rules/v1");
+        assert.equal(p.generator_version, "rules/v2");
       }
 
       // 候选人无脱敏详情 → 不落消费态候选投影 → 0 filter 结果

@@ -275,7 +275,7 @@ test(
       assert.equal(stored.status, "pending_review");
       assert.equal(stored.score_status, "llm_aggregated");
       assert.equal(stored.dimension_count, 7);
-      assert.equal(stored.aggregation_rule_version, "aggregation/v1");
+      assert.equal(stored.aggregation_rule_version, "aggregation/v3");
 
       const idempotent = await runAutomaticMatchPipeline({ sql, env: pipelineEnv });
       assert.equal(idempotent.stats.scored, 0, "相同版本组合不重复调用评分适配器");

@@ -71,6 +71,8 @@ test("generateJobProjection：生成过 Schema 的职位投影文档", async () 
   assert.equal(doc.hard_requirements.salary.period, "month");
   assert.equal(doc.hard_requirements.salary.currency, "CNY");
   assert.ok(doc.scoring_context.responsibilities.length >= 1, "从 JD 提取职责");
+  assert.ok(doc.scoring_context.industry, "职位侧职能方向非空（ADR-007，取代源 category）");
+  assert.ok(doc.scoring_context.industry.includes("工程研发"), "从标题/JD 提取职能方向（高级后端工程师 → 工程研发）");
   assert.ok(doc.extraction_warnings.length >= 0);
 });
 

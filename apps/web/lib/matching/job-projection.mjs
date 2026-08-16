@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 
 import { summarizeJob } from "../summaries/summary.mjs";
 import { validateJobRequirementProjection } from "./projection-schemas.mjs";
+import { extractFunctionalTracks } from "./functional-track.mjs";
 
 export const JOB_PROJECTION_SCHEMA = "job-requirement-projection/v1";
 
@@ -102,14 +103,16 @@ function buildHardRequirements({ job, requirements }) {
   };
 }
 
-/** 详情评分上下文：职责/优选/行业/职级/业务背景（已移除公司名/客户/联系人）。 */
+/** 详情评分上下文：职责/优选/职能方向/职级/业务背景（已移除公司名/客户/联系人）。
+ *  industry 字段语义 = 职能方向（ADR-007）：从职位标题 + JD 提取，取代源 category（生产恒空）。 */
 function buildScoringContext({ job, requirements, jd }) {
   const responsibilities = parseResponsibilities(jd);
   const constraints = requirements?.constraints ?? {};
+  const functionalTracks = extractFunctionalTracks([job.title, jd]);
   return {
     responsibilities,
     preferred_skills: constraints.preferred_skills ?? [],
-    industry: job.category ?? null,
+    industry: functionalTracks.length > 0 ? functionalTracks.join("、") : null,
     seniority: requirements?.seniority ?? null,
     business_context: constraints.business_context ?? null,
   };

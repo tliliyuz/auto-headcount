@@ -86,7 +86,7 @@ LLM 适配器的持久化调用包络至少包含：
 |:---|:---|
 | `adapter_id` / `adapter_version` | 供应商隔离适配器及其版本 |
 | `model_id` / `model_revision` | 模型标识和可得的固定修订；供应商不提供 revision 时显式为 `null` |
-| `prompt_version` | 不可变 Prompt 模板版本，首版 `match-detail-prompt/v1` |
+| `prompt_version` | 不可变 Prompt 模板版本，当前 `match-detail-prompt/v2`（v2：industry 维度语义=职能方向匹配，ADR-007） |
 | `schema_version` | 输出契约版本，首版 `llm-detail-score/v1` |
 | `job_projection_id` / `candidate_projection_id` | 本地投影引用，不发送给模型 |
 | `request_hash` | 实际发给适配器的规范化脱敏请求 SHA-256 |
@@ -95,13 +95,14 @@ LLM 适配器的持久化调用包络至少包含：
 
 发送给模型的 `request_item_id` 是单次调用随机关联值，不得由职位 ID、候选人 ID 或其哈希派生。
 
-> **实现状态（2026-08-16）**：`match-detail-prompt/v1` 已随生产适配器实现（`lib/adapters/llm-detail-scoring-adapter.mjs` 的 `MATCH_DETAIL_PROMPT_V1` 常量）。**待办矛盾**：当前管线 `automatic-match-pipeline.mjs` 传 `item_${combinedInputHash 前 24 位}`（派生值），与本节「随机关联、不可派生」不符；本步保持管线现值、适配器回显归一化，随机化留待后续切分或 ADR。
+> **实现状态（2026-08-16）**：`match-detail-prompt/v2` 已随生产适配器实现（`lib/adapters/llm-detail-scoring-adapter.mjs` 的 `MATCH_DETAIL_PROMPT_V1` 常量，v2 起）。**待办矛盾**：当前管线 `automatic-match-pipeline.mjs` 传 `item_${combinedInputHash 前 24 位}`（派生值），与本节「随机关联、不可派生」不符；本步保持管线现值、适配器回显归一化，随机化留待后续切分或 ADR。
 
-`match-detail-prompt/v1` 的规范性行为是：只根据给定的脱敏投影评估；不推断姓名、性别、年龄、民族、婚育、健康等属性；不把缺失信息当作负面事实；对不可评估维度返回 `score:null`；不输出总分、分档、是否录用/触达或其他自动决策；只输出 `llm-detail-score/v1` JSON。Prompt 模板任何文字或排序变更都必须升级 `prompt_version`。
+`match-detail-prompt/v2` 的规范性行为是：只根据给定的脱敏投影评估；不推断姓名、性别、年龄、民族、婚育、健康等属性；不把缺失信息当作负面事实；对不可评估维度返回 `score:null`；不输出总分、分档、是否录用/触达或其他自动决策；只输出 `llm-detail-score/v1` JSON。Prompt 模板任何文字或排序变更都必须升级 `prompt_version`。
+> **v2 变更（ADR-007，2026-08-16）**：industry 维度语义定为「职能方向匹配」——职位侧 `scoring_context.industry`（标题/JD 提取的职能方向，取代恒空的源 category）与候选侧 `profile.industry`（职业标签提取的职能方向，未命中回落原始标签）同轴比对；两侧职能方向有交集高分、都有值无交集中分、任一侧缺失 `assessable:false`。
 
 ### 6.2 输出约束
 
-- 维度固定为 `skills`、`industry`、`seniority`、`experience`、`location`、`salary`、`activity`，且每个维度必须恰好出现一次。JSON Schema 限制数量和枚举，适配器的语义校验器另行拒绝重复或缺失维度。
+- 维度固定为 `skills`、`industry`、`seniority`、`experience`、`location`、`salary`、`activity`，且每个维度必须恰好出现一次。JSON Schema 限制数量和枚举，适配器的语义校验器另行拒绝重复或缺失维度。`industry` 维度语义 = **职能方向匹配**（ADR-007，见 §6.1 v2 变更）。
 - 可评估维度输出 0～100 整数分；输入证据不足时必须 `assessable:false, score:null`，不允许猜分。
 - `evidence` 必须同时指明候选人脱敏事实、对应职位要求和评估；不得凭空增加投影中不存在的经历。
 - LLM 输出不包含 `total_score`、`band`、`approved`、`recommendation` 或触达决策；这些属于本地汇总和人工审核边界。
@@ -127,7 +128,7 @@ LLM 适配器的持久化调用包络至少包含：
 
 ## 7. 本地汇总与可复核性
 
-- 汇总器只消费通过 Schema 校验并持久化的 LLM 输出；使用 `aggregation_rule_version` 中的固定权重、缺失维度处理和阈值。
+- 汇总器只消费通过 Schema 校验并持久化的 LLM 输出；使用 `aggregation_rule_version` 中的固定权重、缺失维度处理和阈值。当前 `aggregation/v3`（v2 移除无数据源的 salary 权重；v3 因 ADR-007 industry 语义=职能方向，权重不变、版本升号作为语义变化信号）。
 - 默认分档仍为高匹配 85～100、中匹配 75～84、低匹配 0～74。
 - 对同一份已保存 LLM 结构化输出和同一汇总规则，重算必须得到相同维度分、总分和分档。
 - 新模型、新 Prompt、新 Schema、新投影或新汇总规则都生成新运行/匹配版本，不覆盖旧结果。

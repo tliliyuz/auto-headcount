@@ -33,7 +33,7 @@ export const LLM_DETAIL_SCORE_DIMENSIONS = Object.freeze([
 ]);
 export const LLM_DETAIL_SCORING_ADAPTER_ID = "llm-openai-compatible";
 export const LLM_DETAIL_SCORING_SCHEMA_VERSION = "llm-detail-score/v1";
-export const LLM_DETAIL_PROMPT_VERSION = "match-detail-prompt/v1";
+export const LLM_DETAIL_PROMPT_VERSION = "match-detail-prompt/v2";
 export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
 export const DEFAULT_LLM_TEMPERATURE = 0;
 export const DEFAULT_LLM_MAX_OUTPUT_TOKENS = 2048;
@@ -51,6 +51,7 @@ export const MATCH_DETAIL_PROMPT_V1 = Object.freeze(
 - 输出 total_score、分档 band、是否录用/触达等任何自动决策。
 
 对证据不足的维度返回 assessable:false 且 score:null，禁止猜分。
+维度语义：industry 评估「职能方向匹配」——职位侧 scoring_context.industry（标题/JD 提取的职能方向）与候选侧 profile.industry（职业方向）是否属于同一职能方向（数据 / 算法AI / 工程研发 / 产品 / 运营 / 市场销售 / 测试质量 / 安全风控 / 设计）；任一侧缺失或无法判断 → assessable:false。
 只输出 llm-detail-score/v1 JSON，结构如下（七个维度必须各恰好出现一次）：
 {
   "schema_version": "llm-detail-score/v1",

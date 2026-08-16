@@ -189,7 +189,7 @@ const pageLabels: Record<PageId, string> = {
 };
 
 const DIMENSION_LABELS: Record<string, string> = {
-  skills: "技能", industry: "行业", seniority: "职级", experience: "经历",
+  skills: "技能", industry: "职能方向", seniority: "职级", experience: "经历",
   location: "地点", salary: "薪资", activity: "活跃度",
 };
 

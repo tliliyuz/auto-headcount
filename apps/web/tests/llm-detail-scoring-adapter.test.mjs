@@ -83,7 +83,7 @@ test("适配器模块加载：metadata 六键全字符串，adapterId/promptVers
   assert.equal(m.adapterVersion, "1");
   assert.equal(m.modelId, "test-model");
   assert.equal(m.modelRevision, null);
-  assert.equal(m.promptVersion, "match-detail-prompt/v1");
+  assert.equal(m.promptVersion, "match-detail-prompt/v2");
   assert.equal(m.schemaVersion, "llm-detail-score/v1");
   assert.equal(Object.keys(m).length, 6);
 });

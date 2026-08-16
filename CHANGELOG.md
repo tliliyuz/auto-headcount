@@ -10,6 +10,27 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — JD 回填审计并入批次列表 + 调度分发验证（修「任务秒标 succeeded 无落库」）
+
+> 状态：`verified`。单测 283/283、集成 62/62（新增 processDueTasks 完整调度分发测试）、tsc/lint/build 全绿。定位并验证用户环境「点回填后任务秒标 succeeded 却无 sync_run/台账/审计」的根因：**正在运行的 `sync:tick` 调度器进程为旧代码**（启动早于 `browser_job_jd_backfill` 分发分支加入），把回填任务认领成 no-op succeeded；**当前代码分发正确**（集成测试经 `processDueTasks` 实证：认领→分发→回填→sync_run/台账落库），重启调度器进程即恢复。
+
+- **UI 合并**：移除独立「JD 回填台账」面板（两个列表视觉割裂），回填运行并入「采集与同步批次」统一列表——类型单列「JD 回填」，进度列显示 `N 填 · M 无数据 · K 记录`，detail 面板显示回填结果统计。逐职位结论仍存 `job_jd_backfills`（`GET /api/job-jd-backfills` 只读接口保留供运营查询）。
+- **调度分发测试**：`browser-job-jd-backfill.integration.test.mjs` 补经 `processDueTasks` 的完整分发断言（此前只直连 runner，未覆盖调度器分发路径）。集成测试已验证当前分发正确。
+- 文档：FRONTEND.md（审计并入批次列表 + 调度器重启提示）。
+
+### 2026-08-16 — 匹配评分 industry 维度重定义为「职能方向匹配」（ADR-007）
+
+> 状态：`verified`。匹配相关单测全绿（含新增 functional-track 3 项）、tsc/lint/build 通过。承接匹配诊断（5261aecb 移除 salary 权重后）：industry 维度因 `job.category` 空 + 候选职业标签与职位侧粗分类不同轴而恒不可评估，重定义为「职能方向匹配」——两侧用细职能词表提取职能方向同轴比对。
+
+- **新模块 `lib/matching/functional-track.mjs`**：`FUNCTIONAL_TRACK_KEYWORDS` 细职能词表（数据/算法AI/工程研发/产品/运营/市场销售/测试质量/安全风控/设计）+ `extractFunctionalTracks`（ASCII 词界 + CJK 子串）+ `scoreFunctionalTracks`（交集 90 / 异 65 / 空不可评估）。启发式非权威（同 skills 推断技术债）。
+- **职位投影**：`scoring_context.industry` 从 `job.category ?? null`（生产恒空）改为**标题+JD 提取职能方向**。
+- **候选投影**：`profile.industry` 从职业标签原文改为**职业标签提取的职能方向**（未命中回落原文保证 LLM 有输入）；`buildProfile` 与 `normalizeCandidateInput` 共用映射保证 input_hash 一致。
+- **契约版本**：prompt `match-detail-prompt/v1→v2`（industry 维度语义=职能方向匹配）、聚合 `aggregation/v2→v3`（语义变化信号）、投影生成器 `rules/v1→v2`（触发重生成）。维度键保持 `industry`（`llm-detail-score/v1` 枚举不变，无 schema v2）。
+- **标签**：landing-mask + 前端工作台 `industry` 标签「行业」→「职能方向」。
+- **ADR-007**：记录 industry→职能方向的语义改造（决策/备选/后果/重估触发/相关规范）。
+- 测试：functional-track 3 项；job-projection/candidate-projection 补职能方向断言；llm-adapter prompt v2 断言。
+- 文档：10-matching-contracts（prompt v2 / 维度语义 / aggregation v3）、03-data-model（标签白名单）、CHANGELOG。
+
 ### 2026-08-16 — JD 回填审计可见性：台账读 API + 数据源页台账面板 + 批次列表单列「JD 回填」
 
 > 状态：`verified`。单测 283/283、集成 61/61（回填集成补 `listJobJdBackfills` 断言：分页 3 条带职位标题、outcome 过滤、failed 带错误码、no_provider_jd jdLength=0）、tsc/lint/build 全绿。承接浏览器 JD 回填（8829f6f5）——把「回填只能查库」的缺口补上。

@@ -74,6 +74,17 @@ test("generateCandidateProjection：生成过 Schema 的脱敏投影（residual_
   assert.ok(doc.display_summary.length <= 150);
 });
 
+test("generateCandidateProjection：profile.industry = 职业标签提取的职能方向（ADR-007），未命中回落原始标签", async () => {
+  const mapped = await generateCandidateProjection(
+    baseInput({ profile: profile({ industry: "数据工程师" }) }),
+  );
+  assert.equal(mapped.projection.profile.industry, "数据、工程研发");
+  const fallback = await generateCandidateProjection(
+    baseInput({ profile: profile({ industry: "PM" }) }),
+  );
+  assert.equal(fallback.projection.profile.industry, "PM");
+});
+
 test("generateCandidateProjection：display_summary ≤150 且不含联系方式/直接身份标识", async () => {
   const result = await generateCandidateProjection(baseInput());
   const doc = result.projection;

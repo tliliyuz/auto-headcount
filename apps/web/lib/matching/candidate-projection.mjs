@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 
 import { summarizeCandidate } from "../summaries/summary.mjs";
 import { validateCandidateMatchProjection } from "./projection-schemas.mjs";
+import { extractFunctionalTracks } from "./functional-track.mjs";
 
 export const CANDIDATE_PROJECTION_SCHEMA = "candidate-match-projection/v1";
 export const PII_DETECTED_ERROR = "MATCH_PROJECTION_PII_DETECTED";
@@ -141,6 +142,17 @@ export function scanResidualPii({ profile, redactedDetail }) {
   return { detected };
 }
 
+/**
+ * 候选职能方向（industry 维度语义，ADR-007）：职业标签 title-text → 职能方向词表命中集，
+ * 未命中回落原始职业标签（保证 LLM 有输入）。buildProfile 与 normalizeCandidateInput 共用，
+ * 保证存储投影与 input_hash 一致。
+ */
+function candidateFunctionalTrack(careerTag) {
+  if (!careerTag) return null;
+  const tracks = extractFunctionalTracks(careerTag);
+  return tracks.length > 0 ? tracks.join("、") : careerTag;
+}
+
 function buildProfile(profile) {
   const expectedSalary = {
     minimum: profile.expectedSalaryMin ?? profile.expected_salary_min ?? null,
@@ -155,7 +167,7 @@ function buildProfile(profile) {
     education: mapEducation(profile.education),
     certificates: profile.certificates ?? [],
     seniority: profile.seniority ?? null,
-    industry: profile.industry ?? null,
+    industry: candidateFunctionalTrack(profile.industry),
     expected_salary: expectedSalary,
     activity_updated_at: normalizeDate(profile.activityUpdatedAt ?? profile.activity_updated_at),
   };
@@ -180,7 +192,7 @@ function normalizeCandidateInput({ candidate, profile, redactedDetail, generator
       location: profile?.location ?? null,
       education: profile?.education ?? null,
       seniority: profile?.seniority ?? null,
-      industry: profile?.industry ?? null,
+      industry: candidateFunctionalTrack(profile?.industry),
       expectedSalaryMin: profile?.expectedSalaryMin ?? profile?.expected_salary_min ?? null,
       expectedSalaryMax: profile?.expectedSalaryMax ?? profile?.expected_salary_max ?? null,
       activityUpdatedAt: normalizeDate(profile?.activityUpdatedAt ?? profile?.activity_updated_at),
