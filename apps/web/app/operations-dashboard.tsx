@@ -32,7 +32,6 @@ import {
   fetchBrowserBatches,
   fetchCandidateBatches,
   fetchCandidates,
-  fetchCandidateDetail,
   triggerSync,
   triggerBrowserCollection,
   triggerCandidateCollection,
@@ -40,7 +39,6 @@ import {
   type AuditLogView,
   type BrowserBatchView,
   type CandidateBatchView,
-  type CandidateDetailView,
   type CandidateView,
   type DormantJob,
   type MatchDetailView,
@@ -480,6 +478,7 @@ function FunnelPage() {
 }
 
 function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
+  const router = useRouter();
   const CANDIDATE_PAGE_SIZE = 10;
   const [candidates, setCandidates] = useState<CandidateView[]>([]);
   const [candidatesLoading, setCandidatesLoading] = useState(true);
@@ -489,11 +488,6 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [candidatePage, setCandidatePage] = useState(1);
   const [jumpValue, setJumpValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [candidateDetail, setCandidateDetail] = useState<CandidateDetailView | null>(null);
-  const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
-  const [candidateDetailError, setCandidateDetailError] = useState<string | null>(null);
-  // 请求序号 ref：丢弃快速切换候选人时的陈旧详情响应，防竞态。
-  const candidateDetailSeq = useRef(0);
 
   // 拉取候选人池（真实姓名 RBAC 保护；按页拉全量后客户端筛选/分页）。
   useEffect(() => {
@@ -561,32 +555,6 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
     selected?.summary ??
     (`${[selected?.school, selected?.major].filter(Boolean).join(" · ")}${selected?.experienceYears != null ? ` · ${selected.experienceYears} 年经验` : ""}${selected?.city ? ` · ${selected.city}` : ""}`.replace(/^\s*·\s*/, "") || "暂无摘要");
 
-  // 选中候选人时拉取详情（含工作经历，从 raw_records 加密载荷解密；陈旧响应丢弃）。
-  useEffect(() => {
-    const candidateId = selected?.id;
-    if (!candidateId) return;
-    const seq = ++candidateDetailSeq.current;
-    const controller = new AbortController();
-    void (async () => {
-      setCandidateDetail(null);
-      setCandidateDetailLoading(true);
-      setCandidateDetailError(null);
-      const result = await fetchCandidateDetail(candidateId, { signal: controller.signal });
-      if (seq !== candidateDetailSeq.current) return;
-      setCandidateDetailLoading(false);
-      if (result.ok) {
-        setCandidateDetail(result.data);
-      } else if (result.status === 401 || result.code === "password_change_required") {
-        onAuthExpired();
-      } else if (result.status === 404) {
-        setCandidateDetailError("候选人不存在或已移除");
-      } else {
-        setCandidateDetailError("详情加载失败，请稍后重试");
-      }
-    })();
-    return () => controller.abort();
-  }, [selected?.id, onAuthExpired]);
-
   function jumpToCandidatePage() {
     const page = Number.parseInt(jumpValue, 10);
     if (!Number.isNaN(page) && page >= 1) setCandidatePage(Math.min(page, candidateTotalPages));
@@ -627,13 +595,13 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
             <tbody>
               {pageCandidates.map((c) => (
                 <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => setSelectedId(c.id)}>
-                  <td><span className="candidate-cell"><span className="candidate-avatar small">{c.name.slice(0, 1)}</span><strong>{c.name}</strong></span></td>
-                  <td>{c.title ?? "—"}</td>
+                  <td><span className="candidate-cell"><button className="candidate-avatar small" onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>{c.name.slice(0, 1)}</button><button className="candidate-name-link" onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>{c.name}</button></span></td>
+                  <td><button className="candidate-title-link" onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>{c.title ?? "—"}</button></td>
                   <td><strong>{c.company ?? "—"}</strong><small>{c.city ?? "—"}</small></td>
                   <td><span>{c.experienceYears != null ? `${c.experienceYears} 年` : "—"}</span></td>
                   <td><span>{c.education ?? "—"}{c.seniority ? ` · ${c.seniority}` : ""}</span></td>
                   <td><span className={`status-tag status-${c.status}`}>{c.status}</span></td>
-                  <td><button aria-label={`查看 ${c.name}`} onClick={() => setSelectedId(c.id)}>›</button></td>
+                  <td><button aria-label={`查看 ${c.name}`} onClick={(event) => { event.stopPropagation(); router.push(`/candidates/${c.id}`); }}>›</button></td>
                 </tr>
               ))}
             </tbody>
@@ -687,24 +655,6 @@ function CandidatesPage({ onAuthExpired }: { onAuthExpired: () => void }) {
               <div><strong>{selected.seniority ?? "—"}</strong><small>职级</small></div>
             </div>
             <div className="message-preview"><span>教育背景</span><p>{(selected.school ?? "—")}{selected.major ? ` · ${selected.major}` : ""}</p></div>
-            <div className="message-preview"><span>工作经历</span>
-              {candidateDetailLoading ? (
-                <p>加载中…</p>
-              ) : candidateDetailError ? (
-                <p>{candidateDetailError}</p>
-              ) : candidateDetail && candidateDetail.workExperiences.length > 0 ? (
-                <div className="work-history">
-                  {candidateDetail.workExperiences.map((work, index) => (
-                    <div key={`${work.company}-${work.title}-${index}`} className="work-history-item">
-                      <strong>{work.company ?? "—"}</strong>
-                      <span>{work.title ?? "—"}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p>无工作经历记录</p>
-              )}
-            </div>
             <div className="message-preview"><span>候选人摘要</span><p>{selectedSummary}</p></div>
             <div className="approval-flow"><h3>采集信息</h3><div><i className="done">✓</i><p><strong>人才池画像已采集</strong><span>来源：猎必得人才池 · 互联网技术其他</span></p></div><div><i>{selected.matchCount}</i><p><strong>匹配记录</strong><span>{selected.matchCount} 条 · 匹配状态由 matches 推导</span></p></div></div>
           </>
@@ -739,6 +689,7 @@ function SourcesPage({
   const [browserCollectMessage, setBrowserCollectMessage] = useState<string | null>(null);
   const [candidateBatches, setCandidateBatches] = useState<CandidateBatchView[]>([]);
   const [candidateBatchSize, setCandidateBatchSize] = useState(20);
+  const [candidateForceRefresh, setCandidateForceRefresh] = useState(false);
   const [candidateCollectState, setCandidateCollectState] = useState<"idle" | "triggering" | "queued" | "failed">("idle");
   const [candidateCollectMessage, setCandidateCollectMessage] = useState<string | null>(null);
   // 统一批次列表：类型 tabs + 关键词 + 客户端分页 + 详情选中（职位/候选人采集批次与同步批次合并）
@@ -864,7 +815,7 @@ function SourcesPage({
     setCandidateCollectState("triggering");
     setCandidateCollectMessage(null);
     // maxPages 提到 API 上限（20）：人才池发现合同翻页直到凑满本批数量或列表到底。
-    const result = await triggerCandidateCollection({ sourceConnectionId: primarySource.id, batchSize: candidateBatchSize, maxPages: 20 });
+    const result = await triggerCandidateCollection({ sourceConnectionId: primarySource.id, batchSize: candidateBatchSize, maxPages: 20, forceRefresh: candidateForceRefresh });
     if (result.ok) {
       setCandidateCollectState("queued");
       setCandidateCollectMessage(result.data.deduplicated ? "已有采集批次在执行，已返回现有批次" : `批次已入队：${result.data.batchId.slice(0, 8)}`);
@@ -981,9 +932,10 @@ function SourcesPage({
         </article>
         <article className="source-card browser-source">
           <header><span className="source-logo browser">C</span><div><h2>人才池候选人采集</h2><p>人才池列表 → 候选人画像批量入库</p></div><em><i />固定合同</em></header>
-          <p className="source-description">先在猎必得人才池页设好「互联网技术其他」分类筛选，然后选择本批数量。本批数量 = 本批要采集的“新增 + 画像变化”候选人画像数：已入库且画像未变的候选人自动跳过，系统翻页直到凑满该数量或列表到底；候选人详情在新标签页提取后关闭回列表。</p>
+          <p className="source-description">先在猎必得人才池页设好「互联网技术其他」分类筛选，然后选择本批数量。本批数量 = 本批要采集的“新增 + 画像变化”候选人画像数：已入库且画像未变的候选人自动跳过，系统翻页直到凑满该数量或列表到底；勾选「重新采集已入库画像」则忽略差分跳过、把本批数量内已入库候选人一并重采（覆盖画像，升级为完整简历）。</p>
           <div className="browser-route-fields">
             <label>本批数量<select value={candidateBatchSize} onChange={(event) => setCandidateBatchSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
+            <label className="force-refresh"><input type="checkbox" checked={candidateForceRefresh} onChange={(event) => setCandidateForceRefresh(event.target.checked)} /> 重新采集已入库画像</label>
           </div>
           <button className="secondary-button" disabled={candidateCollectState === "triggering" || candidateCollectState === "queued"} onClick={() => void collectCandidates()}>{candidateCollectState === "triggering" ? "正在入队…" : candidateCollectState === "queued" ? "批次已入队" : "采集人才池候选人"}</button>
           {candidateCollectMessage && <p className={candidateCollectState === "failed" ? "source-message error" : "source-message"}>{candidateCollectMessage}</p>}

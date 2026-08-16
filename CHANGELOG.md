@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### 2026-08-16 — 候选人完整简历：合同富字段 + /candidates/[id] 页 + forceRefresh 重采
+
+> 状态：`verified`。Provider 94/94；Consumer 单测 229/229、集成 53/53、lint/tsc 0 错误、build 通过（`/candidates/:id` 进 bundle）。真实重采验证：fc62dad0 批次发现 100 / 入库 96 / 失败 4，池子 158 人，简历字段（华为/阿里/蚂蚁/字节等）落库。
+
+- **完整简历提取（跨 Provider）**：详情合同按真实 DOM 分类 `.module-main .module-item`——工作描述→工作（company/title/city/period/duration/description）、项目描述/职责/关键技术→项目（name/description）、无 para 且含学位词→教育（school/major/degree/period/duration）；Consumer 白名单扩到富字段，联系方式/自我评价仍失败关闭。
+- **`/candidates/[id]` 详情页**：SSR prototypeView 门禁 + 客户端 me 核实 + `GET /api/candidates/:id`（解密 raw_records 返回完整简历三段）；完整渲染工作/项目/教育经历（preserve newlines）。
+- **forceRefresh 重采**：批次发现载荷新增 `forceRefresh`，忽略差分跳过、本批数量内已入库候选人一并重采（详情 upsert 覆盖画像）；数据源页「重新采集已入库画像」复选框透传。
+- **前端接线**：候选人列表 头像/名字/当前职位/行尾 `>` 均跳转 `/candidates/[id]` 详情页；右侧卡片移除工作经历（保留教育背景/摘要/采集信息）。
+- **轮询容错（Provider `2fe31bf`）**：content.js 轮询循环 try/catch，service worker 临时异常不再杀死轮询（此前单次异常致 relay 侧 pollers=0、采集请求排队超时 BROWSER_RELAY_UNAVAILABLE）。
+
 ### 2026-08-16 — 放开意向提交联系方式：A 必填，B/C/退订可选
 
 > 状态：`verified`。unit 229/229、integration 53/53（含 B 无联系方式提交 + A 无联系方式 400 路由断言）、lint/tsc 0 错误、build 通过；浏览器实测 B 无联系方式提交成功、A 无联系方式禁用+提示，dev 库 contact 列落空。
