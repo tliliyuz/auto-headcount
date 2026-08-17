@@ -158,6 +158,7 @@ const SYNC_POLL_MS = 10 * 1000;
 const categories = ["全部", ...JOB_CATEGORY_BUCKETS];
 
 const JOB_PAGE_SIZE = 10;
+const MATCH_PAGE_SIZE = 10;
 
 /** 客户端会话心跳间隔：静默调 /api/auth/me 刷新服务端空闲窗口（空闲 30 分钟内多次续期）。 */
 const SESSION_HEARTBEAT_MS = 5 * 60 * 1000;
@@ -358,10 +359,15 @@ function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [matchPage, setMatchPage] = useState(1);
+  const [matchTotal, setMatchTotal] = useState(0);
+  const [activeBand, setActiveBand] = useState<"all" | "high" | "medium">("all");
+  const matchTotalPages = Math.max(1, Math.ceil(matchTotal / MATCH_PAGE_SIZE));
 
   const loadQueues = useCallback(async (signal?: AbortSignal) => {
+    const band = activeBand === "all" ? undefined : activeBand;
     const [matchResult, exceptionResult] = await Promise.all([
-      fetchMatches({ status: "pending_review", pageSize: 50, signal }),
+      fetchMatches({ status: "pending_review", band, page: matchPage, pageSize: MATCH_PAGE_SIZE, signal }),
       fetchMatchExceptions({ pageSize: 50, signal }),
     ]);
     if (!matchResult.ok || !exceptionResult.ok) {
@@ -378,12 +384,13 @@ function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
       return;
     }
     setMatches(matchResult.data.list);
+    setMatchTotal(matchResult.data.total);
     setExceptions(exceptionResult.data.list);
     if (matchResult.data.list.length === 0) setCandidate(null);
     setSelected((current) => current && matchResult.data.list.some((item) => item.id === current) ? current : matchResult.data.list[0]?.id ?? null);
     setError(null);
     setLoading(false);
-  }, [onAuthExpired]);
+  }, [onAuthExpired, matchPage, activeBand]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -442,15 +449,37 @@ function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
       {!loading && exceptions.length === 0 && <div className="empty-state">当前没有需要处理的匹配异常</div>}
     </section> : <section className="review-layout">
       <div className="surface-card review-list">
-        <div className="surface-header"><div><h2>待审核候选人</h2><p>已完成硬过滤、详情评分和本地汇总</p></div><button className="plain-filter">优先级：从高到低⌄</button></div>
-        <div className="segmented"><button className="active">全部 {matches.length}</button><button>高匹配 {matches.filter((item) => item.band === "high").length}</button><button>中匹配 {matches.filter((item) => item.band === "medium").length}</button></div>
+        <div className="surface-header"><div><h2>待审核候选人</h2><p>按职位沉睡天数优先（越接近 30 天越靠前），已完成硬过滤、详情评分和本地汇总</p></div></div>
+        <div className="segmented">
+          <button className={activeBand === "all" ? "active" : ""} onClick={() => { setActiveBand("all"); setMatchPage(1); }}>全部 {activeBand === "all" ? matchTotal : ""}</button>
+          <button className={activeBand === "high" ? "active" : ""} onClick={() => { setActiveBand("high"); setMatchPage(1); }}>高匹配 {activeBand === "high" ? matchTotal : ""}</button>
+          <button className={activeBand === "medium" ? "active" : ""} onClick={() => { setActiveBand("medium"); setMatchPage(1); }}>中匹配 {activeBand === "medium" ? matchTotal : ""}</button>
+        </div>
         <div className="candidate-list">
           {matches.map((item) => <button key={item.id} className={`candidate-row ${selected === item.id ? "active" : ""}`} onClick={() => setSelected(item.id)}>
             <span className="candidate-avatar">{item.candidateName.slice(-1)}</span>
-            <span className="candidate-main"><strong>{item.candidateName}<i>待审核</i></strong><small>{item.jobTitle} · {item.jobExternalId}</small><em>{item.candidateSummary && <b>{item.candidateSummary}</b>}</em></span>
+            <span className="candidate-main">
+              <strong>{item.candidateName}<i>待审核</i>{item.jobAgeDays >= 27 ? <em className="urgency urgent">即将到期</em> : item.jobAgeDays >= 20 ? <em className="urgency">超 {item.jobAgeDays} 天</em> : null}</strong>
+              <small><span role="link" tabIndex={0} className="job-detail-link" onClick={(event) => { event.stopPropagation(); router.push(`/jobs/${item.jobId}`); }} onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); router.push(`/jobs/${item.jobId}`); } }}>{item.jobTitle}</span> · {item.jobExternalId}</small>
+              <em>{item.candidateSummary && <b>{item.candidateSummary}</b>}</em>
+            </span>
             <span className={`match-score ${item.band ?? "medium"}`}><strong>{item.score ?? "—"}</strong><small>匹配分</small></span>
           </button>)}
           {!loading && matches.length === 0 && <div className="empty-state">暂无待审核结果，系统会在新版本就绪后自动生成</div>}
+        </div>
+        <div className="table-footer">
+          <span>{matchTotal === 0 ? "显示 0 条" : `显示 ${(matchPage - 1) * MATCH_PAGE_SIZE + 1}–${Math.min(matchPage * MATCH_PAGE_SIZE, matchTotal)} 条，共 ${matchTotal} 条匹配`}</span>
+          <div>
+            <button disabled={matchPage <= 1} onClick={() => setMatchPage(matchPage - 1)} aria-label="上一页">‹</button>
+            {pageItems(matchPage, matchTotalPages).map((item, index) =>
+              item === "…" ? (
+                <span key={`gap-${index}`} className="page-gap">…</span>
+              ) : (
+                <button key={item} className={item === matchPage ? "active" : ""} onClick={() => setMatchPage(item)}>{item}</button>
+              ),
+            )}
+            <button disabled={matchPage >= matchTotalPages} onClick={() => setMatchPage(matchPage + 1)} aria-label="下一页">›</button>
+          </div>
         </div>
       </div>
       <aside className="surface-card candidate-detail">

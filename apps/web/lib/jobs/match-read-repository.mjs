@@ -33,6 +33,7 @@ export async function listMatches(
       m.job_id as "jobId",
       j.title as "jobTitle",
       j.external_id as "jobExternalId",
+      j.days_without_recommendation as "jobAgeDays",
       m.candidate_id as "candidateId",
       c.display_name as "candidateName",
       c.summary as "candidateSummary",
@@ -65,7 +66,8 @@ export async function listMatches(
     left join match_filter_results fr on fr.id = m.filter_result_id
     left join llm_score_runs run on run.id = m.llm_score_run_id
     where ${where}
-    order by m.created_at desc, m.id desc
+    -- 紧急度优先：沉睡越久（越接近 30 天观察上限）的岗位越靠前，同沉睡天数按分数降序
+    order by j.days_without_recommendation desc, m.score desc, m.created_at desc, m.id desc
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;
 
@@ -86,6 +88,7 @@ export async function getMatchById(sql, id) {
       m.job_id as "jobId",
       j.title as "jobTitle",
       j.external_id as "jobExternalId",
+      j.days_without_recommendation as "jobAgeDays",
       m.candidate_id as "candidateId",
       c.display_name as "candidateName",
       c.summary as "candidateSummary",

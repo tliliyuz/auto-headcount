@@ -7,6 +7,8 @@ export type MatchView = {
   jobId: string;
   jobTitle: string;
   jobExternalId: string;
+  /** 职位沉睡天数（days_without_recommendation，7-30）；用于工作台紧急度排序与标识。 */
+  jobAgeDays: number;
   candidateId: string;
   candidateName: string | null;
   candidateSummary: string | null;
