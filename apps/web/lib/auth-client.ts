@@ -33,7 +33,19 @@ export async function request<T>(
     headers.set("content-type", "application/json");
   }
 
-  const response = await fetch(path, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers });
+  } catch (error) {
+    // 主动取消（AbortController.abort）：返回可识别的 aborted 标记，调用方（cancelled 标记 /
+    // signal.aborted 检查）静默忽略，不再产生 unhandled AbortError。其余网络错误保持原拒绝语义，
+    // 既有调用方的 try/catch 契约不变。
+    const name = error instanceof Error ? error.name : "";
+    if (name === "AbortError") {
+      return { ok: false, status: 0, code: "aborted", message: "请求已取消" };
+    }
+    throw error;
+  }
   if (response.status === 204) {
     return { ok: true, data: undefined as T };
   }

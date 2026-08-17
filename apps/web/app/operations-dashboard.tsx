@@ -351,6 +351,7 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
 }
 
 function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
+  const router = useRouter();
   const [matches, setMatches] = useState<MatchView[]>([]);
   const [exceptions, setExceptions] = useState<MatchExceptionView[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -365,11 +366,23 @@ function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   const matchTotalPages = Math.max(1, Math.ceil(matchTotal / MATCH_PAGE_SIZE));
 
   const loadQueues = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     const band = activeBand === "all" ? undefined : activeBand;
-    const [matchResult, exceptionResult] = await Promise.all([
-      fetchMatches({ status: "pending_review", band, page: matchPage, pageSize: MATCH_PAGE_SIZE, signal }),
-      fetchMatchExceptions({ pageSize: 50, signal }),
-    ]);
+    let matchResult: Awaited<ReturnType<typeof fetchMatches>>;
+    let exceptionResult: Awaited<ReturnType<typeof fetchMatchExceptions>>;
+    try {
+      [matchResult, exceptionResult] = await Promise.all([
+        fetchMatches({ status: "pending_review", band, page: matchPage, pageSize: MATCH_PAGE_SIZE, signal }),
+        fetchMatchExceptions({ pageSize: 50, signal }),
+      ]);
+    } catch (error) {
+      // effect 重跑 cleanup 调 abort() 时 fetch 以 AbortError 拒绝：在途请求被取消，静默返回不置错
+      if (signal?.aborted) return;
+      setError(error instanceof Error ? error.message : "数据加载失败");
+      setLoading(false);
+      return;
+    }
+    if (signal?.aborted) return;
     if (!matchResult.ok || !exceptionResult.ok) {
       // 三元分支里 TS 无法把「至少一个失败」传播到 failure，需按 ok 判别再访问失败字段
       const failure = !matchResult.ok ? matchResult : exceptionResult;
@@ -401,11 +414,18 @@ function MatchingPage({ onAuthExpired }: { onAuthExpired: () => void }) {
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    void fetchMatchDetail(selected, { signal: controller.signal }).then((result) => {
-      if (result.ok) setCandidate(result.data);
-      else if (result.status === 401 || result.code === "password_change_required") onAuthExpired();
-      else setError(result.message);
-    });
+    void fetchMatchDetail(selected, { signal: controller.signal })
+      .then((result) => {
+        // 在途请求被取消（effect 重跑 cleanup / 卸载 abort）：不更新状态、不置错
+        if (controller.signal.aborted) return;
+        if (result.ok) setCandidate(result.data);
+        else if (result.status === 401 || result.code === "password_change_required") onAuthExpired();
+        else setError(result.message);
+      })
+      .catch((error) => {
+        // 网络层错误（request 已把 AbortError 转成 aborted 结果，不走到这里）：正常置错
+        setError(error instanceof Error ? error.message : "数据加载失败");
+      });
     return () => controller.abort();
   }, [selected, onAuthExpired]);
 
