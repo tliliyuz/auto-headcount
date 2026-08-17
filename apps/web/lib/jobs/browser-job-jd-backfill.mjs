@@ -94,7 +94,7 @@ export async function runBrowserJobJdBackfill({ task: rawTask, relayClient, repo
       status.origin === LIEBIDE_PLATFORM_ORIGIN &&
       status.authState === "authenticated";
     if (!ready && !mayNavigateDeterministically) {
-      return failed(`BROWSER_${status.status}`, false, { preflight: 1 });
+      return failed(browserStatusErrorCode(status.status), false, { preflight: 1 });
     }
   } catch (error) {
     if (error instanceof BrowserRelayError) return failed(error.code, error.code === "BROWSER_RELAY_UNAVAILABLE");
@@ -211,6 +211,11 @@ export async function enqueueBrowserJobJdBackfillTasks({
 
 function failed(errorCode, retryable, stats = null) {
   return { status: "failed", errorCode, retryable, stats };
+}
+
+/** 连接预检状态转失败码：状态值可能已带 `BROWSER_` 前缀，统一只补一次，避免 `BROWSER_BROWSER_` 双前缀。 */
+function browserStatusErrorCode(status) {
+  return status.startsWith("BROWSER_") ? status : `BROWSER_${status}`;
 }
 
 function isPlainObject(value) {

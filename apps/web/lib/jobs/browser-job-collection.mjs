@@ -83,7 +83,7 @@ export async function runBrowserJobBatchDiscovery({ task: rawTask, relayClient, 
       batchSize: task.batchSize, maxPages: task.maxPages,
     });
     if (!preflightStatus.ready || preflightStatus.status !== "READY") {
-      return failed(`BROWSER_${preflightStatus.status}`, false, { preflight: 1 });
+      return failed(browserStatusErrorCode(preflightStatus.status), false, { preflight: 1 });
     }
 
     const collected = [];
@@ -193,7 +193,7 @@ export async function runBrowserJobCollection({ task: rawTask, now = new Date(),
       status.origin === LIEBIDE_PLATFORM_ORIGIN &&
       status.authState === "authenticated";
     if (!ready && !mayNavigateDeterministically) {
-      return failed(`BROWSER_${status.status}`, false, { preflight: 1 });
+      return failed(browserStatusErrorCode(status.status), false, { preflight: 1 });
     }
     const record = await relayClient.extractJobDetail(route);
     if (record.externalId !== task.externalId) return failed("BROWSER_ENTITY_MISMATCH", false, { preflight: 1, extracted: 1 });
@@ -247,6 +247,14 @@ export async function runBrowserJobCollection({ task: rawTask, now = new Date(),
 
 function failed(errorCode, retryable, stats = null) {
   return { status: "failed", errorCode, retryable, stats };
+}
+
+/**
+ * 连接预检状态转失败码：状态值本身可能已带 `BROWSER_` 前缀（如 BROWSER_SESSION_MISSING）
+ * 也可能不带（如 PAGE_NOT_REGISTERED），统一补一次前缀，避免 `BROWSER_BROWSER_` 双前缀。
+ */
+function browserStatusErrorCode(status) {
+  return status.startsWith("BROWSER_") ? status : `BROWSER_${status}`;
 }
 
 /** 标题变化检测：与详情合同 `expectedTitle` 校验一致的空白归一（折叠空白），避免纯空白差异触发重采。 */

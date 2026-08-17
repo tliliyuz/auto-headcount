@@ -127,6 +127,20 @@ test("浏览器未就绪 → 失败不写台账（下次手动触发再试）", 
   assert.equal(repository.calls.persistFailed.length, 0, "预检未就绪不是供应方无数据，不写台账");
 });
 
+test("BROWSER_SESSION_MISSING 状态不产生双前缀错误码（BROWSER_BROWSER_）", async () => {
+  const repository = createFakeRepository();
+  const outcome = await runBrowserJobJdBackfill({
+    task: TASK,
+    relayClient: createFakeRelay({
+      status: { status: "BROWSER_SESSION_MISSING", ready: false, sessionMatched: false, origin: null, authState: "anonymous" },
+    }),
+    repository,
+  });
+  assert.equal(outcome.status, "failed");
+  assert.equal(outcome.errorCode, "BROWSER_SESSION_MISSING", "状态值已带 BROWSER_ 前缀，不应再加一遍");
+  assert.equal(outcome.retryable, false);
+});
+
 test("relay 瞬时故障 → 可重试、不写台账", async () => {
   const repository = createFakeRepository();
   const outcome = await runBrowserJobJdBackfill({
