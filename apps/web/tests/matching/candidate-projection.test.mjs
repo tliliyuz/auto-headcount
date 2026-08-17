@@ -74,13 +74,25 @@ test("generateCandidateProjection：生成过 Schema 的脱敏投影（residual_
   assert.ok(doc.display_summary.length <= 150);
 });
 
-test("generateCandidateProjection：profile.industry = 职业标签提取的职能方向（ADR-007），未命中回落原始标签", async () => {
-  const mapped = await generateCandidateProjection(
-    baseInput({ profile: profile({ industry: "数据工程师" }) }),
+test("generateCandidateProjection：profile.industry = 职能方向（ADR-007），职业标签优先 + currentTitle 兜底", async () => {
+  // 职业标签命中 → 用职业标签（即使 currentTitle 有别的方向）
+  const viaTag = await generateCandidateProjection(
+    baseInput({ profile: profile({ industry: "产品经理", currentTitle: "数据工程师" }) }),
   );
-  assert.equal(mapped.projection.profile.industry, "数据、工程研发");
+  assert.equal(viaTag.projection.profile.industry, "产品");
+  // 职业标签未命中（PM）→ 回落 currentTitle 的职能方向
+  const viaTitle = await generateCandidateProjection(
+    baseInput({ profile: profile({ industry: "PM", currentTitle: "数据工程师" }) }),
+  );
+  assert.equal(viaTitle.projection.profile.industry, "数据、工程研发");
+  // 无职业标签 → currentTitle 兜底
+  const noTag = await generateCandidateProjection(
+    baseInput({ profile: profile({ industry: null, currentTitle: "数据工程师" }) }),
+  );
+  assert.equal(noTag.projection.profile.industry, "数据、工程研发");
+  // 都未命中 → 回落职业标签原文
   const fallback = await generateCandidateProjection(
-    baseInput({ profile: profile({ industry: "PM" }) }),
+    baseInput({ profile: profile({ industry: "PM", currentTitle: "综合岗位" }) }),
   );
   assert.equal(fallback.projection.profile.industry, "PM");
 });

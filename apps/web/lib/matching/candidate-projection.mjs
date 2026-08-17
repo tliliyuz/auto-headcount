@@ -143,14 +143,21 @@ export function scanResidualPii({ profile, redactedDetail }) {
 }
 
 /**
- * 候选职能方向（industry 维度语义，ADR-007）：职业标签 title-text → 职能方向词表命中集，
- * 未命中回落原始职业标签（保证 LLM 有输入）。buildProfile 与 normalizeCandidateInput 共用，
- * 保证存储投影与 input_hash 一致。
+ * 候选职能方向（industry 维度语义，ADR-007）：职业标签 title-text **优先**，未命中才回落
+ * 当前职位 currentTitle（无职业标签候选用 current_title 兜底，2026-08-17 实测 136 个无职业标签
+ * 候选全部有 current_title）。都未命中回落职业标签原文（保证 LLM 有输入）。
+ * buildProfile 与 normalizeCandidateInput 共用，保证存储投影与 input_hash 一致。
  */
-function candidateFunctionalTrack(careerTag) {
-  if (!careerTag) return null;
-  const tracks = extractFunctionalTracks(careerTag);
-  return tracks.length > 0 ? tracks.join("、") : careerTag;
+function candidateFunctionalTrack(careerTag, currentTitle) {
+  if (careerTag) {
+    const tagTracks = extractFunctionalTracks(careerTag);
+    if (tagTracks.length > 0) return tagTracks.join("、");
+  }
+  if (currentTitle) {
+    const titleTracks = extractFunctionalTracks(currentTitle);
+    if (titleTracks.length > 0) return titleTracks.join("、");
+  }
+  return careerTag ?? currentTitle ?? null;
 }
 
 function buildProfile(profile) {
@@ -167,7 +174,7 @@ function buildProfile(profile) {
     education: mapEducation(profile.education),
     certificates: profile.certificates ?? [],
     seniority: profile.seniority ?? null,
-    industry: candidateFunctionalTrack(profile.industry),
+    industry: candidateFunctionalTrack(profile.industry, profile.currentTitle),
     expected_salary: expectedSalary,
     activity_updated_at: normalizeDate(profile.activityUpdatedAt ?? profile.activity_updated_at),
   };
@@ -192,7 +199,7 @@ function normalizeCandidateInput({ candidate, profile, redactedDetail, generator
       location: profile?.location ?? null,
       education: profile?.education ?? null,
       seniority: profile?.seniority ?? null,
-      industry: candidateFunctionalTrack(profile?.industry),
+      industry: candidateFunctionalTrack(profile?.industry, profile?.currentTitle),
       expectedSalaryMin: profile?.expectedSalaryMin ?? profile?.expected_salary_min ?? null,
       expectedSalaryMax: profile?.expectedSalaryMax ?? profile?.expected_salary_max ?? null,
       activityUpdatedAt: normalizeDate(profile?.activityUpdatedAt ?? profile?.activity_updated_at),

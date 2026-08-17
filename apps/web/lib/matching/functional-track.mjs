@@ -45,7 +45,8 @@ const FUNCTIONAL_TRACK_KEYWORDS = {
   ],
 };
 
-const MAX_FUNCTIONAL_TRACKS = 6;
+/** Top-N：只取命中强度最高的前 N 个职能方向，避免宽职位命中 6 个方向、跟谁都 90。 */
+const MAX_FUNCTIONAL_TRACKS = 2;
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** ASCII 关键词预编译：仅以非 ASCII 词符为邻才命中（避免 BI 误伤 BIA 等），复用 skills 推断模式。 */
@@ -62,20 +63,22 @@ function asciiPattern(keyword) {
 
 const isAsciiWord = (keyword) => /^[A-Za-z0-9_+./-]+$/.test(keyword);
 
-/** 从文本提取命中的职能方向标签集合（按词表定义顺序）。 */
+/** 从文本提取命中强度最高的前 N 个职能方向标签（按词表内关键词命中数计分，并列保词表顺序）。 */
 export function extractFunctionalTracks(input) {
   const text = (Array.isArray(input) ? input.filter(Boolean) : [input])
     .filter(Boolean)
     .join("\n");
   if (!text.trim()) return [];
-  const matched = [];
+  const scored = [];
   for (const [track, keywords] of Object.entries(FUNCTIONAL_TRACK_KEYWORDS)) {
-    const hit = keywords.some((keyword) =>
+    const hits = keywords.filter((keyword) =>
       isAsciiWord(keyword) ? asciiPattern(keyword).test(text) : text.includes(keyword),
-    );
-    if (hit) matched.push(track);
+    ).length;
+    if (hits > 0) scored.push({ track, hits });
   }
-  return matched.slice(0, MAX_FUNCTIONAL_TRACKS);
+  // 稳定排序：命中数降序，并列保持词表顺序（数据/算法AI 优先于 工程研发/运营 等宽方向）
+  scored.sort((a, b) => b.hits - a.hits);
+  return scored.slice(0, MAX_FUNCTIONAL_TRACKS).map((item) => item.track);
 }
 
 /** 职能方向匹配分（industry 维度语义）：有交集 90 / 都有值无交集 65 / 任一侧空不可评估。 */

@@ -6,13 +6,23 @@ import {
   scoreFunctionalTracks,
 } from "../../lib/matching/functional-track.mjs";
 
-test("职能方向提取：标题/JD 命中多方向，ASCII 词界 + CJK 子串", () => {
+test("职能方向提取：标题/JD 命中多方向，ASCII 词界 + CJK 子串，Top-2 按命中强度收窄", () => {
+  // 算法AI 命中 2（知识图谱/Text2SQL）> 数据 1 > 工程研发 1 → 只取前 2
   assert.deepEqual(
     extractFunctionalTracks("知识图谱/Text2SQL数据智能工程师"),
-    ["数据", "算法AI", "工程研发"],
+    ["算法AI", "数据"],
   );
+  // 工程研发 命中 2（工程师/开发）> 数据 1（数据开发）
+  assert.deepEqual(extractFunctionalTracks("数据开发工程师"), ["工程研发", "数据"]);
+  // 并列命中保持词表顺序（数据工程师 各命中 1 → 数据 在 工程研发 前）
+  assert.deepEqual(extractFunctionalTracks("数据工程师"), ["数据", "工程研发"]);
   assert.deepEqual(extractFunctionalTracks("产品经理（财务方向）"), ["产品"]);
   assert.deepEqual(extractFunctionalTracks("ETL 开发"), ["数据", "工程研发"]);
+  // 宽职位命中多个方向 → 只取命中强度 Top-2（数据 3 命中 > 算法 1，工程/运营 未命中）
+  assert.deepEqual(
+    extractFunctionalTracks("供应链算法资深经理/专家，负责数据仓库与数据智能平台建设"),
+    ["数据", "算法AI"],
+  );
   // ASCII 词界：BI 命中、BIA 不命中；NLP 命中
   assert.deepEqual(extractFunctionalTracks("BI 分析"), ["数据"]);
   assert.deepEqual(extractFunctionalTracks("BIA 平台"), []);
